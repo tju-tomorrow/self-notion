@@ -4,6 +4,9 @@
 
 [English](README.md) | **中文**
 
+[**下载 macOS 版（Apple Silicon）→**](https://github.com/tju-tomorrow/self-notion/releases/latest)
+　·　包没有签名，Gatekeeper 会拦一下，怎么过见 release 说明。
+
 **给一个人用的、极小极快的本地 Notion 底座。** 桌面端（macOS），纯本地，默认不联网，不登录。
 
 不是 Notion 的替代品，也不是要发布的产品 —— 是**我自己的写作 + 扩展平台**：文档和编辑器拿来即用，
@@ -335,3 +338,15 @@ self-notion/
 3. **出错只有一个出口** —— `errors.log`，不要往 `console.log` 里丢错误
 4. **只写自己插件目录里的文件**；只通过 `ctx` 拿能力；**每加一个 `register()` 必须写出它的 `unregister()`**
 5. **验收自带两条**：装载能用 + **卸载后应用不崩**
+
+---
+
+## 九、许可
+
+本项目 [MIT](LICENSE)。
+
+直接依赖的许可证：**MIT** —— BlockSuite、Cordis、React、React DOM、Yjs、zod、fflate ·
+**MPL-2.0** —— `@toeverything/theme` · **BSD-3-Clause** —— `lit` · **Apache-2.0 OR MIT** —— `@tauri-apps/api`。
+
+唯一要留意的是 `@toeverything/theme`：我们是原样 import 它的 CSS，没有改它的文件，
+所以 MPL-2.0 那种「文件级」copyleft 够不到本仓库。改了它的文件，义务就变了。

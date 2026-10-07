@@ -4,6 +4,9 @@
 
 **English** | [中文](README.zh-CN.md)
 
+[**Download for macOS (Apple Silicon) →**](https://github.com/tju-tomorrow/self-notion/releases/latest)
+　·　The build is unsigned, so Gatekeeper needs a nudge — the release notes say how.
+
 **A tiny, extremely fast local Notion base — built for one person.** Desktop (macOS), fully local,
 offline by default, no login.
 
@@ -370,3 +373,15 @@ self-notion/
 4. **Only write files inside your own plugin directory**; get capabilities only through `ctx`;
    **every `register()` needs its `unregister()`**
 5. **Every plugin comes with two checks**: it loads, and **the app doesn't crash after unloading it**
+
+---
+
+## 9. License
+
+This project is [MIT](LICENSE).
+
+Licenses of the direct dependencies: **MIT** — BlockSuite, Cordis, React, React DOM, Yjs, zod, fflate ·
+**MPL-2.0** — `@toeverything/theme` · **BSD-3-Clause** — `lit` · **Apache-2.0 OR MIT** — `@tauri-apps/api`.
+
+`@toeverything/theme` is the editable one: we import its CSS as-is, so MPL-2.0's file-level copyleft
+doesn't reach this repository. Modify those files and the obligation changes.
