@@ -19,7 +19,16 @@ import type { Context } from 'cordis'
 import { DOCS_CHANGED, DOC_SAVED, OPEN_DOC, type CommentState, type CommentTarget, type DocMeta } from '../../src/kernel/contract'
 import { reportError } from '../../src/kernel/errors'
 import { registerEditorView, reloadDoc, openDocIds } from './view'
-import { applyCaretShape, CARET_KEY, caretShapeOf, clearCaretShape } from './caret'
+import {
+  applyCaretColor,
+  applyCaretShape,
+  CARET_COLOR_KEY,
+  CARET_KEY,
+  caretColorOf,
+  caretShapeOf,
+  clearCaretColor,
+  clearCaretShape,
+} from './caret'
 import { CaretSection } from './settings'
 import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -280,15 +289,22 @@ export function apply(ctx: Context) {
     },
   ])
 
-  // 光标形状（D-0076）。**只在这儿写** `<html data-caret>` —— 藏原生光标的那条和自绘那条
-  // 都在 `editor.css.ts` 里认这个属性，不做第二份注入。
+  // 光标形状 + 颜色（D-0076 / D-0103）。**只在这儿写** `<html data-caret>` 和
+  // `--sn-caret-color`，不做第二份注入。
   ctx.effect(() => {
-    const apply = () => applyCaretShape(caretShapeOf(ctx.settings.get(CARET_KEY)))
+    const apply = () => {
+      applyCaretShape(caretShapeOf(ctx.settings.get(CARET_KEY)))
+      applyCaretColor(caretColorOf(ctx.settings.get(CARET_COLOR_KEY)))
+    }
     apply()
-    const off = ctx.settings.onChange(CARET_KEY, apply)
+    const offs = [
+      ctx.settings.onChange(CARET_KEY, apply),
+      ctx.settings.onChange(CARET_COLOR_KEY, apply),
+    ]
     return () => {
-      off()
+      for (const off of offs) off()
       clearCaretShape()
+      clearCaretColor()
     }
   })
 
@@ -296,6 +312,7 @@ export function apply(ctx: Context) {
   ctx.effect(() => {
     const section = () => createElement(CaretSection, { ctx })
     ;(section as { label?: string }).label = ctx.i18n.t('caret.title')
+    ;(section as { group?: string }).group = 'look'
     return ctx.slot.register('settings.section', section)
   })
 

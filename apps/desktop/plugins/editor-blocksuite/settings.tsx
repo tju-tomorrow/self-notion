@@ -1,13 +1,24 @@
 /**
- * 「光标」设置页（D-0076）—— 正文里那个闪的插入点，选细线还是方块。
+ * 「光标」设置页（D-0076 / D-0103）—— 正文里那个闪的插入点：形状（细线 / 方块）+ 颜色。
  *
- * 这一段只写 `ctx.settings`。**形状怎么落到界面上不在这儿**：订阅在 `index.ts`（写
- * `<html data-caret>`），画光标在 `caret.ts`。不做第二份注入。
+ * 这一段只写 `ctx.settings`。**怎么落到界面上不在这儿**：订阅在 `index.ts`，画光标在
+ * `caret.ts`。不做第二份注入。
  */
 import { createElement, useEffect, useState, type CSSProperties } from 'react'
 import type { Context } from 'cordis'
 import { Group, Row } from '../../src/ui/settings'
-import { CARET_KEY, CARET_SHAPES, caretShapeOf, type CaretShape } from './caret'
+import * as c from './caret.css'
+import {
+  CARET_COLOR_KEY,
+  CARET_COLOR_PRESETS,
+  CARET_COLOR_THEME,
+  CARET_COLOR_WELL_DEFAULT,
+  CARET_KEY,
+  CARET_SHAPES,
+  caretColorOf,
+  caretShapeOf,
+  type CaretShape,
+} from './caret'
 
 const mark: CSSProperties = {
   display: 'inline-block',
@@ -64,12 +75,61 @@ function Seg({
   )
 }
 
-export function CaretSection({ ctx }: { ctx: Context }) {
-  const read = () => caretShapeOf(ctx.settings.get(CARET_KEY))
-  const [shape, setShape] = useState(read)
+/** 一排圆形色票 + 原生取色井，和正文纸面那排同一个样子。 */
+function ColorRow({ ctx, value, onPick }: { ctx: Context; value: string; onPick: (next: string) => void }) {
+  const t = (key: string) => ctx.i18n.t(key)
 
-  // 别处改了这个键也要跟上（`ctx.settings` 的预热是异步的，订上就补回来了）。
-  useEffect(() => ctx.settings.onChange(CARET_KEY, () => setShape(read())), [ctx])
+  const chip = (hex: string, key: string) =>
+    createElement('button', {
+      key,
+      type: 'button',
+      role: 'radio',
+      'aria-checked': value === hex,
+      className: value === hex ? `${c.swatch} ${c.swatchOn}` : c.swatch,
+      style: { background: hex },
+      title: hex,
+      'aria-label': hex,
+      onClick: () => onPick(hex),
+    })
+
+  return createElement(
+    'div',
+    { className: c.swatches, role: 'radiogroup', 'aria-label': t('caret.color') },
+    createElement('button', {
+      key: CARET_COLOR_THEME,
+      type: 'button',
+      role: 'radio',
+      'aria-checked': value === CARET_COLOR_THEME,
+      className:
+        value === CARET_COLOR_THEME
+          ? `${c.swatch} ${c.swatchTheme} ${c.swatchOn}`
+          : `${c.swatch} ${c.swatchTheme}`,
+      title: t('caret.color.theme'),
+      'aria-label': t('caret.color.theme'),
+      onClick: () => onPick(CARET_COLOR_THEME),
+    }),
+    ...CARET_COLOR_PRESETS.map((hex) => chip(hex, hex)),
+    createElement('input', {
+      key: 'custom',
+      type: 'color',
+      className: c.colorWell,
+      value: value.startsWith('#') ? value : CARET_COLOR_WELL_DEFAULT,
+      title: t('caret.color.custom'),
+      'aria-label': t('caret.color.custom'),
+      onChange: (e: { target: HTMLInputElement }) => onPick(e.target.value),
+    }),
+  )
+}
+
+export function CaretSection({ ctx }: { ctx: Context }) {
+  const readShape = () => caretShapeOf(ctx.settings.get(CARET_KEY))
+  const readColor = () => caretColorOf(ctx.settings.get(CARET_COLOR_KEY))
+  const [shape, setShape] = useState(readShape)
+  const [color, setColor] = useState(readColor)
+
+  // 别处改了这两个键也要跟上（`ctx.settings` 的预热是异步的，订上就补回来了）。
+  useEffect(() => ctx.settings.onChange(CARET_KEY, () => setShape(readShape())), [ctx])
+  useEffect(() => ctx.settings.onChange(CARET_COLOR_KEY, () => setColor(readColor())), [ctx])
 
   return createElement(
     Group,
@@ -83,6 +143,18 @@ export function CaretSection({ ctx }: { ctx: Context }) {
         onPick: (next) => {
           ctx.settings.set(CARET_KEY, next)
           setShape(next)
+        },
+      }),
+    ),
+    createElement(
+      Row,
+      { label: ctx.i18n.t('caret.color'), desc: ctx.i18n.t('caret.color.desc') },
+      createElement(ColorRow, {
+        ctx,
+        value: color,
+        onPick: (next) => {
+          ctx.settings.set(CARET_COLOR_KEY, next)
+          setColor(next)
         },
       }),
     ),

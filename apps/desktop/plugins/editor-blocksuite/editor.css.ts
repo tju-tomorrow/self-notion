@@ -41,16 +41,19 @@ globalStyle('.affine-page-viewport .affine-paragraph-placeholder', {
 
 /* ────────────────────────── 自绘插入点（D-0076） ────────────────────────── */
 
-// 选了形状就把**原生**光标藏掉 —— 两个都画就是两条光标。`caret-color` 是继承属性，
-// 落在 viewport 上整棵编辑区（含标题、代码块、表格格子）都吃得到。
-// ★ 默认档什么都不做：原样用系统的。
-globalStyle(
-  'html[data-caret="bar"] .affine-page-viewport, html[data-caret="block"] .affine-page-viewport',
-  { caretColor: 'transparent' },
-)
+// 自绘的那个**画上了**才让原生让位（`caret.ts` 写 `html[data-caret-on]`）—— 两个都画是两条
+// 光标，但自绘那条万一没落上（选择器 / 尺寸 / 层叠），用户还得有系统那个。
+// `caret-color` 是继承属性，落在 viewport 上整棵编辑区（含标题、代码块、表格格子）都吃得到。
+globalStyle('html[data-caret-on] .affine-page-viewport', { caretColor: 'transparent' })
+
+// 形状选「系统默认」时没有自绘的，改的是原生光标自己的颜色 —— 和上一条互斥。没设颜色时
+// 落到 `auto`（等于初始值），一点变化都没有。
+globalStyle('html:not([data-caret-on]) .affine-page-viewport', {
+  caretColor: 'var(--sn-caret-color, auto)',
+})
 
 // 画在 body 上的 fixed 层（`caret.ts` 挂的），位置/高度由 JS 每帧写内联样式。
-// 这里只管形状、颜色、闪。默认档下 `html[data-caret]` 不匹配 → 永远 display:none。
+// 这里只管形状、颜色、闪。没选形状时 `data-shape` 是 default → 没有宽度 → 永远 display:none。
 globalStyle('.sn-caret', {
   position: 'fixed',
   zIndex: 30,
@@ -59,7 +62,8 @@ globalStyle('.sn-caret', {
   left: 0,
   pointerEvents: 'none',
   borderRadius: 1,
-  background: 'var(--affine-primary-color)',
+  // 兜底色：`--affine-primary-color` 取不到时整条声明会作废 → 光标变成透明的，看不见。
+  background: 'var(--sn-caret-color, var(--affine-primary-color, #1e96eb))',
   animation: 'sn-caret-blink 1.06s linear infinite',
 })
 
@@ -68,9 +72,11 @@ globalStyle('.sn-caret[data-on="1"]', { display: 'block' })
 // 打字的那几下不闪（原生光标也是这个行为）—— 停手 500ms 后 `caret.ts` 把这个属性摘掉。
 globalStyle('.sn-caret[data-typing="1"]', { animation: 'none', opacity: '1' })
 
-globalStyle('html[data-caret="bar"] .sn-caret', { width: '1px' })
+// 形状挂在元素自己身上（`caret.ts` 每帧对一次），不再靠 `html[data-caret]` 那层中间商。
+globalStyle('.sn-caret[data-shape="bar"]', { width: '1px' })
 // 方块：**半角字符宽**（0.5em），不跟着下一个字变 —— 中文英文下都是同一个大小。
-globalStyle('html[data-caret="block"] .sn-caret', { width: '0.5em' })
+// `minWidth` 是保险：0.5em 万一算成 0（字号没继承到），至少还看得见一个方块。
+globalStyle('.sn-caret[data-shape="block"]', { width: '0.5em', minWidth: 4 })
 
 globalKeyframes('sn-caret-blink', {
   '0%, 50%': { opacity: '1' },
