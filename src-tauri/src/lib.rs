@@ -7,6 +7,7 @@ use tauri::Manager;
 mod ai;
 mod aiweb;
 mod backup;
+mod bugs;
 mod commands;
 #[cfg(target_os = "macos")]
 mod dock;

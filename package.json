@@ -8,7 +8,8 @@
     "build": "pnpm --filter @self-notion/desktop build",
     "tauri": "tauri",
     "verify": "pnpm --filter @self-notion/desktop verify && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
-    "logs": "tail -n 200 -f \"$HOME/Library/Application Support/app.selfnotion.desktop/errors.log\""
+    "logs": "tail -n 200 -f \"$HOME/Library/Application Support/app.selfnotion.desktop/errors.log\"",
+    "bugs": "sh -c 'D=\"$HOME/Library/Application Support/app.selfnotion.desktop/bugs\"; ls -t \"$D\" 2>/dev/null | head -10; L=$(ls -t \"$D\"/*.json 2>/dev/null | head -1); echo \"--- $L\"; cat \"$L\" 2>/dev/null'"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"

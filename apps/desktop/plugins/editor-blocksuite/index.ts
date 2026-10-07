@@ -58,6 +58,9 @@ export function apply(ctx: Context) {
    * 重复接会互相覆盖，所以整个 apply 只接一次。★ 它**是懒的**：第一次调用才真的 import。
    */
   let loading: Promise<EditorModule> | undefined
+  /** 判据的拆卸函数（D-0126）。跟着懒装载一起装上，拔插件/卸载编辑器时一起摘。 */
+  let offDiagnostics: (() => void) | undefined
+
   const load = () =>
     (loading ??= import('./editor').then((editor) => {
       // 字节路径接上 `ctx.docs`。必须在这儿、在任何人调用 `mountEditor` 之前。
@@ -113,6 +116,12 @@ export function apply(ctx: Context) {
       })
       // 装载前推过来的解决状态补上 —— 评论插件是先 await ready() 再推的，这条是兜底。
       editor.pushCommentStates(commentStates)
+
+      // 判据（D-0126）：DOM 与模型那一组不变量。**装在懒装载这一侧** ——
+      // `./diagnose` 要读 `./editor` 的活状态，别为了它把编辑器本体拖回冷启动。
+      void import('./diagnose').then(({ installDiagnostics }) => {
+        offDiagnostics = installDiagnostics(ctx)
+      })
       return editor
     }))
 
@@ -286,6 +295,8 @@ export function apply(ctx: Context) {
       if (loading) void loading.then((editor) => editor.flushAll())
       for (const handle of live) handle.unmount()
       live.clear()
+      offDiagnostics?.()
+      offDiagnostics = undefined
     },
   ])
 

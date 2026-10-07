@@ -7,3 +7,4 @@ onlyBuiltDependencies:
 patchedDependencies:
   '@blocksuite/affine-shared@0.22.4': patches/@blocksuite__affine-shared@0.22.4.patch
   '@blocksuite/affine-widget-slash-menu@0.22.4': patches/@blocksuite__affine-widget-slash-menu@0.22.4.patch
+  '@blocksuite/store@0.22.4': patches/@blocksuite__store@0.22.4.patch

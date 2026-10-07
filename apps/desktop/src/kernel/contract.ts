@@ -259,10 +259,10 @@ export const CLOSE_ALL = 'ui:closeAll'
  *  ★ 事件不是服务：外侧栏不关心主区有没有装。`all` 就是「All docs」首页。 */
 export const SHOW_LIST = 'ui:showList'
 
-/** `vfs` = 虚拟目录那一页（D-0094）。它**不是文档列表**，是投影出来的目录树，
- *  由 `plugin-vfs` 自己画；这里只是为了让它蹭同一条「主区该显示哪一页」的路。
+/** `vfs` = 虚拟目录那一页（D-0094）· `bugs` = bug 现场那一页（D-0126）。这两个**不是文档列表**，
+ *  由各自的插件自己画；这里只是为了让它俩蹭同一条「主区该显示哪一页」的路。
  *  `pinned` = 置顶那一页（D-0123），是普通的文档列表（跟 `favorite` 同一类）。 */
-export type ListGroup = 'all' | 'recent' | 'favorite' | 'pinned' | 'trash' | 'vfs'
+export type ListGroup = 'all' | 'recent' | 'favorite' | 'pinned' | 'trash' | 'vfs' | 'bugs'
 
 export interface ShowListEvent {
   group: ListGroup
@@ -544,6 +544,25 @@ export interface AiService {
   chat(messages: AiMessage[], tools?: ToolSpec[]): AsyncIterable<AiChunk>
 }
 
+/**
+ * bug 现场包（D-0126）。**为什么走服务不走事件**：抓现场是「现在就问一遍在场的人」——
+ * 事件是广播、收的人自己决定要不要理；这里是「谁有现场谁来供」，得有个注册点。
+ *
+ * ★ 判据（不变量）由**有现场的那一侧**判，这里只负责收：编辑器那边看 DOM 和模型，
+ *   粘贴那边看块数 —— 它们把结论（`broken`）和现场（`provider`）喂进来。
+ *   于是本插件不 import 任何人的内部文件，编辑器也不用知道现场包长什么样。
+ */
+export interface BugsService {
+  /** 记一条进事件带（按键 / 粘贴 / 开关文档 / 撤销 / 落库）。环形，只留最近 N 条。 */
+  event(what: string, detail?: string): void
+  /** 不变量被破坏 —— 记一条事件**并且自动抓一份现场**。同一判据 5 秒内只抓一次。 */
+  broken(kind: string, title: string, detail: string, facts?: Record<string, unknown>): void
+  /** 手动抓一份现场（⌘⇧B / 命令面板）。`note` 是用户写的一句话。 */
+  capture(note?: string): void
+  /** 谁有现场谁来供：抓现场时按注册顺序问一遍，返回的东西并进 `facts`。 */
+  provider(fn: () => Record<string, unknown> | Promise<Record<string, unknown>>): () => void
+}
+
 /* ─────────────────────────── 挂到 Cordis 的 Context 上 ─────────────────────────── */
 
 // 这行看着多余，但 TS 的模块增强要求本文件先解析到 'cordis'，否则 TS2664。
@@ -576,6 +595,7 @@ declare module 'cordis' {
 
     // 软依赖：ctx.get('vfs')。
     vfs?: VfsService
+    bugs?: BugsService
     mem?: MemService
     comment?: CommentService
     version?: VersionService

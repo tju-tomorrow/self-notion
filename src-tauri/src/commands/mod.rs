@@ -127,6 +127,11 @@ pub fn dispatch(
             Ok(Value::Null)
         }
 
+        // bug 现场包（D-0126）：前端打包 → `<app data>/bugs/`。不碰库，不走 `call`。
+        "bug:write" => crate::bugs::write(args).map_err(|e| ApiError::new("bugs", e)),
+        "bug:list" => crate::bugs::list().map_err(|e| ApiError::new("bugs", e)),
+        "bug:read" => crate::bugs::read(args).map_err(|e| ApiError::new("bugs", e)),
+
         // ── 内置 AI（D-0042）：BYO endpoint，现在只做一篇笔记的总结 ────────────
         "ai:configure" => crate::ai::configure(db, args),
         "ai:status" => crate::ai::status(db, args),

@@ -126,6 +126,8 @@ import {
 } from './inline-comment'
 import { shouldTransact, withoutHistory } from './history'
 import { NotionShortcutsProvider } from './notion-shortcuts'
+import { SnPasteProvider } from './paste'
+import { watchControlChars } from './sanitize'
 import { SlashMenuZhProvider } from './slash-menu-cn'
 import { SlashMenuTrimProvider } from './slash-menu-trim'
 import { mountCaret } from './caret'
@@ -408,6 +410,10 @@ class SelectionToolbarProvider extends ViewExtensionProvider {
 const viewProviders: ViewProvider[] = [
   FoundationViewExtension,
   RootViewExtension,
+  // ★ 必须排在 `RootViewExtension` **后面** —— `RootViewExtension` 里注册了上游那条
+  //   `PageClipboard`（它的 onPagePaste 就是「挨个 adapter 试」），而 paste handler 是
+  //   后注册的先跑。我们这条 watcher 挂得晚，才有得抢（见 `paste.ts` 顶部）。
+  SnPasteProvider,
   NoteViewExtension,
   // ★ 必须在 `ParagraphViewExtension` **前面**：抢的就是上游那个 `>`，
   //   而 markdown matcher 是先注册先赢（见 `notion-shortcuts.ts` 顶部）。
@@ -642,6 +648,10 @@ let openDocId: string | null = null
 
 /** 现在挂着的那个编辑器作用域。评论那几个**同步**口子（读选区 / 打标记）要它。 */
 let activeStd: BlockStdScope | undefined
+
+/** 判据那边（`diagnose.ts`）要读的活状态 —— 只读，别拿它去改东西。 */
+export const liveStd = (): BlockStdScope | undefined => activeStd
+export const liveDocId = (): string | null => openDocId
 
 /** 打开过的 Store，用来在落库时读正文做投影（`doc_text` 的 payload）。键是 docId。 */
 const stores = new Map<string, Store>()
@@ -1316,52 +1326,6 @@ export async function mountEditor(
   const std = new BlockStdScope({ store, extensions: pageExtensions() })
   const host = std.render()
 
-  /**
-   * 一次粘贴只留一个图片块。
-   *
-   * macOS 的剪贴板里，一张图**同时**是「文件」和一段 HTML 片段（`<img …>`），
-   * BlockSuite 两条适配器各建一个块 —— `Cmd+V` 一次出来**两个**，而且两个都指向同一张图
-   * （内容寻址 → 同一个 `sourceId`）。
-   *
-   * 判据：**同一次粘贴**里出现的图片块，最终 `sourceId` 一样就删掉后一个。
-   * 分两次粘同一张图不会误伤 —— 那是两批（相隔远不止 200ms）。
-   *
-   * ★ 不去动上游的 adapter：那三个（html / markdown / notion-html）是打包注册的，
-   *   抽掉 html 那个会连 markdown 与 notion-html 一起抽掉（导入要用）。
-   */
-  const pasted = new Map<string, string>()
-  let pastedAt = 0
-  const blockSub = store.slots.blockUpdated.subscribe(p => {
-    if (p.flavour !== 'affine:image') return
-    const now = Date.now()
-
-    if (p.type === 'add') {
-      // 超过 200ms 就是新的一批（两次粘贴不可能在 200ms 内都完成）。
-      if (now - pastedAt > 200) pasted.clear()
-      pastedAt = now
-      pasted.set(p.id, '')
-      reportNote('image', `add ${p.id}`)
-      return
-    }
-
-    if (p.type === 'delete') {
-      pasted.delete(p.id)
-      return
-    }
-
-    const src = (store.getBlock(p.id)?.model?.props as { sourceId?: string } | undefined)?.sourceId
-    if (!src) return
-    pasted.set(p.id, src)
-
-    for (const [other, otherSrc] of pasted) {
-      if (other === p.id || otherSrc !== src || !store.hasBlock(other)) continue
-      reportNote('image', `粘贴重复：两个块都指向 ${src.slice(0, 12)}…，删掉后一个 ${p.id}`)
-      store.deleteBlock(p.id)
-      pasted.delete(p.id)
-      break
-    }
-  })
-
   // ★ 必须有个 `.affine-page-viewport` 祖先。RootViewExtension 注册的是
   //   `ViewportElementExtension('.affine-page-viewport')`，而 page-root 一渲染就读
   //   `std.host.closest('.affine-page-viewport')` —— 找不到就抛
@@ -1436,6 +1400,8 @@ export async function mountEditor(
   std.mount()
   // 自绘插入点（D-0076）。挂在 body 上的 fixed 层，不碰编辑器这棵树 —— 直接读选区量位置。
   const unmountCaret = mountCaret(el)
+  // 正文里混进来的控制符（缺字方框，D-0127）当场删掉 —— 只读挂载不动别人的历史字节。
+  const unmountSanitize = readonly ? () => {} : watchControlChars(store)
   // 每个块的 ⠿ 拖动手柄（D-0117）。只读挂载（历史预览）不给拖。
   const unmountDrag = readonly ? () => {} : mountBlockDrag(el, store)
   // 「行尾那片空白也能起手拖选」（D-0090）—— 只在可编辑区外接管，别的地方一律放行。
@@ -1507,6 +1473,7 @@ export async function mountEditor(
     store,
     unmount() {
       unmountCaret()
+      unmountSanitize()
       unmountDrag()
       unmountSelect()
       unmountToolbarFlush()
@@ -1514,7 +1481,6 @@ export async function mountEditor(
       el.removeEventListener('keydown', onUndoKey, true)
       titleY?.unobserve(onTitle)
       linkSub?.unsubscribe()
-      blockSub.unsubscribe()
       if (openDocId === docId) openDocId = null
       if (activeStd === std) activeStd = undefined
       scrollPositions.set(docId, scroller.scrollTop)

@@ -101,5 +101,8 @@ export function filterGroup(docs: readonly DocMeta[], group: ListGroup): DocMeta
     // 虚拟目录不是文档列表，主区那一页归 plugin-vfs 画 —— 这一页本来就该让开（D-0094）。
     case 'vfs':
       return []
+    // bug 现场那一页同理，归 plugin-bugs 画（D-0126）。
+    case 'bugs':
+      return []
   }
 }

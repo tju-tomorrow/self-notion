@@ -15,8 +15,14 @@ import type { ServiceIdentifier } from '@blocksuite/affine/global/di'
 import { StdIdentifier, type BlockStdScope } from '@blocksuite/affine/std'
 import { SlashMenuExtension } from '@blocksuite/affine/widgets/slash-menu'
 
-/** 按 `name`（配置里那个英文名）丢。要再少几条，往这里加。 */
-const DROPPED = new Set(['Duplicate'])
+/**
+ * 按 `name`（配置里那个英文名）丢。要再少几条，往这里加。
+ *
+ * latex 那两条（D-0127）：用户不用它，而它的行内节点**每次渲染都会往正文里补占位控制符**
+ * （`U+001C` + `U+001D`×n）—— 每按一次方向键补一个，全写进模型、渲染成一排方框。
+ * `Inline equation` 就在 Basic 组（`0_Basic@8`），打 `/` 顺手回车就会撞上，所以连入口一起摘。
+ */
+const DROPPED = new Set(['Duplicate', 'Inline equation', 'Equation'])
 
 class TrimmedSlashMenu extends SlashMenuExtension {
   constructor(std: BlockStdScope) {

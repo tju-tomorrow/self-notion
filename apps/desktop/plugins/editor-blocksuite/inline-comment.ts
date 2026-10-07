@@ -254,7 +254,15 @@ export class CommentViewExtension extends ViewExtensionProvider {
       //   用 DI 里**实际注册过**的 spec 重建。照抄上游那张表也行，但会漂。
       setup: (di) => {
         di.override(DefaultInlineManagerExtension.identifier, (provider) => {
-          const specs = [...provider.getAll(InlineSpecIdentifier).values()] as InlineSpecs<AffineTextAttributes>[]
+          // ★ latex 那两条 spec **不参与渲染**（D-0127）：它的行内节点每次渲染都会往正文里
+          //   补占位控制符（`U+001C` + `U+001D`×n，见下面那段注释），按一次方向键补一个 ——
+          //   全写进模型，渲染成一排方框。用户不用 latex，所以直接把它从这张表里划掉。
+          //   ★ spec 本身还**注册着**：上游那张硬点名清单（`DefaultInlineManagerExtension`）
+          //     要它，摘了注册会在建 manager 时抛 Missing dependency。注册归注册，不画。
+          const OFF = new Set(['latex', 'latex-editor-unit'])
+          const specs = ([...provider.getAll(InlineSpecIdentifier).values()] as InlineSpecs<AffineTextAttributes>[]).filter(
+            (s) => !OFF.has(s.name),
+          )
           // 不报的话症状是「标记写进去了、界面上没颜色」—— 那种错最难查，所以这里吵一声。
           if (!specs.some((s) => s.name === ATTR)) {
             reportError('comment', new Error('行内评论的 spec 没进 DefaultInlineManager'))
