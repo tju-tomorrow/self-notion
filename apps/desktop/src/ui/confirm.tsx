@@ -12,6 +12,7 @@
  */
 import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { SCRIM } from './scrim.css'
 import * as s from './confirm.css'
 
 export interface ConfirmOptions {
@@ -104,7 +105,7 @@ function ConfirmHost() {
 
   return (
     <div
-      className={s.scrim}
+      className={`${s.scrim} ${SCRIM}`}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) answer(false)
       }}

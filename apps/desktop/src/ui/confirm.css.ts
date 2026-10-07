@@ -4,19 +4,19 @@
  */
 import { globalStyle, style } from '@vanilla-extract/css'
 import * as motion from './motion.css'
+import { scrim as scrimBase } from './scrim.css'
 
 globalStyle('.sn-confirm-scrim', { zIndex: 1000 })
 
 export const scrim = style([
   motion.fadeIn,
+  scrimBase,
   {
-    position: 'fixed',
-    inset: 0,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'var(--affine-v2-layer-background-modal, rgba(0,0,0,.35))',
-    backdropFilter: 'blur(2px)',
+    // 主题那一档比共用形状淡一点，确认框背后通常还有一层面板
+    background: 'var(--affine-v2-layer-background-modal, rgba(0,0,0,.42))',
   },
 ])
 

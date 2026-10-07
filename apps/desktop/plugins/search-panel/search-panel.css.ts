@@ -8,21 +8,19 @@
  */
 import { style } from '@vanilla-extract/css'
 import * as motion from '../../src/ui/motion.css'
+import { scrim } from '../../src/ui/scrim.css'
 
 /** 遮罩。AFFiNE 用 `backgroundModalColor`（0.7 黑）—— 太实会把底下的编辑器糊死，
- *  所以压到 0.45 再开一点毛玻璃（任务里允许的那条退路）。 */
+ *  所以淡一档 + 磨砂（共用形状与代价说明在 `src/ui/scrim.css.ts`）。 */
 export const overlay = style([
   motion.fadeIn,
+  scrim,
   {
-    position: 'fixed',
-    inset: 0,
     zIndex: 1000,
     display: 'flex',
     alignItems: 'flex-start',
     justifyContent: 'center',
     padding: '9vh 24px 24px',
-    background: 'rgba(0, 0, 0, 0.45)',
-    backdropFilter: 'blur(4px)',
   },
 ])
 

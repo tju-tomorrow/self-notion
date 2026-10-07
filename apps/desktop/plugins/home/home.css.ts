@@ -394,6 +394,10 @@ export const card = style({
   background: 'var(--affine-v2-layer-background-secondary)',
   border: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
   cursor: 'pointer',
+  // 网格 / 瀑布流**不虚拟化**（列表那一档虚拟化了，这两个没有）：几百篇的时候整页都是卡片。
+  // 屏幕外的卡片交给浏览器跳过布局与绘制，量过一次之后它自己记着真实高度（`auto`）。
+  contentVisibility: 'auto',
+  containIntrinsicSize: 'auto 128px',
   selectors: {
     '&:hover': { borderColor: 'var(--affine-v2-layer-insideBorder-primaryBorder)' },
   },

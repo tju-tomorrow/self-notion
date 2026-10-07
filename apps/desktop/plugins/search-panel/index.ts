@@ -50,6 +50,7 @@ import {
   recentDocs,
   type MdKind,
 } from './group'
+import { SCRIM } from '../../src/ui/scrim.css'
 import * as s from './search-panel.css'
 
 export const name = 'search-panel'
@@ -256,7 +257,7 @@ function SearchPanel({ ctx }: { ctx: Context }) {
     h(
       'div',
       {
-        className: s.overlay,
+        className: `${s.overlay} ${SCRIM}`,
         // 点空白处关（点面板本体不关）
         onMouseDown: (e: ReactMouseEvent) => {
           if (e.target === e.currentTarget) setOpen(false)
