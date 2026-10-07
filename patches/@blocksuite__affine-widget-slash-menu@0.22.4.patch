@@ -1,23 +1,31 @@
 diff --git a/src/consts.ts b/src/consts.ts
-index c3e6f7844857fa60b38357f60f66e4f16d830038..6cdea1bdfc651e94abc604ba616755ae6d31289d 100644
+index c3e6f7844857fa60b38357f60f66e4f16d830038..ccc0c2602c6c1f469f7a87e1c1a3d64ad1865dd5 100644
 --- a/src/consts.ts
 +++ b/src/consts.ts
-@@ -1,4 +1,13 @@
+@@ -1,4 +1,21 @@
  export const AFFINE_SLASH_MENU_WIDGET = 'affine-slash-menu-widget';
  export const AFFINE_SLASH_MENU_TRIGGER_KEY = '/';
-+// self-notion：中文输入法在「中文标点」下按 `/` 打出来的是全角斜杠（U+FF0F），
-+// 上游只认半角，于是中文状态下菜单弹不出来。全角也当触发键。
-+export const AFFINE_SLASH_MENU_FULLWIDTH_TRIGGER_KEY = '\uff0f';
++// self-notion：中文输入法「中文标点」下按 `/`，落进正文的不是半角斜杠 ——
++// 系统拼音给的是顿号 `、`（U+3001），有的输入法给全角斜杠 `／`（U+FF0F）。
++// 上游只认半角，于是中文状态下菜单永远弹不出来。两个都算触发键
++// （「只有行首那一个才算」那条在 `widget.ts`）。
++export const AFFINE_SLASH_MENU_CJK_TRIGGER_KEYS = ['、', '／'];
++export const isCjkSlashTriggerKey = (key: string | null | undefined) =>
++  AFFINE_SLASH_MENU_CJK_TRIGGER_KEYS.includes(key ?? '');
 +export const isSlashMenuTriggerKey = (key: string | null | undefined) =>
-+  key === AFFINE_SLASH_MENU_TRIGGER_KEY ||
-+  key === AFFINE_SLASH_MENU_FULLWIDTH_TRIGGER_KEY;
++  key === AFFINE_SLASH_MENU_TRIGGER_KEY || isCjkSlashTriggerKey(key);
 +// 输入法直出斜杠时 keydown 报的是 `Process` + `code: 'Slash'`，也是斜杠。
 +export const isImeSlashKey = (event: KeyboardEvent) =>
 +  event.key === 'Process' && event.code === 'Slash';
++// self-notion：输入法**接手**了这一下。`keyCode 229` 是 WKWebView 给「这个键我交给输入法了」的标记
++// （实测：中文标点下按 `/` 是 `key: '/'` + `keyCode: 229`，而且**字先落了、keydown 后到** ——
++// 夹在中间的 `input` 事件已经在 keydown 之前发生过）。`Process + Slash` 是同一类。
++export const isImeProcessedKey = (event: KeyboardEvent) =>
++  event.keyCode === 229 || isImeSlashKey(event);
  export const AFFINE_SLASH_MENU_TOOLTIP_TIMEOUT = 800;
  export const AFFINE_SLASH_MENU_MAX_HEIGHT = 390;
 diff --git a/src/slash-menu-popover.ts b/src/slash-menu-popover.ts
-index 48b8504753f5df44db62337847ee2dd12d036673..38b59475be4fee4af95ddab91222bccef9bc4a1c 100644
+index 48b8504753f5df44db62337847ee2dd12d036673..41391d84b7c8ea675bc2b3669ce7e952bca1ca4c 100644
 --- a/src/slash-menu-popover.ts
 +++ b/src/slash-menu-popover.ts
 @@ -32,6 +32,8 @@ import {
@@ -29,7 +37,95 @@ index 48b8504753f5df44db62337847ee2dd12d036673..38b59475be4fee4af95ddab91222bcce
  } from './consts.js';
  import { slashItemToolTipStyle, styles } from './styles.js';
  import type {
-@@ -217,14 +219,14 @@ export class SlashMenu extends WithDisposable(LitElement) {
+@@ -51,6 +53,39 @@ type InnerSlashMenuContext = SlashMenuContext & {
+   searching: boolean;
+ };
+ 
++// self-notion：菜单最上面那条「Recently Used」。记的是**条目名**不是 flavour ——
++// 名字就是配置里的稳定标识，块改名或卸掉之后按名字查不到，那一格自动少一条。
++const RECENT_KEY = 'self-notion:slash-recent';
++const RECENT_LIMIT = 5;
++
++function recentNames(): string[] {
++  try {
++    const raw: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]');
++    return Array.isArray(raw)
++      ? raw.filter((name): name is string => typeof name === 'string')
++      : [];
++  } catch {
++    return [];
++  }
++}
++
++function rememberName(name: string): void {
++  try {
++    const next = [
++      name,
++      ...recentNames().filter(recent => recent !== name),
++    ].slice(0, RECENT_LIMIT);
++    localStorage.setItem(RECENT_KEY, JSON.stringify(next));
++  } catch {
++    // 存不下就少一个省事的入口，不该拦住菜单
++  }
++}
++
++/** 分组串的第一段是排序号，-1 排在上游所有分组之前；第二段就是标题。 */
++function recentGroup(index: number) {
++  return `-1_Recently Used@${index}` as NonNullable<SlashMenuItem['group']>;
++}
++
+ export class SlashMenu extends WithDisposable(LitElement) {
+   static override styles = styles;
+ 
+@@ -74,6 +109,8 @@ export class SlashMenu extends WithDisposable(LitElement) {
+     this.inlineEditor
+       .waitForUpdate()
+       .then(() => {
++        // 先记后做：action 抛错也算用过这一条
++        rememberName(item.name);
+         item.action(this.context);
+         this._telemetry?.track('SelectSlashMenuItem', {
+           page: this._editorMode ?? undefined,
+@@ -170,6 +207,38 @@ export class SlashMenu extends WithDisposable(LitElement) {
+     return getTextContentFromInlineRange(this.inlineEditor, this._startRange);
+   }
+ 
++  private _recentItemsCache: SlashMenuItem[] | null = null;
++
++  /**
++   * 最近用过的几条，克隆一份挂进 -1 组，叠在 `items` 前面 —— 克隆而不是搬走，
++   * 原来的分区里那条还在（块类型不该因为我们记过就消失）。
++   * 只在 query 为空时叠：`_filteredItems` 是从 `items` 里筛的，叠进去会让搜出来的
++   * 那一行出现两遍。
++   *
++   * 算一次就存下来：`items` 开着菜单时不会变，而每次 render 现拼一个新数组会让
++   * 下游 `menu` 属性「变了」→ 高亮那行被打回第一条（上游传的是同一个引用，没这问题）。
++   */
++  private get _recentItems(): SlashMenuItem[] {
++    if (this._recentItemsCache) return this._recentItemsCache;
++
++    const byName = new Map(this.items.map(item => [item.name, item] as const));
++    const recent: SlashMenuItem[] = [];
++    for (const name of recentNames()) {
++      const item = byName.get(name);
++      if (!item) continue;
++      recent.push({ ...item, group: recentGroup(recent.length) } as SlashMenuItem);
++    }
++    this._recentItemsCache = recent;
++    return recent;
++  }
++
++  private _menuItemsCache: SlashMenuItem[] | null = null;
++
++  private get _menuItems(): SlashMenuItem[] {
++    this._menuItemsCache ??= [...this._recentItems, ...this.items];
++    return this._menuItemsCache;
++  }
++
+   get host() {
+     return this.context.std.host;
+   }
+@@ -217,14 +286,14 @@ export class SlashMenu extends WithDisposable(LitElement) {
        target: inlineEditor.eventSource,
        signal: this.abortController.signal,
        interceptor: (event, next) => {
@@ -47,34 +143,118 @@ index 48b8504753f5df44db62337847ee2dd12d036673..38b59475be4fee4af95ddab91222bcce
            // The IME case of above
            return;
          }
+@@ -327,7 +396,9 @@ export class SlashMenu extends WithDisposable(LitElement) {
+         : nothing}
+       <inner-slash-menu
+         .context=${this._innerSlashMenuContext}
+-        .menu=${this._queryState === 'off' ? this.items : this._filteredItems}
++        .menu=${this._queryState === 'off'
++          ? this._menuItems
++          : this._filteredItems}
+         .mainMenuStyle=${slashMenuStyles}
+         .abortController=${this.abortController}
+       >
+@@ -499,7 +570,11 @@ export class InnerSlashMenu extends WithDisposable(LitElement) {
+       return;
+     }
+ 
+-    const ele = shadowRoot.querySelector(`icon-button[text="${item.name}"]`);
++    // self-notion：按**位置**找，不按名字 —— 最近使用那几条是克隆的，同名会有两个，
++    // 按名字找会永远滚到顶上那个克隆，往下走时高亮那行就滚不出来了。
++    const ele = shadowRoot.querySelectorAll('icon-button')[
++      this.menu.indexOf(item)
++    ];
+     if (!ele) {
+       return;
+     }
 diff --git a/src/widget.ts b/src/widget.ts
-index 04a8065f81b592b4cd796c8cfd5a461e6084d764..f674e4f41c09ad50d010d047e9082fefac48b4dc 100644
+index 04a8065f81b592b4cd796c8cfd5a461e6084d764..245d9991f181bb0ab1cfc56708e72c374f8924ee 100644
 --- a/src/widget.ts
 +++ b/src/widget.ts
-@@ -6,7 +6,11 @@ import { TextSelection, WidgetComponent } from '@blocksuite/std';
+@@ -6,7 +6,13 @@ import { TextSelection, WidgetComponent } from '@blocksuite/std';
  import { InlineEditor } from '@blocksuite/std/inline';
  import debounce from 'lodash-es/debounce';
  
 -import { AFFINE_SLASH_MENU_TRIGGER_KEY } from './consts';
 +import {
 +  AFFINE_SLASH_MENU_TRIGGER_KEY,
++  isCjkSlashTriggerKey,
++  isImeProcessedKey,
 +  isImeSlashKey,
 +  isSlashMenuTriggerKey,
 +} from './consts';
  import { SlashMenuExtension } from './extensions';
  import { SlashMenu } from './slash-menu-popover';
  import type { SlashMenuConfig, SlashMenuContext, SlashMenuItem } from './types';
-@@ -127,7 +131,20 @@ export class AffineSlashMenuWidget extends WidgetComponent {
+@@ -84,42 +90,25 @@ export class AffineSlashMenuWidget extends WidgetComponent {
+ 
+   private readonly _handleInput = (
+     inlineEditor: InlineEditor,
+-    isCompositionEnd: boolean
++    isCompositionEnd: boolean,
++    alreadyInserted = false
+   ) => {
+-    const inlineRangeApplyCallback = (callback: () => void) => {
+-      // the inline ranged updated in compositionEnd event before this event callback
+-      if (isCompositionEnd) {
+-        callback();
+-      } else {
+-        const subscription = inlineEditor.slots.inlineRangeSync.subscribe(
+-          () => {
+-            subscription.unsubscribe();
+-            callback();
+-          }
+-        );
+-      }
+-    };
+-
+-    if (this.block?.model.flavour !== 'affine:page') {
+-      console.error('SlashMenuWidget should be used in RootBlock');
+-      return;
+-    }
+-
+-    inlineRangeApplyCallback(() => {
++    /** 看一眼正文，该开就开。返回 true = 这一趟处理完了，别再等 range 同步。 */
++    const tryOpen = (): boolean => {
+       const textSelection = this.host.selection.find(TextSelection);
+-      if (!textSelection) return;
++      if (!textSelection) return false;
+ 
+       const block = this.host.view.getBlock(textSelection.blockId);
+-      if (!block) return;
++      if (!block) return false;
+       const model = block.model;
+ 
+-      if (this.config.disableWhen?.({ model, std: this.std })) return;
++      if (this.config.disableWhen?.({ model, std: this.std })) return true;
+ 
+       const inlineRange = inlineEditor.getInlineRange();
+-      if (!inlineRange) return;
++      if (!inlineRange) return false;
+ 
+       const textPoint = inlineEditor.getTextPoint(inlineRange.index);
+-      if (!textPoint) return;
++      if (!textPoint) return false;
+ 
+       const [leafStart, offsetStart] = textPoint;
+ 
+@@ -127,7 +116,26 @@ export class AffineSlashMenuWidget extends WidgetComponent {
          ? leafStart.textContent.slice(0, offsetStart)
          : '';
  
 -      if (!text.endsWith(AFFINE_SLASH_MENU_TRIGGER_KEY)) return;
 +      const triggerKey = text.slice(-1);
 +
-+      if (!isSlashMenuTriggerKey(triggerKey)) return;
++      if (!isSlashMenuTriggerKey(triggerKey)) return false;
++
++      // self-notion：顿号 / 全角斜杠在中文里是**普通标点**（一篇里几十个），
++      // 只有前面什么都没有的那一个才是「想呼出菜单」，句子中间照常打字。
++      // 半角 `/` 不改，维持上游「哪儿都算」。
++      if (isCjkSlashTriggerKey(triggerKey) && text.trim() !== triggerKey)
++        return true;
 +
 +      if (triggerKey !== AFFINE_SLASH_MENU_TRIGGER_KEY) {
-+        // self-notion：全角就地换回半角，菜单的 query 解析和选中后的清理
++        // self-notion：顿号 / 全角就地换回半角，菜单的 query 解析和选中后的清理
 +        // 都按半角写死，换掉之后上游那些代码一行都不用改。
 +        const index = inlineRange.index - 1;
 +        inlineEditor.deleteText({ index, length: 1 });
@@ -86,7 +266,50 @@ index 04a8065f81b592b4cd796c8cfd5a461e6084d764..f674e4f41c09ad50d010d047e9082fef
  
        closeSlashMenu();
        showSlashMenu({
-@@ -144,7 +161,7 @@ export class AffineSlashMenuWidget extends WidgetComponent {
+@@ -138,13 +146,50 @@ export class AffineSlashMenuWidget extends WidgetComponent {
+         config: this.config,
+         configItemTransform: this.configItemTransform,
+       });
++      return true;
++    };
++
++    if (this.block?.model.flavour !== 'affine:page') {
++      console.error('SlashMenuWidget should be used in RootBlock');
++      return;
++    }
++
++    // 开过一次就不再重复开（下面几条路会重叠，`showSlashMenu` 是带 trailing 的防抖，
++    // 再来一次会闪一下）。
++    let opened = false;
++    const attempt = () => {
++      if (!opened) opened = tryOpen();
++    };
++
++    // the inline ranged updated in compositionEnd event before this event callback
++    if (isCompositionEnd) {
++      attempt();
++      return;
++    }
++
++    // self-notion：输入法接手的那一下（`keyCode 229`）**字往往已经先落进正文了**，
++    // 后面不会再有 `inlineRangeSync` —— 死等它就是永远不开菜单（英文模式没这问题，
++    // 那里是 keydown 之后浏览器才落字，同步随后就来）。
++    // 实测这条路的时序不定（字可能落在按键前，也可能晚一两拍才进模型），
++    // 所以：当场看一次 → 补两拍 → 最后照旧挂同步。
++    if (alreadyInserted) {
++      attempt();
++      for (const ms of [40, 120]) {
++        if (opened) break;
++        setTimeout(attempt, ms);
++      }
++    }
++
++    const subscription = inlineEditor.slots.inlineRangeSync.subscribe(() => {
++      subscription.unsubscribe();
++      attempt();
+     });
+   };
+ 
    private readonly _onCompositionEnd = (ctx: UIEventStateContext) => {
      const event = ctx.get('defaultState').event as CompositionEvent;
  
@@ -95,7 +318,7 @@ index 04a8065f81b592b4cd796c8cfd5a461e6084d764..f674e4f41c09ad50d010d047e9082fef
  
      const inlineEditor = this._getInlineEditor(event);
      if (!inlineEditor) return;
-@@ -158,7 +175,8 @@ export class AffineSlashMenuWidget extends WidgetComponent {
+@@ -158,12 +203,13 @@ export class AffineSlashMenuWidget extends WidgetComponent {
  
      const key = event.key;
  
@@ -105,3 +328,9 @@ index 04a8065f81b592b4cd796c8cfd5a461e6084d764..f674e4f41c09ad50d010d047e9082fef
  
      const inlineEditor = this._getInlineEditor(event);
      if (!inlineEditor) return;
+ 
+-    this._handleInput(inlineEditor, false);
++    this._handleInput(inlineEditor, false, isImeProcessedKey(event));
+   };
+ 
+   get config() {
