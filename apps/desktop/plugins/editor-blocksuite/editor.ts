@@ -127,6 +127,7 @@ import {
 import { shouldTransact, withoutHistory } from './history'
 import { NotionShortcutsProvider } from './notion-shortcuts'
 import { SlashMenuZhProvider } from './slash-menu-cn'
+import { SlashMenuTrimProvider } from './slash-menu-trim'
 import { mountCaret } from './caret'
 import { mountBlockDrag } from './block-drag'
 import { selectAnywhere } from './select-anywhere'
@@ -448,6 +449,9 @@ const viewProviders: ViewProvider[] = [
   CommentViewExtension,
   // 斜杠菜单 + 拖拽手柄；后两个是它们的前置（视口遮罩、页面拖拽区）
   SlashMenuViewExtension,
+  // ★ 必须排在上一行**后面** —— 它盖的是 `SlashMenuExtension` 这个**服务**，
+  //   而上游那行 `di.add` 先跑，反过来的话 override 会被后面那次 add 撞个正着。
+  SlashMenuTrimProvider,
   DragHandleViewExtension,
   // ★ 选中块时浮出的那条工具栏（D-0070）。图片那块在 `affine-block-image` 里注册了自己的
   //   模块（下载 / 加标题 / 复制 / 创建副本 / 删除），所以接上这个 widget 图片就有工具栏了。
