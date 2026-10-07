@@ -14,15 +14,11 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import type { Context } from 'cordis'
+import { startPet } from './loop'
 import { createPixelPet, type PixelPet } from './pet'
 import { usePet } from './store'
 import * as s from './mascot.css'
 
-/** 没人搭理它的时候自己换的小动作。`sleep` 不放进来 —— 睡 1.8 秒就醒很奇怪。 */
-const MOODS = ['think', 'confused', 'celebrate'] as const
-type Mood = (typeof MOODS)[number]
-
-const MOOD_MS = 1800
 const MOOD_EVERY_MS = 7000
 /** 点了之后张嘴说话的时长 / 气泡挂多久 */
 const TALK_MS = 1500
@@ -42,26 +38,10 @@ export function Mascot({ ctx }: { ctx: Context }) {
     const engine = createPixelPet(canvas, pet)
     engineRef.current = engine
 
-    let raf = 0
-    let last = performance.now()
-    const loop = (now: number) => {
-      // 上限 50ms：切回来的时候 dt 可能有好几秒，一步跳过去帧就全浪费了
-      engine.tick(Math.min(0.05, (now - last) / 1000))
-      last = now
-      raf = requestAnimationFrame(loop)
-    }
-    raf = requestAnimationFrame(loop)
-
-    // 一直只眨眼看着像卡住了 —— 隔一会儿自己比划两下
-    const mood = window.setInterval(() => {
-      const pick: Mood = MOODS[Math.floor(Math.random() * MOODS.length)]
-      engine.setState(pick)
-      window.setTimeout(() => engine.setState('idle'), MOOD_MS)
-    }, MOOD_EVERY_MS)
+    const stop = startPet(canvas, engine, MOOD_EVERY_MS)
 
     return () => {
-      cancelAnimationFrame(raf)
-      window.clearInterval(mood)
+      stop()
       engine.dispose()
       engineRef.current = null
     }

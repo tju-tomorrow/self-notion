@@ -8,13 +8,11 @@
  */
 import { useEffect, useRef } from 'react'
 import type { Context } from 'cordis'
+import { startPet } from './loop'
 import { createPixelPet } from './pet'
 import { usePet } from './store'
 import * as s from './mascot.css'
 
-/** 没人搭理的时候自己换的小动作，和侧栏那只同一批。 */
-const MOODS = ['think', 'confused', 'celebrate'] as const
-const MOOD_MS = 1800
 const MOOD_EVERY_MS = 9000
 
 export function PetFace({ ctx, size }: { ctx: Context; size: number }) {
@@ -29,24 +27,10 @@ export function PetFace({ ctx, size }: { ctx: Context; size: number }) {
     canvas.style.width = `${size}px`
     canvas.style.height = `${(size * 3) / 4}px`
 
-    let raf = 0
-    let last = performance.now()
-    const loop = (now: number) => {
-      // 上限 50ms：切回来的时候 dt 可能有好几秒，一步跳过去帧就全浪费了
-      engine.tick(Math.min(0.05, (now - last) / 1000))
-      last = now
-      raf = requestAnimationFrame(loop)
-    }
-    raf = requestAnimationFrame(loop)
-
-    const mood = window.setInterval(() => {
-      engine.setState(MOODS[Math.floor(Math.random() * MOODS.length)])
-      window.setTimeout(() => engine.setState('idle'), MOOD_MS)
-    }, MOOD_EVERY_MS)
+    const stop = startPet(canvas, engine, MOOD_EVERY_MS)
 
     return () => {
-      cancelAnimationFrame(raf)
-      window.clearInterval(mood)
+      stop()
       engine.dispose()
     }
   }, [pet, size])
