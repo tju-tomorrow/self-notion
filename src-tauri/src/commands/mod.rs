@@ -130,6 +130,8 @@ pub fn dispatch(
         // ── 内置 AI（D-0042）：BYO endpoint，现在只做一篇笔记的总结 ────────────
         "ai:configure" => crate::ai::configure(db, args),
         "ai:status" => crate::ai::status(db, args),
+        // 拉网关的模型清单（设置页那个下拉）。**不走 `call`** —— 它要发网络请求。
+        "ai:models" => crate::ai::models(db, args),
         // ★ 这条**故意不走 `call`**：一次几秒级的模型往返，攥着库锁会把整个应用卡住
         //（和上面 `backup:*` 同一个理由）。
         "ai:summarize" => crate::ai::summarize(db, args),

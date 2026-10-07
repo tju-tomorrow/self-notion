@@ -113,6 +113,46 @@ pub fn status(db: &Db, _args: Value) -> ApiResult<Value> {
     })
 }
 
+/// `ai:models` —— 给设置页那个下拉拉一份网关的模型清单。
+///
+/// ★ **拉不到不是错误**：回 `{ models: [], error: "…" }`，设置页拿内置那份兜底。
+///   发不出去的真实原因仍落 `errors.log`（AGENTS.md「出错只有一个地方可看」）。
+///
+/// ★ 同 `ai:summarize`，**不走 `call`** —— 一次网络往返，攥着库锁会把整个应用卡住。
+pub fn models(db: &Db, _args: Value) -> ApiResult<Value> {
+    let cfg = db.with(load_config)?;
+    if cfg.base_url.is_empty() {
+        return Ok(degraded("还没填接口地址"));
+    }
+
+    let mut headers = vec![("Accept".to_string(), "application/json".to_string())];
+    // 本地网关（Ollama 那类）不要 key —— 没填就不带这个头。
+    if !cfg.api_key.is_empty() {
+        headers.push(("Authorization".to_string(), format!("Bearer {}", cfg.api_key)));
+    }
+    headers.extend(gateway_headers(&cfg.base_url));
+
+    let resp = match http::send("GET", &models_url(&cfg.base_url), &headers, None) {
+        Ok(r) => r,
+        Err(e) => return Ok(degraded(&clip_msg(&e))),
+    };
+    let raw = String::from_utf8_lossy(&resp.body).into_owned();
+    if !(200..300).contains(&resp.status) {
+        return Ok(degraded(&format!("HTTP {} {}", resp.status, clip_msg(&raw))));
+    }
+    match pick_models(&raw) {
+        Ok(ids) => Ok(json!({ "models": ids, "error": "" })),
+        Err(e) => Ok(degraded(&e)),
+    }
+}
+
+/// 清单没拿到：记一行日志 + 回一个空清单和原因。**不是 API 错误** ——
+/// 设置页要的是「改用内置那份」，不是弹一个错误框。
+fn degraded(why: &str) -> Value {
+    crate::log::record("ai", &format!("模型清单拉不到：{why}"));
+    json!({ "models": [], "error": why })
+}
+
 /// `ai:summarize` —— 一篇笔记出「一句话 + 一段话 + 实体」，**顺手存盘**。
 ///
 /// ★ **这条故意不走 `call`**：一次几秒级的模型往返，攥着库锁会把整个应用卡住。
@@ -216,6 +256,36 @@ fn with_stale(row: store::summary::Summary, stale: bool) -> ApiResult<Value> {
 /// 只把尾巴上的 `/` 去掉：填成 `…/chat/completions/` 会 404，而这种手滑不值得让调用方排查。
 fn target_url(base: &str) -> &str {
     base.trim_end_matches('/')
+}
+
+/// `baseUrl` → 同一个网关的 `/models`：去掉尾巴的 `/chat/completions` 再拼。
+/// 拼地址在全仓库只有这一处 —— 列模型绕不开它，而且**只认这一种尾巴**，
+/// 认不出来就把 `/models` 接在原样地址后面（有些网关的 baseUrl 直接是 `/v1`）。
+fn models_url(base: &str) -> String {
+    let b = base.trim_end_matches('/');
+    format!("{}/models", b.strip_suffix("/chat/completions").unwrap_or(b))
+}
+
+/// 从回包里取模型 id 清单。OpenAI 兼容是 `{"data":[{"id":…}]}`，也有网关回 `{"models":[…]}`。
+/// 元素直接是字符串（不是对象）也认。
+fn pick_models(raw: &str) -> Result<Vec<String>, String> {
+    let v: Value = serde_json::from_str(raw).map_err(|e| format!("回的不是 JSON：{e}"))?;
+    if let Some(msg) = v.get("error").and_then(|e| e.get("message")).and_then(Value::as_str) {
+        return Err(msg.to_string());
+    }
+    let arr = ["data", "models"]
+        .iter()
+        .find_map(|k| v.get(*k).and_then(Value::as_array))
+        .ok_or("回里没有 data / models 数组")?;
+    let ids: Vec<String> = arr
+        .iter()
+        .filter_map(|m| m.get("id").and_then(Value::as_str).or_else(|| m.as_str()))
+        .map(str::to_string)
+        .collect();
+    if ids.is_empty() {
+        return Err("清单是空的".to_string());
+    }
+    Ok(ids)
 }
 
 /// 从回包里取 `choices[0].message.content`。

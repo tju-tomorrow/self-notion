@@ -119,6 +119,43 @@ export function Field({
   )
 }
 
+/** 下拉。用原生 `<select>` —— 键盘、翻页、滚动条全是现成的，为一行设置自绘一套浮层不值。
+ *  `appearance: none` 去掉了系统箭头，所以箭头是外面那个 `span` 画的。 */
+export function Select({
+  value,
+  onChange,
+  options,
+  width,
+  disabled,
+  ariaLabel,
+}: {
+  value: string
+  onChange: (next: string) => void
+  options: readonly { value: string; label: string }[]
+  width?: number
+  disabled?: boolean
+  ariaLabel?: string
+}) {
+  return (
+    <span className={s.selectWrap} style={width ? { width } : undefined}>
+      <select
+        className={s.select}
+        value={value}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <span className={s.selectCaret} aria-hidden="true" />
+    </span>
+  )
+}
+
 export function Button({
   children,
   onClick,

@@ -221,8 +221,6 @@ export const docBody = style({
   flex: 1,
   minHeight: 0,
   display: 'flex',
-  // 笔记里那只宠物是绝对定位铺在这一层上的（`doc.overlay` 槽，D-0072）
-  position: 'relative',
 })
 
 // 正文是 flex:1 的那一半，孩子不给 `min-width: 0` 会被内容顶出横向滚动条。

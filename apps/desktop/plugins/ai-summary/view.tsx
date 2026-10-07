@@ -11,8 +11,9 @@ import type { Context } from 'cordis'
 import { SummarizeIcon } from '@blocksuite/icons/rc'
 import { copyText } from '../../src/ui/clipboard'
 import { Hint } from '../../src/ui/hint'
-import { Button, Field, Group, Note, Row } from '../../src/ui/settings'
+import { Button, Field, Group, Note, Row, Select } from '../../src/ui/settings'
 import type { AiStatus } from '../../src/kernel/contract'
+import { CUSTOM, FALLBACK_MODELS, useModelList } from './models'
 import { useSummaryState } from './state'
 import * as s from './summary.css'
 
@@ -213,6 +214,10 @@ export function AiSection({ ctx }: { ctx: Context }) {
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
+  const [custom, setCustom] = useState(false)
+  // 保存成功 / 地址变了就重拉清单
+  const [pull, setPull] = useState(0)
+  const list = useModelList(ctx, baseUrl.trim().length > 0, pull)
 
   useEffect(() => {
     ctx.rpc
@@ -235,14 +240,33 @@ export function AiSection({ ctx }: { ctx: Context }) {
         setStatus(st)
         setKey('')
         setNote(t('ai.saved'))
+        setPull((n) => n + 1)
       })
       .catch((e: unknown) => setError(errText(e)))
       .finally(() => setBusy(false))
   }
 
+  // 拉到的清单优先，拉不到退内置那份
+  const ids = list.models.length > 0 ? list.models : FALLBACK_MODELS
+  const options = [
+    ...ids.map((id) => ({ value: id, label: id })),
+    // 存着的模型不在清单里（网关换了 / 以前手填的）也要能选中 —— 不然一打开设置就被改掉
+    ...(model && !ids.includes(model) ? [{ value: model, label: model }] : []),
+    { value: CUSTOM, label: t('ai.modelCustom') },
+  ]
+  const modelDesc = custom
+    ? t('ai.modelHint')
+    : list.loading
+      ? t('ai.modelLoading')
+      : list.err
+        ? t('ai.modelFailed', { why: list.err })
+        : list.models.length > 0
+          ? t('ai.modelCount', { n: list.models.length })
+          : ''
+
   return (
     <Group>
-      <Row label={t('ai.baseUrl')} desc={t('ai.baseUrlHint')}>
+      <Row label={t('ai.baseUrl')}>
         <Field
           value={baseUrl}
           onChange={setBaseUrl}
@@ -251,8 +275,24 @@ export function AiSection({ ctx }: { ctx: Context }) {
         />
       </Row>
 
-      <Row label={t('ai.model')} desc={t('ai.modelHint')}>
-        <Field value={model} onChange={setModel} placeholder="deepseek-chat" width={200} />
+      <Row label={t('ai.model')} desc={modelDesc}>
+        <Select
+          value={custom ? CUSTOM : model}
+          onChange={(v) => {
+            if (v === CUSTOM) {
+              setCustom(true)
+              return
+            }
+            setCustom(false)
+            setModel(v)
+          }}
+          options={options}
+          width={200}
+          ariaLabel={t('ai.model')}
+        />
+        {custom ? (
+          <Field value={model} onChange={setModel} placeholder="deepseek-chat" width={200} />
+        ) : null}
       </Row>
 
       <Row label={t('ai.key')} desc={t('ai.keyHint')}>

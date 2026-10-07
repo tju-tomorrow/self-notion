@@ -9,13 +9,11 @@ import type { Context } from 'cordis'
 import { Group, Row } from '../../src/ui/settings'
 import { createPixelPet } from './pet'
 import { PETS, type Pet } from './roster'
-import { MODES, chooseMode, choosePet, usePet, usePetMode } from './store'
+import { choosePet, usePet } from './store'
 import * as s from './mascot.css'
 
 export function MascotSettings({ ctx }: { ctx: Context }) {
   const current = usePet(ctx)
-  const mode = usePetMode(ctx)
-  const modeLabel = ctx.i18n.t('mascot.mode')
 
   return (
     <div className={s.section}>
@@ -29,23 +27,6 @@ export function MascotSettings({ ctx }: { ctx: Context }) {
                 on={pet.id === current.id}
                 onPick={() => choosePet(ctx, pet.id)}
               />
-            ))}
-          </div>
-        </Row>
-
-        <Row label={modeLabel} desc={ctx.i18n.t('mascot.mode.desc')}>
-          <div className={s.modeGroup} role="radiogroup" aria-label={modeLabel}>
-            {MODES.map((m) => (
-              <button
-                key={m}
-                type="button"
-                role="radio"
-                aria-checked={m === mode}
-                className={m === mode ? `${s.modeBtn} ${s.modeBtnOn}` : s.modeBtn}
-                onClick={() => chooseMode(ctx, m)}
-              >
-                {ctx.i18n.t(`mascot.mode.${m}`)}
-              </button>
             ))}
           </div>
         </Row>

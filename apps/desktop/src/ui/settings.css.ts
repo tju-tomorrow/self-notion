@@ -118,6 +118,37 @@ export const input = style({
 
 export const inputMono = style({ fontFamily: 'var(--affine-font-code-family)', fontSize: 12 })
 
+/** 下拉的外壳：箭头要绝对定位，所以多一层。宽度给这层，不给出 `<select>`。 */
+export const selectWrap = style({
+  position: 'relative',
+  display: 'inline-flex',
+  alignItems: 'center',
+})
+
+export const select = style([
+  input,
+  {
+    appearance: 'none',
+    width: '100%',
+    // 给箭头让出位置
+    paddingRight: 24,
+    cursor: 'pointer',
+  },
+])
+
+/** 系统箭头被 `appearance: none` 去掉了，这一个拿两条边旋出来 —— 省一个图标依赖。 */
+export const selectCaret = style({
+  position: 'absolute',
+  right: 10,
+  width: 7,
+  height: 7,
+  marginTop: -3,
+  borderRight: '1.5px solid var(--affine-v2-icon-secondary, #8a8a8a)',
+  borderBottom: '1.5px solid var(--affine-v2-icon-secondary, #8a8a8a)',
+  transform: 'rotate(45deg)',
+  pointerEvents: 'none',
+})
+
 /* ────────────────────────── 按钮 ────────────────────────── */
 
 const buttonBase = style({

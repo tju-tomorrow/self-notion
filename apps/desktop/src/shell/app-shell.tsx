@@ -154,9 +154,6 @@ export function AppShell({ ctx }: { ctx: Context }) {
                 {/* 再再往外那一列：内置助手的侧栏（D-0098）。关着的时候它自己返回 null，
                     这里就一个节点都没有 → 宽度 0，不占地方。 */}
                 <SlotHost ctx={ctx} name="doc.aside.agent" />
-                {/* 铺在正文上那一层：笔记里那只宠物（D-0072）。放 `docBody` 不放 `main` ——
-                    免得它遛达到页面顶栗那行去踩面包屑。 */}
-                <SlotHost ctx={ctx} name="doc.overlay" />
                   </div>
                 </>
               )}
