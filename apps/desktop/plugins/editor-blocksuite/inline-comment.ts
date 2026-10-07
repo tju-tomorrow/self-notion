@@ -19,6 +19,7 @@ import { property } from 'lit/decorators.js'
 
 import type { BlockAnchorInfo, CommentState, TextAnchorInfo } from '../../src/kernel/contract'
 import { reportError, reportNote } from '../../src/kernel/errors'
+import { withoutHistory } from './history'
 import { shell } from './shell'
 
 const ATTR = 'comment'
@@ -73,7 +74,7 @@ function segments(text: { toDelta(): { insert?: string; attributes?: unknown }[]
 export function addInlineAnchor(store: Store, blockId: string, id: string, index: number, length: number): void {
   const text = store.getModelById(blockId)?.text
   if (!text || length <= 0) return
-  store.withoutTransact(() => {
+  withoutHistory(store, () => {
     for (const seg of segments(text, index, length)) {
       if (seg.ids.includes(id)) continue
       text.yText.format(seg.index, seg.length, { [ATTR]: [...seg.ids, id].join(',') })
@@ -87,7 +88,7 @@ export function removeAnchor(store: Store, id: string): number {
   for (const model of store.getAllModels()) {
     const text = model.text
     if (!text) continue
-    store.withoutTransact(() => {
+    withoutHistory(store, () => {
       for (const seg of segments(text, 0, text.length)) {
         if (!seg.ids.includes(id)) continue
         const rest = seg.ids.filter((x) => x !== id)

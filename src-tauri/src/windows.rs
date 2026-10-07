@@ -4,7 +4,9 @@
 //!   毛玻璃、无边框标题栏、红绿灯位置都在里面。手写第二份迟早和第一份漂开，
 //!   那种「改了一处忘了另一处」的毛病正是要避免的。
 
-use tauri::menu::{Menu, MenuItemBuilder, MenuItemKind, SubmenuBuilder};
+use tauri::menu::{
+    IsMenuItem, Menu, MenuItemBuilder, MenuItemKind, PredefinedMenuItem, Submenu, SubmenuBuilder,
+};
 use tauri::utils::config::WebviewUrl;
 use tauri::{AppHandle, Emitter, EventTarget, Manager, Runtime, WebviewWindowBuilder};
 
@@ -58,6 +60,31 @@ fn free_label(app: &AppHandle) -> String {
 /// 应用菜单：Tauri 默认那套 + `File ▸ New Window`（⌘⇧N）。
 pub fn menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let menu = Menu::default(app)?;
+
+    // ★ Edit 那格**重造**，不摆 Undo / Redo。
+    //
+    // 默认那份带 `PredefinedMenuItem::undo` / `redo`（`tauri/src/menu/menu.rs` 里那两行），
+    // 它们在 macOS 上是原生菜单项、自带 ⌘Z / ⇧⌘Z 的键等价 —— 而 **AppKit 先处理菜单的键等价、
+    // 再往下传给 responder**，那两下就永远到不了 DOM：BlockSuite 的 `Mod-z`
+    // （page-root 的 `PageKeyboardManager`）一次都不触发，表现就是「⌘Z 按了没反应」。
+    // 而且系统预定义那两项动的是 **webview 自己的撤销栈**，对这套自管历史的编辑器是空操作。
+    //
+    // Edit 里其余几项留着：它们虽然也吃按键，但剪贴板那几个的原生实现本来就会派发 DOM 的
+    // `copy` / `paste` / `cut`，编辑器那条路照跑（⌘V 就是这么进去的）。
+    if let Some(edit) = submenu(&menu, "Edit") {
+        for item in edit.items()? {
+            edit.remove(&item)?;
+        }
+        let (cut, copy, paste, all) = (
+            PredefinedMenuItem::cut(app, None)?,
+            PredefinedMenuItem::copy(app, None)?,
+            PredefinedMenuItem::paste(app, None)?,
+            PredefinedMenuItem::select_all(app, None)?,
+        );
+        let rows: Vec<&dyn IsMenuItem<R>> = vec![&cut, &copy, &paste, &all];
+        edit.append_items(&rows)?;
+    }
+
     let item = MenuItemBuilder::with_id(NEW_WINDOW, "New Window")
         .accelerator("CmdOrCtrl+Shift+N")
         .build(app)?;
@@ -70,13 +97,18 @@ pub fn menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     // macOS 第一格永远是应用自己那格（关于 / 隐藏 / 退出），所以插在它后面。
     menu.insert(&file, 1)?;
     // 把「窗口」那格登记成 NSApp 的 windowsMenu —— 系统才会自动把开着的窗口列进去。
-    if let Some(w) = menu.items()?.into_iter().find_map(|i| match i {
-        MenuItemKind::Submenu(s) if s.text().ok().as_deref() == Some("Window") => Some(s),
-        _ => None,
-    }) {
+    if let Some(w) = submenu(&menu, "Window") {
         let _ = w.set_as_windows_menu_for_nsapp();
     }
     Ok(menu)
+}
+
+/** 按标题找一格子菜单。认标题不认位置 —— 位置随系统版本变。 */
+fn submenu<R: Runtime>(menu: &Menu<R>, title: &str) -> Option<Submenu<R>> {
+    menu.items().ok()?.into_iter().find_map(|i| match i {
+        MenuItemKind::Submenu(s) if s.text().ok().as_deref() == Some(title) => Some(s),
+        _ => None,
+    })
 }
 
 /// 菜单事件。只有「新窗口」这一条是我们的（其余是系统预定义项，muda 自己处理）。

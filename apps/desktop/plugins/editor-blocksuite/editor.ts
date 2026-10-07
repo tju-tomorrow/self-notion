@@ -124,6 +124,7 @@ import {
   revealComment,
   setCommentStates,
 } from './inline-comment'
+import { shouldTransact, withoutHistory } from './history'
 import { NotionShortcutsProvider } from './notion-shortcuts'
 import { SlashMenuZhProvider } from './slash-menu-cn'
 import { mountCaret } from './caret'
@@ -1183,6 +1184,15 @@ export async function openStore(docId: string, readonly = false): Promise<Store>
   // 到这儿 root 还是空 = 库里本来就没内容（不是「还没到」）—— 种一棵能打字的空树。
   if (!store.root) seed(store)
 
+  // ★ `store.load()` —— **Store 的生命周期整个从这里开始**，跟上面那句 `doc.load()` 是两码事。
+  //   少了它，每个 store 扩展的 `loaded()` 都不跑；`HistoryExtension.loaded()` 里才是接
+  //   `stack-item-added` 等监听、刷新 `canUndo` / `canRedo` 那两个 signal 的地方 ——
+  //   于是 `canUndo` 永远 false，BlockSuite 那条 `Mod-z`（`if (canUndo) undo()`）成了空操作，
+  //   表现就是「⌘Z 按了没反应」。
+  store.load()
+  // 种出来的初始树不该能被 ⌘Z 撤掉：撤销栈里只该有用户敲的东西。
+  store.resetHistory()
+
   stores.set(docId, store)
   return store
 }
@@ -1426,6 +1436,8 @@ export async function mountEditor(
   const unmountDrag = readonly ? () => {} : mountBlockDrag(el, store)
   // 「行尾那片空白也能起手拖选」（D-0090）—— 只在可编辑区外接管，别的地方一律放行。
   const unmountSelect = selectAnywhere(el)
+  // 粘贴的入口守卫。上游 `PasteTr` 不判空，见 `guardEmptyPaste` 上面那段。
+  const unmountPaste = guardEmptyPaste(el)
   // 工具条上点完命令马上落库（不用等那 300ms 的打字节流）；点了没变就写进 errors.log。
   const unmountToolbarFlush = watchToolbarClicks(() => docId)
   activeStd = std
@@ -1438,6 +1450,35 @@ export async function mountEditor(
     activeStd = std
   }
   el.addEventListener('pointerdown', onPaneDown, true)
+  reportNote('editor', `撤销现场：canUndo=${store.canUndo} 记历史开关=${shouldTransact(store)}`)
+
+  /**
+   * ⌘Z / ⇧⌘Z。**这一条是探针，先别当定论**。
+   *
+   * 撤不掉有三条互斥的可能，一次按键 + 一行日志就能分辨：
+   *   ① 按键根本没到 DOM（被菜单的键等价吃了）→ 日志里没有这一行
+   *   ② 到了 DOM，但撤销栈是空的（`canUndo=false`）→ 记下来了但撤不动
+   *   ③ 到了 DOM、栈里也有东西，只是 BlockSuite 那条键位没触发 → 记下来并当场撤掉
+   *
+   * ③ 就顺手自己接住（`preventDefault` + `stopPropagation`，不让它再往上走一遍）。
+   */
+  const onUndoKey = (e: KeyboardEvent) => {
+    if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'z') return
+    // 别人已经处理过（上游那条键位先接到）就别再来一遍 —— 否则一次按键撤两步。
+    if (e.defaultPrevented) return
+    const redo = e.shiftKey
+    reportNote(
+      'editor',
+      `⌘Z 到 DOM：redo=${redo} canUndo=${store.canUndo} canRedo=${store.canRedo} 记历史开关=${shouldTransact(store)} 默认已被拦=${e.defaultPrevented}`,
+    )
+    if (redo ? store.canRedo : store.canUndo) {
+      e.preventDefault()
+      e.stopPropagation()
+      if (redo) store.redo()
+      else store.undo()
+    }
+  }
+  el.addEventListener('keydown', onUndoKey, true)
 
   // 回到上次滚到的地方。★ 滚的是 `scroller` 不是 `viewport` —— 后者 `overflow: hidden`，读它永远是 0。
   const savedScroll = scrollPositions.get(docId)
@@ -1466,8 +1507,10 @@ export async function mountEditor(
       unmountCaret()
       unmountDrag()
       unmountSelect()
+      unmountPaste()
       unmountToolbarFlush()
       el.removeEventListener('pointerdown', onPaneDown, true)
+      el.removeEventListener('keydown', onUndoKey, true)
       titleY?.unobserve(onTitle)
       linkSub?.unsubscribe()
       blockSub.unsubscribe()
@@ -1479,6 +1522,40 @@ export async function mountEditor(
       stores.delete(docId)
     },
   }
+}
+
+/**
+ * 粘贴的入口守卫：**上游有个不判空的坑**。
+ *
+ * `affine-shared` 的 `paste.js` 里，`PasteTr` 构造函数直接取 `snapshot.content[0].flavour`；
+ * 拿到空 slice 就是 `undefined is not an object (evaluating 'this.firstSnapshot.flavour')`，
+ * 崩在按 ⌘V 那一刻。而空 slice 有两条来路：`flatNote()` 把「没有孩子的 note」的 content
+ * 换成 `[]`；adapter 压根解不出块（Finder 里拷一个文件）。
+ *
+ * 不 patch 依赖，改在**事件这一层**把「解出来必然是空的」那几类拦下来，其余照旧交给上游：
+ *   · 只有非图片文件（图片归上游，它建图片块，我们只管同一次粘贴的去重）
+ *   · 文本和 HTML 里既没有字，也没有图片 / 列表 / 表格 / 代码这种块级东西
+ *
+ * ★ 拦不住的那半：HTML 看着有内容、上游解析器却吐空 —— 那在 adapter 内部，站在事件这一层
+ *   看不见。真出现只能改依赖。
+ */
+function guardEmptyPaste(el: HTMLElement): () => void {
+  const onPaste = (e: ClipboardEvent) => {
+    const data = e.clipboardData
+    if (!data) return
+    if (Array.from(data.files).some((f) => f.type.startsWith('image/'))) return
+
+    const html = data.getData('text/html')
+    const text = data.getData('text/plain')
+    const blockish = /<(img|table|ul|ol|pre|blockquote|h[1-6])\b/i.test(html)
+    if (blockish || text.trim() || html.replace(/<[^>]*>/g, ' ').trim()) return
+
+    reportNote('editor', `粘贴拦下：剪贴板里没有能解成块的内容（files=${data.files.length}）`)
+    e.preventDefault()
+    e.stopPropagation()
+  }
+  el.addEventListener('paste', onPaste, true)
+  return () => el.removeEventListener('paste', onPaste, true)
 }
 
 /** 把光标放回标题末尾。标题内部那块才是 contenteditable，外面那圈 padding 是死区。 */
@@ -1741,7 +1818,7 @@ export function replaceFindMatch(match: FindMatch, replacement: string): void {
   const store = stores.get(openDocId ?? '')
   const text = store?.getModelById(match.blockId)?.text
   if (!store || !text) return
-  store.withoutTransact(() => {
+  withoutHistory(store, () => {
     text.replace(match.index, match.length, replacement)
   })
   if (openDocId) markDirty(openDocId)
