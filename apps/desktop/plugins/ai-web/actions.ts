@@ -8,7 +8,7 @@
  *     （见 `index.ts`）。失败了就拿 `pending` 退回剪贴板，别让用户白点一下。
  */
 import type { Context } from 'cordis'
-import { reportError } from '../../src/kernel/errors'
+import { reportError, reportNote } from '../../src/kernel/errors'
 import { copyText } from '../../src/ui/clipboard'
 import { toast } from '../../src/ui/toast'
 import { SITES, setWebAiState, type SiteKey } from './state'
@@ -36,10 +36,12 @@ export function leaveDoc(ctx: Context): void {
 }
 
 export function openPanel(): void {
+  reportNote('webai', '面板：开')
   setWebAiState({ open: true, mode: 'chat', status: '' })
 }
 
 export function closePanel(ctx: Context): void {
+  reportNote('webai', '面板：关')
   setWebAiState({ open: false })
   // 聊天那个只是藏；朗读那个**挪回窗口外**（不是藏）—— 声音接着放（用户：「关闭不丢声音」）。
   void ctx.rpc.call('aiweb:hide').catch((e) => reportError('aiweb', e))
