@@ -1,0 +1,37 @@
+node_modules/
+dist/
+target/
+.vite/
+.DS_Store
+*.local
+*.log
+
+# 工具产物，不是项目内容
+.cc-agents/
+
+# tauri-build 每次生成的 ACL schema，不是源码
+src-tauri/gen/schemas/
+experiments/*/gen/
+
+# S5 的地雷实测目录：一次性探针，复用主 target/ 会让 cargo 抢锁，所以它有自己的
+experiments/.cargo-target/
+experiments/**/node_modules/
+
+# Playwright MCP 的会话产物
+.playwright-mcp/
+
+# 只在本地留档，不对外：内部推演、决策台账、交接笔记
+/docs/
+/handoff.md
+/START-HERE.md
+
+# 环境变量
+.env*
+!.env.example
+
+# 增量编译产物
+*.tsbuildinfo
+
+# 编辑器 / 系统垃圾
+.idea/
+*.swp

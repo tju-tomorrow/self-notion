@@ -1,0 +1,6 @@
+{
+  "name": "vite-watch",
+  "private": true,
+  "type": "module",
+  "devDependencies": { "vite": "^7" }
+}

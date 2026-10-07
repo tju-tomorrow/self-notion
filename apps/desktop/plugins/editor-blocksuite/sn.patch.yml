@@ -1,0 +1,7 @@
+# sn.patch.yml —— 我贡献什么（装载清单）
+#
+# `editor` 这个服务由本插件 provide（见 index.ts）。它不是在插件里"注册"出来的，
+# 而是挂到 ctx 上的一个服务，所以这里是 insert 一条装载项、没有额外的注册动作。
+- insert:
+    - id: editor-blocksuite
+      name: self-notion-plugin-editor-blocksuite

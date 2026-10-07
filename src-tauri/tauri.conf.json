@@ -1,0 +1,57 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "self-notion",
+  "version": "0.1.0",
+  "identifier": "app.selfnotion.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm --filter @self-notion/desktop dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm --filter @self-notion/desktop build",
+    "frontendDist": "../apps/desktop/dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "title": "self-notion",
+        "width": 1280,
+        "height": 860,
+        "minWidth": 640,
+        "minHeight": 480,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 9, "y": 17 },
+        "dragDropEnabled": false,
+        "transparent": true,
+        "visible": false,
+        "windowEffects": {
+          "effects": ["liquidGlassRegular", "underWindowBackground"],
+          "state": "active"
+        }
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data: blob: self-notion:",
+        "font-src": "'self' data:",
+        "connect-src": "'self' ipc: http://ipc.localhost self-notion:",
+        "worker-src": "'self' blob:"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

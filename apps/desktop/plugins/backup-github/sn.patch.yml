@@ -1,0 +1,9 @@
+# sn.patch.yml —— 我贡献什么（装载清单）
+#
+# 本插件没有 provide 任何服务，只往 `settings.section` 槽注册一个组件、调 `backup:*` 命令，
+# 所以这里是 insert 一条装载项、没有额外的注册动作。
+#
+# 权限只声明 `ui:settings`：**不声明 `net`** —— 联网发生在 Rust 侧，插件本身不发请求。
+- insert:
+    - id: backup-github
+      name: self-notion-plugin-backup-github

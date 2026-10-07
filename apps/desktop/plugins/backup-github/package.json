@@ -1,0 +1,20 @@
+{
+  "name": "self-notion-plugin-backup-github",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "files": [
+    "index.ts",
+    "ui.tsx",
+    "sn.patch.yml"
+  ],
+  "selfNotion": {
+    "bundle": {
+      "patch": "./sn.patch.yml"
+    },
+    "permissions": [
+      "ui:settings"
+    ]
+  }
+}

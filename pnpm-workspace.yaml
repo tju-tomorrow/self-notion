@@ -1,0 +1,8 @@
+packages:
+  - apps/*
+
+onlyBuiltDependencies:
+  - esbuild
+
+patchedDependencies:
+  '@blocksuite/affine-widget-slash-menu@0.22.4': patches/@blocksuite__affine-widget-slash-menu@0.22.4.patch

@@ -1,0 +1,19 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "主窗口的能力。Tauri 2 默认全拒 —— 权限没给时调用不报错、就是不干活（侦察三坑 #12）。所以这里逐个列出，没有 \"xxx:default\" 之外的偷懒项。single-instance 不在此列：它没有 command，也就没有权限可给（见 S1 报告的 13 插件表）。\n\n`win-*` 是多开出来的窗口（`src/windows.rs` 的 `free_label`）：它们和主窗口是同一个前端，能力必须一样。",
+  "windows": ["main", "win-*"],
+  "platforms": ["macOS"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:event:default",
+    "core:window:allow-destroy",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "fs:allow-read-text-file",
+    "fs:allow-write-text-file",
+    "opener:default",
+    "window-state:default"
+  ]
+}

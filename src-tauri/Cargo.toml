@@ -1,0 +1,67 @@
+[package]
+name = "self-notion"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "self_notion_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# macos-private-api 是毛玻璃的前提（同时也意味着不上 Mac App Store —— 我们不上架）。
+# protocol-asset 不加：blob 走自己注册的 self-notion:// 协议，不用 asset protocol。
+# unstable：子 webview（`Window::add_child`）在这个 feature 后面。web 版 AI 面板要往主窗口里
+# 叠一个原生 webview 装外部网页（D-0074），没有它就编不过。
+# tray-icon：菜单栏图标（`tauri::tray`）在这个 feature 后面 —— 内存监控那个数字挂在菜单栏上
+# （D-0079）。它拉一个新的 `tray-icon` crate 进来，是一次性的编译开销。
+tauri = { version = "2", features = ["macos-private-api", "unstable", "tray-icon"] }
+# 进程内存只有 macOS 的 libproc 能问（`proc_pid_rusage` / `proc_listpids`）。libc 0.2.190
+# **本来就在编译树里**（tauri 拉的），加成直接依赖等于零新增编译。
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled", "blob"] }
+sha2 = "0.10"
+thiserror = "2"
+# 字节字段的线上编码（见 commands::Bytes）。已在编译树里（tauri 拉的 0.22.1），零新增编译。
+base64 = "0.22"
+
+# ── 官方插件（S1）───────────────────────────────────────────────────────────
+# 13 个官方插件里只装 5 个，理由逐条写在 capabilities/default.json 和 lib.rs 的注册处。
+# **没装的 8 个不是"以后再说"，是没有消费者**：
+#   http（AI / 备份的 HTTP 都在 Rust 里做，装了等于给 webview 开网络能力）、
+#   clipboard-manager（粘贴图片走 DOM paste 事件；它的 readImage 回 ResourceId，
+#     与 D-0027 的「raw IPC 直写」是两条路）、
+#   deep-link（无消费者，且 tauri dev 下彻底不可用，D-0050）、
+#   global-shortcut / notification / os / process / log（都没有消费者）。
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-window-state = "2"
+# single-instance 排在注册的第一位：两个实例会抢同一个 SQLite。
+tauri-plugin-single-instance = "2"
+
+# ── HTTP（只有 GitHub 备份用）────────────────────────────────────────────────
+# reqwest 本来就在 tauri 的编译树里，但**没有 TLS 后端**（rustls / native-tls 全是 0），
+# 而 GitHub 只有 HTTPS —— 不显式点起一个，备份这条路发不出任何请求。
+# 选 native-tls：macOS 上它走 Security.framework，纯系统自带。
+# 别换成 rustls —— 它的默认 provider 是 aws-lc-rs，会把 BoringSSL 源码整个 vendor 进
+# `aws-lc-sys`（9 MB 下载 + cmake 编译），每次干净构建都白交这个税。
+# `blocking`：`dispatch` 是同步函数，异步客户端在那儿没法 await。
+#
+# 只有 `src-tauri/src/backup/http.rs` 一处 import 它。别的模块要联网 → 先问一句为什么
+# （D-0032：插件默认禁网；AI 的 HTTP 也走 Rust，见 D-0042）。
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "native-tls"] }
+
+# ── Dock 图标的右键菜单（多窗口）────────────────────────────────────────────
+# 「新窗口」得挂在 Dock 菜单上（Notion 的人就在那儿找），而 AppKit 只认 delegate 的
+# `applicationDockMenu:` —— 在 Rust 里只能运行时把方法补上去（`src/dock.rs`）。
+# objc2 / objc2-foundation **本来就在编译树里**（tauri 的 macOS 侧），加为直接依赖
+# 等于零新增编译。
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString"] }

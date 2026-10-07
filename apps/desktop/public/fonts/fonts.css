@@ -1,0 +1,86 @@
+/*
+ * 本机字体包。全部落在 `public/fonts/`（由 `scripts/fonts.mjs` 抓来），离线可用。
+ *
+ * ★ 这里只声明 @font-face，不动任何选择器 —— 「谁用哪个字体」在
+ *   `plugins/shell-doc-header/config.ts` 那张表里，改字体栈去那儿改。
+ * ★ font-family 的名字必须和 config.ts 的栈里写的**逐字一致**，写错就是静默回退（看着像没生效）。
+ */
+@import url('./lxgw-wenkai/lxgw-wenkai.css');
+@import url('./zcool-kuaile/zcool-kuaile.css');
+@import url('./noto-serif-sc/noto-serif-sc.css');
+
+/* Lora —— 英文衬线 */
+@font-face {
+  font-family: 'Lora';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./lora/lora-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Lora';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./lora/lora-latin-500-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Lora';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./lora/lora-latin-600-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Lora';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./lora/lora-latin-700-normal.woff2') format('woff2');
+}
+
+/* JetBrains Mono */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./jetbrains-mono/jetbrains-mono-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./jetbrains-mono/jetbrains-mono-latin-500-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./jetbrains-mono/jetbrains-mono-latin-700-normal.woff2') format('woff2');
+}
+
+/* Fira Code —— 带连字（`=>` `!==` 会连起来） */
+@font-face {
+  font-family: 'Fira Code';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fira-code/fira-code-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Fira Code';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./fira-code/fira-code-latin-500-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Fira Code';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./fira-code/fira-code-latin-700-normal.woff2') format('woff2');
+}

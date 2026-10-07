@@ -1,0 +1,107 @@
+diff --git a/src/consts.ts b/src/consts.ts
+index c3e6f7844857fa60b38357f60f66e4f16d830038..6cdea1bdfc651e94abc604ba616755ae6d31289d 100644
+--- a/src/consts.ts
++++ b/src/consts.ts
+@@ -1,4 +1,13 @@
+ export const AFFINE_SLASH_MENU_WIDGET = 'affine-slash-menu-widget';
+ export const AFFINE_SLASH_MENU_TRIGGER_KEY = '/';
++// self-notion：中文输入法在「中文标点」下按 `/` 打出来的是全角斜杠（U+FF0F），
++// 上游只认半角，于是中文状态下菜单弹不出来。全角也当触发键。
++export const AFFINE_SLASH_MENU_FULLWIDTH_TRIGGER_KEY = '\uff0f';
++export const isSlashMenuTriggerKey = (key: string | null | undefined) =>
++  key === AFFINE_SLASH_MENU_TRIGGER_KEY ||
++  key === AFFINE_SLASH_MENU_FULLWIDTH_TRIGGER_KEY;
++// 输入法直出斜杠时 keydown 报的是 `Process` + `code: 'Slash'`，也是斜杠。
++export const isImeSlashKey = (event: KeyboardEvent) =>
++  event.key === 'Process' && event.code === 'Slash';
+ export const AFFINE_SLASH_MENU_TOOLTIP_TIMEOUT = 800;
+ export const AFFINE_SLASH_MENU_MAX_HEIGHT = 390;
+diff --git a/src/slash-menu-popover.ts b/src/slash-menu-popover.ts
+index 48b8504753f5df44db62337847ee2dd12d036673..38b59475be4fee4af95ddab91222bccef9bc4a1c 100644
+--- a/src/slash-menu-popover.ts
++++ b/src/slash-menu-popover.ts
+@@ -32,6 +32,8 @@ import {
+   AFFINE_SLASH_MENU_MAX_HEIGHT,
+   AFFINE_SLASH_MENU_TOOLTIP_TIMEOUT,
+   AFFINE_SLASH_MENU_TRIGGER_KEY,
++  isImeSlashKey,
++  isSlashMenuTriggerKey,
+ } from './consts.js';
+ import { slashItemToolTipStyle, styles } from './styles.js';
+ import type {
+@@ -217,14 +219,14 @@ export class SlashMenu extends WithDisposable(LitElement) {
+       target: inlineEditor.eventSource,
+       signal: this.abortController.signal,
+       interceptor: (event, next) => {
+-        const { key, isComposing, code } = event;
+-        if (key === AFFINE_SLASH_MENU_TRIGGER_KEY) {
++        const { key, isComposing } = event;
++        if (isSlashMenuTriggerKey(key)) {
+           // Can not stopPropagation here,
+           // otherwise the rich text will not be able to trigger a new the slash menu
+           return;
+         }
+ 
+-        if (key === 'Process' && !isComposing && code === 'Slash') {
++        if (isImeSlashKey(event) && !isComposing) {
+           // The IME case of above
+           return;
+         }
+diff --git a/src/widget.ts b/src/widget.ts
+index 04a8065f81b592b4cd796c8cfd5a461e6084d764..f674e4f41c09ad50d010d047e9082fefac48b4dc 100644
+--- a/src/widget.ts
++++ b/src/widget.ts
+@@ -6,7 +6,11 @@ import { TextSelection, WidgetComponent } from '@blocksuite/std';
+ import { InlineEditor } from '@blocksuite/std/inline';
+ import debounce from 'lodash-es/debounce';
+ 
+-import { AFFINE_SLASH_MENU_TRIGGER_KEY } from './consts';
++import {
++  AFFINE_SLASH_MENU_TRIGGER_KEY,
++  isImeSlashKey,
++  isSlashMenuTriggerKey,
++} from './consts';
+ import { SlashMenuExtension } from './extensions';
+ import { SlashMenu } from './slash-menu-popover';
+ import type { SlashMenuConfig, SlashMenuContext, SlashMenuItem } from './types';
+@@ -127,7 +131,20 @@ export class AffineSlashMenuWidget extends WidgetComponent {
+         ? leafStart.textContent.slice(0, offsetStart)
+         : '';
+ 
+-      if (!text.endsWith(AFFINE_SLASH_MENU_TRIGGER_KEY)) return;
++      const triggerKey = text.slice(-1);
++
++      if (!isSlashMenuTriggerKey(triggerKey)) return;
++
++      if (triggerKey !== AFFINE_SLASH_MENU_TRIGGER_KEY) {
++        // self-notion：全角就地换回半角，菜单的 query 解析和选中后的清理
++        // 都按半角写死，换掉之后上游那些代码一行都不用改。
++        const index = inlineRange.index - 1;
++        inlineEditor.deleteText({ index, length: 1 });
++        inlineEditor.insertText(
++          { index, length: 0 },
++          AFFINE_SLASH_MENU_TRIGGER_KEY
++        );
++      }
+ 
+       closeSlashMenu();
+       showSlashMenu({
+@@ -144,7 +161,7 @@ export class AffineSlashMenuWidget extends WidgetComponent {
+   private readonly _onCompositionEnd = (ctx: UIEventStateContext) => {
+     const event = ctx.get('defaultState').event as CompositionEvent;
+ 
+-    if (event.data !== AFFINE_SLASH_MENU_TRIGGER_KEY) return;
++    if (!isSlashMenuTriggerKey(event.data)) return;
+ 
+     const inlineEditor = this._getInlineEditor(event);
+     if (!inlineEditor) return;
+@@ -158,7 +175,8 @@ export class AffineSlashMenuWidget extends WidgetComponent {
+ 
+     const key = event.key;
+ 
+-    if (event.isComposing || key !== AFFINE_SLASH_MENU_TRIGGER_KEY) return;
++    if (event.isComposing) return;
++    if (!isSlashMenuTriggerKey(key) && !isImeSlashKey(event)) return;
+ 
+     const inlineEditor = this._getInlineEditor(event);
+     if (!inlineEditor) return;

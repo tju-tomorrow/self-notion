@@ -1,0 +1,16 @@
+{
+  "name": "self-notion",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.18.0",
+  "scripts": {
+    "dev": "pnpm --filter @self-notion/desktop dev",
+    "build": "pnpm --filter @self-notion/desktop build",
+    "tauri": "tauri",
+    "verify": "pnpm --filter @self-notion/desktop verify && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
+    "logs": "tail -n 200 -f \"$HOME/Library/Application Support/app.selfnotion.desktop/errors.log\""
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}
