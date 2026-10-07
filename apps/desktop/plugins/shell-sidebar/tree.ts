@@ -53,6 +53,13 @@ export function favorites(docs: readonly DocMeta[]): DocMeta[] {
   return docs.filter((doc) => doc.isFavorite && doc.deletedAt === null)
 }
 
+/** 置顶：后置顶的在前 —— `pinnedAt` 记的是置顶那一刻，它自己就是排序键。 */
+export function pinned(docs: readonly DocMeta[]): DocMeta[] {
+  return docs
+    .filter((doc) => doc.pinnedAt !== null && doc.deletedAt === null)
+    .sort((a, b) => (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0))
+}
+
 export function trashed(docs: readonly DocMeta[]): DocMeta[] {
   return docs.filter((doc) => doc.deletedAt !== null)
 }

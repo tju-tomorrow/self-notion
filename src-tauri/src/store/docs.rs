@@ -21,6 +21,9 @@ pub struct DocMeta {
     pub updated_at: i64,
     pub deleted_at: Option<i64>,
     pub is_favorite: bool,
+    /// 置顶（D-0123）。非空 = 被置顶，值是**置顶那一刻**的时间戳（「置顶」页按它倒序）。
+    /// null = 没置顶，**不是 0**（跟 `last_opened_at` 同一个约定）。
+    pub pinned_at: Option<i64>,
     pub last_opened_at: Option<i64>,
     /// 平标签（D-0086）。库里是 JSON 数组字符串，这里**解析成数组**再出去 ——
     /// 前端不该看见 `"[\"架构\"]"` 这种东西。解析失败当空数组（不 panic：库里的一行脏数据
@@ -88,7 +91,7 @@ pub struct Apply<'a> {
 }
 
 const COLS: &str = "id, parent_id, title, icon, sort_order, created_at, updated_at, \
-                    deleted_at, is_favorite, last_opened_at, tags";
+                    deleted_at, is_favorite, pinned_at, last_opened_at, tags";
 
 /// 子树物化（回收站 / 硬删除都要它）。所有引用它的语句都必须用 `?1` 传根 id。
 const SUBTREE: &str = "WITH RECURSIVE sub(id) AS (
@@ -107,8 +110,9 @@ fn row_meta(r: &rusqlite::Row) -> rusqlite::Result<DocMeta> {
         updated_at: r.get(6)?,
         deleted_at: r.get(7)?,
         is_favorite: r.get::<_, i64>(8)? != 0,
-        last_opened_at: r.get(9)?,
-        tags: serde_json::from_str(&r.get::<_, String>(10)?).unwrap_or_default(),
+        pinned_at: r.get(9)?,
+        last_opened_at: r.get(10)?,
+        tags: serde_json::from_str(&r.get::<_, String>(11)?).unwrap_or_default(),
     })
 }
 
@@ -314,6 +318,23 @@ pub fn favorite(conn: &Connection, id: &str, value: Option<bool>) -> ApiResult<b
     conn.execute(
         "UPDATE documents SET is_favorite = ?2 WHERE id = ?1",
         params![id, next as i64],
+    )
+    .map_err(db_err)?;
+    Ok(next)
+}
+
+/// `doc:pin` —— 置顶 / 取消置顶（D-0123）。
+/// 置顶写的是**时间戳**（不是 1）：「置顶」那一页要按「最近置的」排。
+/// 跟 `favorite` 一样**不动 `updated_at`** —— 置个顶不算「改过这篇」。
+pub fn pin(conn: &Connection, id: &str, value: Option<bool>) -> ApiResult<bool> {
+    let cur: Option<Option<i64>> = conn
+        .query_row("SELECT pinned_at FROM documents WHERE id = ?1", [id], |r| r.get(0))
+        .optional()
+        .map_err(db_err)?;
+    let next = value.unwrap_or(cur.ok_or_else(|| not_found("doc"))?.is_none());
+    conn.execute(
+        "UPDATE documents SET pinned_at = ?2 WHERE id = ?1",
+        params![id, next.then(now_ms)],
     )
     .map_err(db_err)?;
     Ok(next)

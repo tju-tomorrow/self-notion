@@ -22,7 +22,7 @@ use std::sync::Mutex;
 pub struct Db(pub Mutex<Connection>);
 
 /// 当前 schema 版本。改 schema.sql 时 +1，并在 `migrations()` 里补一条。
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 
 /// 从 v(n-1) 到 v(n) 的那一步。**只增不改** —— 已经发出去的一步改了，
 /// 就是有人在旧库上跑到一半跟别人不一样。索引 = 目标版本号。
@@ -30,13 +30,21 @@ pub const SCHEMA_VERSION: i64 = 2;
 /// ★ **这里只放"加列"这类不幂等的语句**。建表/建索引写在 `schema.sql` 里用
 /// `IF NOT EXISTS` —— 那句每次 open 都跑一遍，新库老库一起照顾到，不用占一个版本号。
 fn migrations() -> &'static [(i64, &'static str)] {
-    &[(
-        2,
-        // v2：标签（D-0086）。`doc_link` 表不需要这一步 —— 它走 schema.sql 的
-        // CREATE TABLE IF NOT EXISTS 就够（新表，老库下次 open 时补上）。
-        // ★ 新库这里会**跳过**：它的 schema_version 一开始就写的是 SCHEMA_VERSION。
-        "ALTER TABLE documents ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'",
-    )]
+    &[
+        (
+            2,
+            // v2：标签（D-0086）。`doc_link` 表不需要这一步 —— 它走 schema.sql 的
+            // CREATE TABLE IF NOT EXISTS 就够（新表，老库下次 open 时补上）。
+            // ★ 新库这里会**跳过**：它的 schema_version 一开始就写的是 SCHEMA_VERSION。
+            "ALTER TABLE documents ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'",
+        ),
+        (
+            3,
+            // v3：置顶（D-0123）。`is_favorite` 那一路一个字没动 —— 置顶是**独立**的标记，
+            // 一篇文章可以只收藏、只置顶、或者两样都占。
+            "ALTER TABLE documents ADD COLUMN pinned_at INTEGER",
+        ),
+    ]
 }
 
 impl Db {

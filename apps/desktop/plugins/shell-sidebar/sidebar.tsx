@@ -1,5 +1,6 @@
 /**
- * 侧栏：工作区行 + 搜索行 + 四个导航项，可滚区是四段可折叠分组（收藏 / 文件夹 / 标签 / 合集）+ 文档树。
+ * 侧栏：工作区行 + 搜索行 + 五个导航项（全部文档 / 最近 / 收藏 / 置顶 / 回收站），
+ * 可滚区是四段可折叠分组（收藏 / 文件夹 / 标签 / 合集）+ 文档树。
  *
  * 形状**照 AFFiNE 的 `RootAppSidebar`**：上不滚的那截（工作区 / 搜索 / 导航）
  * 加下面可滚的那截（分组标题 + 树）。原来那种「四个小胶囊按钮切分组」不是人家的做法 ——
@@ -33,6 +34,7 @@ import {
   FolderIcon,
   HistoryIcon,
   PageIcon,
+  PinIcon,
   PlusIcon,
   SearchIcon,
   SettingsIcon,
@@ -45,15 +47,15 @@ import { reportError, reportNote } from '../../src/kernel/errors'
 import { readLocal, writeLocal } from '../../src/kernel/local'
 import { DocMenu, useDocMenu } from '../../src/ui/doc-menu'
 import { toast } from '../../src/ui/toast'
-import { buildTree, favorites, recent, type DocMeta, type DocNode } from './tree'
+import { buildTree, favorites, pinned, recent, type DocMeta, type DocNode } from './tree'
 import * as s from './sidebar.css'
 
-type Group = 'tree' | 'recent' | 'favorite' | 'trash'
+type Group = 'tree' | 'recent' | 'favorite' | 'pinned' | 'trash'
 
 /** 拖到一行上松手会干什么：插到它前面 / 后面（同层），或者**成为它的子页面**。 */
 type DropMode = 'before' | 'after' | 'child'
 
-const GROUPS: readonly Group[] = ['tree', 'recent', 'favorite', 'trash']
+const GROUPS: readonly Group[] = ['tree', 'recent', 'favorite', 'pinned', 'trash']
 
 /** 拖拽时跟着光标的那张浮动卡片。拖完（`dragend`）才收 —— **拖拽中途不能删它**：
  *  WebKit 里把拖影节点从 DOM 里拿掉，这一整次拖拽可能当场被取消（落点事件就全没了）。 */
@@ -69,6 +71,7 @@ const GROUP_ICON: Readonly<Record<Group, typeof AllDocsIcon>> = {
   tree: AllDocsIcon,
   recent: HistoryIcon,
   favorite: StarIcon,
+  pinned: PinIcon,
   trash: DeleteTemporarilyIcon,
 }
 
@@ -533,12 +536,11 @@ export function Sidebar({ ctx }: { ctx: Context }) {
   const settings = ctx.command.list().find((cmd) => cmd.id === 'settings.open')
 
   const tree = buildTree(docs.filter((doc) => doc.deletedAt === null))
-  const favs = favorites(docs)
 
-  const rows: ReactNode[] =
-    group === 'recent'
-      ? recent(docs).map((doc) => renderRow(asLeaf(doc), 0, false))
-      : favs.map((doc) => renderRow(asLeaf(doc), 0, false))
+  /** 最近 / 收藏 / 置顶 是三个派生列表 —— 都是平铺的行（不搭树）。 */
+  const listed =
+    group === 'recent' ? recent(docs) : group === 'pinned' ? pinned(docs) : favorites(docs)
+  const rows: ReactNode[] = listed.map((doc) => renderRow(asLeaf(doc), 0, false))
 
   /** ★ 回收站选中时侧栏可滚区**整块不画**：主区那一页已经是完整的列表（标题 / 时间 /
    *  恢复 / 删除 / 全部恢复 / 清空）。同一份东西说两遍，左边这份还更残。 */
@@ -631,7 +633,7 @@ export function Sidebar({ ctx }: { ctx: Context }) {
       </div>
 
       {/* 可滚的那截。「全部文档」下是 AFFiNE 那四段：收藏 / 文件夹 / 标签 / 合集；
-          最近 / 收藏 还是各自的派生列表；**回收站不列**（主区那一页已经有完整列表）。 */}
+          最近 / 收藏 / 置顶 还是各自的派生列表；**回收站不列**（主区那一页已经有完整列表）。 */}
       <div className={s.scroll}>
         {error !== null && <p className={s.error}>{error}</p>}
         {group === 'tree' ? (

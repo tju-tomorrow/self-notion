@@ -23,6 +23,8 @@ import {
   MoveToIcon,
   NewPageIcon,
   PageIcon,
+  PinIcon,
+  PinedIcon,
   ResetIcon,
   TagIcon,
 } from '@blocksuite/icons/rc'
@@ -280,6 +282,19 @@ export function DocMenu({
             label={ctx.i18n.t(menu.doc.isFavorite ? 'doc.unfavorite' : 'doc.favorite')}
             onClick={() =>
               run(call('doc:favorite', { id: menu.doc.id, value: !menu.doc.isFavorite }))
+            }
+          />
+          <Item
+            icon={
+              menu.doc.pinnedAt !== null ? (
+                <PinedIcon width={ICON} height={ICON} />
+              ) : (
+                <PinIcon width={ICON} height={ICON} />
+              )
+            }
+            label={ctx.i18n.t(menu.doc.pinnedAt !== null ? 'doc.unpin' : 'doc.pin')}
+            onClick={() =>
+              run(call('doc:pin', { id: menu.doc.id, value: menu.doc.pinnedAt === null }))
             }
           />
           <Item

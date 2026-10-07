@@ -211,8 +211,12 @@ pub fn dispatch(
             docs::remove(c, &a.id)
         }),
         "doc:favorite" => call(db, |c| {
-            let a: DocFavorite = parse(args)?;
+            let a: DocFlag = parse(args)?;
             docs::favorite(c, &a.id, a.value)
+        }),
+        "doc:pin" => call(db, |c| {
+            let a: DocFlag = parse(args)?;
+            docs::pin(c, &a.id, a.value)
         }),
         // 首页每行的正文摘要（从 doc_text 取，见 docs.rs::summary）
         "doc:summary" => call(db, |c| {
@@ -475,9 +479,10 @@ struct DocMove {
     sort_order: Option<f64>,
 }
 
+/// 「给文档翻一个开关」的入参 —— 收藏（`doc:favorite`）和置顶（`doc:pin`）共用一个形状。
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct DocFavorite {
+struct DocFlag {
     id: String,
     /// 不给就是切换
     value: Option<bool>,

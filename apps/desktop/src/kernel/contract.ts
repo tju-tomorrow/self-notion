@@ -255,13 +255,14 @@ export interface SplitViewEvent {
  *  只记录「主区现在该显示哪一页」，**不动标签条** —— 标签该留着（AFFiNE 也是）。 */
 export const CLOSE_ALL = 'ui:closeAll'
 
-/** 主区该显示哪一页列表。侧栏点「全部文档 / 最近 / 收藏 / 回收站」时发。
+/** 主区该显示哪一页列表。侧栏点「全部文档 / 最近 / 收藏 / 置顶 / 回收站」时发。
  *  ★ 事件不是服务：外侧栏不关心主区有没有装。`all` 就是「All docs」首页。 */
 export const SHOW_LIST = 'ui:showList'
 
 /** `vfs` = 虚拟目录那一页（D-0094）。它**不是文档列表**，是投影出来的目录树，
- *  由 `plugin-vfs` 自己画；这里只是为了让它蹭同一条「主区该显示哪一页」的路。 */
-export type ListGroup = 'all' | 'recent' | 'favorite' | 'trash' | 'vfs'
+ *  由 `plugin-vfs` 自己画；这里只是为了让它蹭同一条「主区该显示哪一页」的路。
+ *  `pinned` = 置顶那一页（D-0123），是普通的文档列表（跟 `favorite` 同一类）。 */
+export type ListGroup = 'all' | 'recent' | 'favorite' | 'pinned' | 'trash' | 'vfs'
 
 export interface ShowListEvent {
   group: ListGroup
@@ -293,6 +294,9 @@ export interface DocMeta {
   /** 非 null = 在回收站里 */
   deletedAt: number | null
   isFavorite: boolean
+  /** 置顶（D-0123）。非 null = 被置顶，值是**置顶那一刻**的时间戳 —— 「置顶」那一页按它倒序。
+   *  从没置顶过是 null，不是 0。跟 `isFavorite` 是两个独立的标记，可以同时占。 */
+  pinnedAt: number | null
   /** 从没打开过是 null，不是 0 */
   lastOpenedAt: number | null
   /** 平标签（D-0086）。库里是 JSON 字符串，Rust 解析成数组再出来。

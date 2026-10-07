@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS documents (
   updated_at     INTEGER NOT NULL,
   deleted_at     INTEGER,                     -- 非空 = 在回收站
   is_favorite    INTEGER NOT NULL DEFAULT 0,
+  -- 置顶（D-0123）：非空 = 被置顶，存的是**什么时候置的顶** —— 「置顶」那一页按它倒序。
+  -- ★ 旧库靠 MIGRATIONS v3 补这一列（ALTER 不幂等，所以不能只写在这儿）。
+  pinned_at      INTEGER,
   last_opened_at INTEGER,
   -- 平标签，JSON 数组（D-0086）。形状照 doc_summary.entities —— 一处存 JSON 数组，别处跟着它。
   -- ★ 旧库靠 MIGRATIONS v2 补这一列（ALTER 不幂等，所以不能只写在这儿）。

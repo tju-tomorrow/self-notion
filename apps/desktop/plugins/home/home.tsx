@@ -1,7 +1,7 @@
 /**
  * 列表页 —— 主区在**没有打开文档时**的那一页（`main.home` 槽）。
  *
- * 一页 = 一个分组（`ListGroup`）：全部文档 / 最近 / 收藏 / 回收站。侧栏点导航行会广播
+ * 一页 = 一个分组（`ListGroup`）：全部文档 / 最近 / 收藏 / 置顶 / 回收站。侧栏点导航行会广播
  * `SHOW_LIST`，这里据此换分组（C12）。结构照 AFFiNE 的 `AllDocsHeader` + `ListViewDoc`。
  *
  * 一行一篇文档（图标 / 标题 / 正文摘要 / 更新·创建时间 / 收藏 / ⋯），按更新时间分
@@ -826,9 +826,9 @@ export function Home({ ctx }: { ctx: Context }) {
             </span>
           </Popover>
 
-          {/* 「收藏」和「回收站」是**从已有的来**的列表（用户：收藏不需要可以新建）——
-              这两页不给新建按钮。全部文档 / 最近照旧。 */}
-          {active === 'favorite' || active === 'trash' ? null : (
+          {/* 「收藏」「置顶」和「回收站」是**从已有的来**的列表（用户：收藏不需要可以新建）——
+              这几页不给新建按钮。全部文档 / 最近照旧。 */}
+          {active === 'favorite' || active === 'pinned' || active === 'trash' ? null : (
             <button type="button" className={s.newDocBtn} onClick={create}>
               <PlusIcon width={16} height={16} />
               {ctx.i18n.t('home.new')}

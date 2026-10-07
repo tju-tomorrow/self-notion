@@ -87,6 +87,11 @@ export function filterGroup(docs: readonly DocMeta[], group: ListGroup): DocMeta
       return live
     case 'favorite':
       return live.filter((doc) => doc.isFavorite)
+    // 置顶：后置顶的在前 —— `pinnedAt` 就是排序键（它记的是置顶那一刻）。
+    case 'pinned':
+      return live
+        .filter((doc) => doc.pinnedAt !== null)
+        .sort((a, b) => (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0))
     case 'trash':
       return docs.filter((doc) => doc.deletedAt !== null)
     case 'recent':
