@@ -21,5 +21,6 @@ export function apply(ctx: Context) {
   // 设置页导航的标签取自这个函数上的 `.label`（`shell-settings` 认它）。
   const section = () => createElement(ImportSection, { ctx })
   ;(section as { label?: string }).label = ctx.i18n.t('import.title')
+  ;(section as { group?: string }).group = 'integration'
   ctx.effect(() => ctx.slot.register('settings.section', section))
 }

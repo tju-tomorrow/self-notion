@@ -66,6 +66,7 @@ export function apply(ctx: Context) {
   // 设置页拿组件的 `.label` 当导航标签（`shell-settings` 的 `label()` 认这个属性，否则只能拿函数名）。
   const section = () => createElement(FontSection, { ctx })
   ;(section as { label?: string }).label = ctx.i18n.t('font.section')
+  ;(section as { group?: string }).group = 'look'
 
   ctx.effect(() => [
     ctx.slot.register('doc.header', () => createElement(DocHeader, { ctx })),

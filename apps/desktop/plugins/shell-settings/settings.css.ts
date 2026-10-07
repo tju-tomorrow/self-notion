@@ -7,19 +7,19 @@
  */
 import { style } from '@vanilla-extract/css'
 import * as motion from '../../src/ui/motion.css'
+import { scrim as scrimBase } from '../../src/ui/scrim.css'
 
-/** 遮罩。同 search-panel：压到 0.45 黑再开毛玻璃。 */
-export const scrim = style({
-  position: 'fixed',
-  inset: 0,
-  zIndex: 900,
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: 16,
-  background: 'rgba(0, 0, 0, 0.45)',
-  backdropFilter: 'blur(4px)',
-})
+/** 遮罩。同 search-panel：共用形状与代价说明在 `src/ui/scrim.css.ts`。 */
+export const scrim = style([
+  scrimBase,
+  {
+    zIndex: 900,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+  },
+])
 
 /** 弹窗本体。窗口小的时候靠 min() 收，不撑破屏。 */
 const panelBox = style({
@@ -139,6 +139,51 @@ export const navLabel = style({
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
 })
+
+/** 分类行（树的第一层）。**不是导航项**：点它只折/展，不动右边的内容 —— 所以比子项小一号、
+ *  不参与选中态。组与组之间空一格，读起来才像「文件夹」。 */
+export const navGroup = style({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 4,
+  height: 26,
+  flexShrink: 0,
+  width: '100%',
+  marginTop: 10,
+  padding: '0 6px 0 2px',
+  border: 'none',
+  borderRadius: 6,
+  background: 'transparent',
+  color: 'var(--affine-v2-text-secondary)',
+  font: 'inherit',
+  fontSize: 12,
+  fontWeight: 600,
+  cursor: 'pointer',
+  textAlign: 'left',
+  selectors: {
+    '&:first-child': { marginTop: 0 },
+    '&:hover': { color: 'var(--affine-v2-text-primary)' },
+  },
+})
+
+export const navChevron = style({
+  flex: '0 0 16px',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  color: 'var(--affine-v2-icon-secondary)',
+})
+
+export const navGroupLabel = style({
+  flex: 1,
+  minWidth: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+})
+
+/** 子项：缩进一级，跟分类行错开（图标左边那条空档就是层级）。 */
+export const navChild = style({ paddingLeft: 22 })
 
 export const content = style({
   flex: 1,

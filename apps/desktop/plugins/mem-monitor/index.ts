@@ -97,6 +97,7 @@ export function apply(ctx: Context) {
   ctx.effect(() => {
     const section = () => createElement(MemSection, { ctx, onOpen: setOpen })
     ;(section as { label?: string }).label = ctx.i18n.t('mem.title')
+    ;(section as { group?: string }).group = 'system'
     return ctx.slot.register('settings.section', section)
   })
 

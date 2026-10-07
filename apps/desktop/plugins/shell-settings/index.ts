@@ -44,6 +44,7 @@ export function apply(ctx: Context) {
   function own() {
     return createElement(PluginSection, { ctx, manager })
   }
+  ;(own as { group?: string }).group = 'system'
   ctx.effect(() => ctx.slot.register('settings.section', own))
 
   // ② 设置页框架。它自己也注册进这个槽（谁渲染这个槽谁就得到整扇设置页），

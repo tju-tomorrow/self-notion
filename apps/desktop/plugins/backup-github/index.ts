@@ -22,6 +22,7 @@ export function apply(ctx: Context) {
   // 设置页导航的标签取自这个函数上的 `.label`（`shell-settings` 认它），不给就只能显示「设置项 N」。
   const section = () => createElement(BackupSection, { ctx })
   ;(section as { label?: string }).label = ctx.i18n.t('backup.title')
+  ;(section as { group?: string }).group = 'integration'
   ctx.effect(() => ctx.slot.register('settings.section', section))
 
   // 自动备份：文档改动后推一次。Rust 侧没有调度器，这一层最省事；

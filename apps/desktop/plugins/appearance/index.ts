@@ -54,6 +54,7 @@ function pickLang(value: LangChoice): void {
 export function apply(ctx: Context) {
   const section = () => createElement(AppearanceSection, { ctx })
   ;(section as { label?: string }).label = ctx.i18n.t('settings.appearance')
+  ;(section as { group?: string }).group = 'look'
   ctx.effect(() => ctx.slot.register('settings.section', section))
   // 纸面的颜色/磨砂写 `<html>` 那份变量 —— 跟设置页分开：改一次不必重建整棵树。
   ctx.effect(() => createPaper(ctx))

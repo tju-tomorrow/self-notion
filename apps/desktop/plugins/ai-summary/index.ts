@@ -100,5 +100,6 @@ export function apply(ctx: Context) {
 
   const section = () => createElement(AiSection, { ctx })
   ;(section as { label?: string }).label = ctx.i18n.t('ai.title')
+  ;(section as { group?: string }).group = 'integration'
   ctx.effect(() => ctx.slot.register('settings.section', section))
 }

@@ -20,10 +20,12 @@ import {
   useEffect,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { CloseIcon, PageIcon, PluginIcon } from '@blocksuite/icons/rc'
+import { ArrowDownSmallIcon, ArrowRightSmallIcon, CloseIcon, PageIcon, PluginIcon } from '@blocksuite/icons/rc'
 import type { Context } from 'cordis'
 import type { PluginEntry, PluginManager, Toggle } from './store'
 import { reportError } from '../../src/kernel/errors'
+import { readLocal, writeLocal } from '../../src/kernel/local'
+import { SCRIM } from '../../src/ui/scrim.css'
 // 契约靠 module augmentation 挂到 Context 上；显式 import 一次，保证它进了编译单元。
 import type {} from '../../src/kernel/contract'
 import * as s from './settings.css'
@@ -56,6 +58,48 @@ function asComponent(section: unknown): ComponentType {
   return section as ComponentType
 }
 
+/* ────────────────────────── 分类（导航树的第一层） ────────────────────────── */
+
+/**
+ * 分类表。**section 自己只声明一个稳定的 id**（挂组件上的 `group` 属性，和 `.label` 同一个做法
+ * —— 不动契约），名字和顺序在这儿。加一类 = 加一行；别人加一段只要写 `group = 'look'`。
+ */
+const GROUPS = [
+  { id: 'look', key: 'settings.group.look' },
+  { id: 'integration', key: 'settings.group.integration' },
+  { id: 'system', key: 'settings.group.system' },
+] as const
+
+/** 没声明 `group` 的落这儿 —— 第三方插件不会因为不在分类表里就从导航上消失。 */
+const OTHER = 'other'
+
+interface Leaf {
+  section: unknown
+  /** 槽里的**全局**序号：`label()` 的兜底名要用它。 */
+  index: number
+}
+
+interface Bucket {
+  id: string
+  label: string
+  leaves: Leaf[]
+}
+
+function groupOf(section: unknown): string {
+  const id = (section as { group?: unknown }).group
+  return typeof id === 'string' && id ? id : OTHER
+}
+
+function bucketize(ctx: Context, sections: readonly unknown[]): Bucket[] {
+  const buckets: Bucket[] = GROUPS.map((g) => ({ id: g.id, label: ctx.i18n.t(g.key), leaves: [] }))
+  buckets.push({ id: OTHER, label: ctx.i18n.t('settings.group.other'), leaves: [] })
+  sections.forEach((section, index) => {
+    const bucket = buckets.find((b) => b.id === groupOf(section)) ?? buckets[buckets.length - 1]
+    bucket.leaves.push({ section, index })
+  })
+  return buckets.filter((b) => b.leaves.length > 0)
+}
+
 /* ────────────────────────── 设置页框架 ────────────────────────── */
 
 export function SettingsPage({
@@ -80,9 +124,65 @@ export function SettingsPage({
   const sections = all.filter((item) => item !== self)
 
   const [picked, setPicked] = useState<unknown>(null)
-  // 选中的那个可能已经随着插件卸载消失了 —— 那就退回第一个，别渲染一片空白。
-  const active = picked !== null && sections.includes(picked) ? picked : (sections[0] ?? null)
+  const buckets = useMemo(() => bucketize(ctx, sections), [ctx, sections])
+  // 选中的那个可能已经随着插件卸载消失了 —— 那就退回树里第一段，别渲染一片空白。
+  const first = buckets[0]?.leaves[0]?.section ?? sections[0] ?? null
+  const active = picked !== null && sections.includes(picked) ? picked : first
   const activeIndex = active === null ? -1 : sections.indexOf(active)
+
+  // 折起来的分类记在本地：设置页是每次打开重挂的，存在内存里等于每次都要重新折一遍。
+  const [folded, setFolded] = useState<string[]>(() => readLocal<string[]>('sn.settings.folded', []))
+  const fold = (id: string): void =>
+    setFolded((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+      writeLocal('sn.settings.folded', next)
+      return next
+    })
+
+  const rows: ReactNode[] = []
+  for (const bucket of buckets) {
+    // 选中的那一段在折起来的分类里也照开 —— 否则右边显示着内容，左边找不到它在哪。
+    const open = !folded.includes(bucket.id) || bucket.leaves.some((leaf) => leaf.section === active)
+    rows.push(
+      createElement(
+        'button',
+        {
+          key: `g:${bucket.id}`,
+          className: s.navGroup,
+          'aria-expanded': open,
+          onClick: () => fold(bucket.id),
+        },
+        createElement(
+          'span',
+          { className: s.navChevron },
+          createElement(open ? ArrowDownSmallIcon : ArrowRightSmallIcon, { width: 16, height: 16 }),
+        ),
+        createElement('span', { className: s.navGroupLabel }, bucket.label),
+      ),
+    )
+    if (!open) continue
+    for (const { section, index } of bucket.leaves) {
+      rows.push(
+        createElement(
+          'button',
+          {
+            key: index,
+            className: section === active ? `${s.navItem} ${s.navChild} ${s.navItemOn}` : `${s.navItem} ${s.navChild}`,
+            // ★ 外面的那层箭头不能省：槽里登记的常常是**函数**（插件惯用 `const section = () => …`），
+            //   而 useState 见到函数参数会把它当更新器调用 —— 存进去的就不是那一项了，
+            //   选中判定随即失效、永远弹回第一节（这就是「字体 / GitHub 备份点不动」）。
+            onClick: () => setPicked(() => section),
+          },
+          createElement(
+            'span',
+            { className: s.navIcon },
+            createElement(section === own ? PluginIcon : PageIcon, { width: ICON, height: ICON }),
+          ),
+          createElement('span', { className: s.navLabel }, label(ctx, section, index, own)),
+        ),
+      )
+    }
+  }
 
   return createElement(
     'div',
@@ -91,29 +191,7 @@ export function SettingsPage({
       'div',
       { className: s.nav },
       createElement('div', { className: s.navTitle }, ctx.i18n.t('settings.title')),
-      createElement(
-        'div',
-        { className: s.navList },
-        ...sections.map((section, index) =>
-          createElement(
-            'button',
-            {
-              key: index,
-              className: section === active ? `${s.navItem} ${s.navItemOn}` : s.navItem,
-              // ★ 外面的那层箭头不能省：槽里登记的常常是**函数**（插件惯用 `const section = () => …`），
-              //   而 useState 见到函数参数会把它当更新器调用 —— 存进去的就不是那一项了，
-              //   选中判定随即失效、永远弹回第一节（这就是「字体 / GitHub 备份点不动」）。
-              onClick: () => setPicked(() => section),
-            },
-            createElement(
-              'span',
-              { className: s.navIcon },
-              createElement(section === own ? PluginIcon : PageIcon, { width: ICON, height: ICON }),
-            ),
-            createElement('span', { className: s.navLabel }, label(ctx, section, index, own)),
-          ),
-        ),
-      ),
+      createElement('div', { className: s.navList }, ...rows),
     ),
     createElement(
       'div',
@@ -274,7 +352,7 @@ export function SettingsOverlay({
     createElement(
       'div',
       {
-        className: s.scrim,
+        className: `${s.scrim} ${SCRIM}`,
         // 点空白关（点面板本体不关）
         onMouseDown: (e: ReactMouseEvent<HTMLDivElement>) => {
           if (e.target === e.currentTarget) toggle.set(false)
