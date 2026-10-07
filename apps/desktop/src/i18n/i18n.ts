@@ -62,10 +62,11 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'blob.unnamed': '未命名附件',
     // 顶栏那个入口按钮 —— 它开的是附件板，不是"选文件"，所以不能复用 blob.pick
     'blob.open': '附件',
-    // 侧栏分组（键名由 `sidebar.group.${g}` 拼出来，g ∈ tree/recent/favorite/trash）
+    // 侧栏分组（键名由 `sidebar.group.${g}` 拼出来，g ∈ tree/recent/favorite/pinned/trash）
     'sidebar.group.tree': '全部文档',
     'sidebar.group.recent': '最近',
     'sidebar.group.favorite': '收藏',
+    'sidebar.group.pinned': '置顶',
     'sidebar.group.trash': '回收站',
     // 侧栏那一行「虚拟目录」+ 它开出来的那一页（D-0094）
     'vfs.nav': '虚拟目录',
@@ -207,6 +208,7 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'home.createdShort': '创建',
     'home.empty': '还没有文档，点「新建文档」开始',
     'home.empty.favorite': '还没有收藏的文档',
+    'home.empty.pinned': '还没有置顶的文档',
     'home.empty.recent': '最近没动过任何文档',
     'home.empty.trash': '回收站是空的',
     'home.group.today': '今天',
@@ -238,6 +240,8 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'doc.titlePlaceholder': '标题',
     'doc.favorite': '收藏',
     'doc.unfavorite': '取消收藏',
+    'doc.pin': '置顶',
+    'doc.unpin': '取消置顶',
     'doc.menu': '页面操作',
     'doc.back': '返回',
     // 并排看笔记（D-0118）。文案按当前栏数变 —— 一颗按钮三种状态。
@@ -384,6 +388,11 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'caret.shape.default': '系统默认',
     'caret.shape.bar': '细线',
     'caret.shape.block': '方块',
+    'caret.color': '光标颜色',
+    'caret.color.desc':
+      '正文里插入点的颜色。形状选「系统默认」时，改的是系统光标自己的颜色；选细线/方块时，改的是那个自绘的光标。',
+    'caret.color.theme': '跟随主题',
+    'caret.color.custom': '自定义',
     // 内存监控（D-0079）
     'mem.title': '内存',
     'mem.tray': '在菜单栏显示',
@@ -508,6 +517,7 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'sidebar.group.tree': 'All docs',
     'sidebar.group.recent': 'Recent',
     'sidebar.group.favorite': 'Favorites',
+    'sidebar.group.pinned': 'Pinned',
     'sidebar.group.trash': 'Trash',
     'vfs.nav': 'Virtual directory',
     'vfs.hint': 'The library as a tree · a directory is a query',
@@ -639,6 +649,7 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'home.createdShort': 'Created',
     'home.empty': 'No documents yet — hit “New doc” to start',
     'home.empty.favorite': 'Nothing favorited yet',
+    'home.empty.pinned': 'Nothing pinned yet',
     'home.empty.recent': 'No recently edited documents',
     'home.empty.trash': 'Trash is empty',
     'home.group.today': 'Today',
@@ -668,6 +679,8 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'doc.titlePlaceholder': 'Title',
     'doc.favorite': 'Favorite',
     'doc.unfavorite': 'Remove from favorites',
+    'doc.pin': 'Pin to top',
+    'doc.unpin': 'Unpin',
     'doc.menu': 'Page actions',
     'doc.back': 'Back',
     // Split view (D-0118)
@@ -810,6 +823,11 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'caret.shape.default': 'System default',
     'caret.shape.bar': 'Thin line',
     'caret.shape.block': 'Block',
+    'caret.color': 'Caret color',
+    'caret.color.desc':
+      'Color of the insertion point. With the "System default" shape this recolors the native caret itself; with the thin line / block shapes it recolors the hand-drawn one.',
+    'caret.color.theme': 'Follow theme',
+    'caret.color.custom': 'Custom',
     // Memory monitor (D-0079)
     'mem.title': 'Memory',
     'mem.tray': 'Show in menu bar',
