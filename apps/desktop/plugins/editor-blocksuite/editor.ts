@@ -1440,8 +1440,6 @@ export async function mountEditor(
   const unmountDrag = readonly ? () => {} : mountBlockDrag(el, store)
   // 「行尾那片空白也能起手拖选」（D-0090）—— 只在可编辑区外接管，别的地方一律放行。
   const unmountSelect = selectAnywhere(el)
-  // 粘贴的入口守卫。上游 `PasteTr` 不判空，见 `guardEmptyPaste` 上面那段。
-  const unmountPaste = guardEmptyPaste(el)
   // 工具条上点完命令马上落库（不用等那 300ms 的打字节流）；点了没变就写进 errors.log。
   const unmountToolbarFlush = watchToolbarClicks(() => docId)
   activeStd = std
@@ -1511,7 +1509,6 @@ export async function mountEditor(
       unmountCaret()
       unmountDrag()
       unmountSelect()
-      unmountPaste()
       unmountToolbarFlush()
       el.removeEventListener('pointerdown', onPaneDown, true)
       el.removeEventListener('keydown', onUndoKey, true)
@@ -1526,40 +1523,6 @@ export async function mountEditor(
       stores.delete(docId)
     },
   }
-}
-
-/**
- * 粘贴的入口守卫：**上游有个不判空的坑**。
- *
- * `affine-shared` 的 `paste.js` 里，`PasteTr` 构造函数直接取 `snapshot.content[0].flavour`；
- * 拿到空 slice 就是 `undefined is not an object (evaluating 'this.firstSnapshot.flavour')`，
- * 崩在按 ⌘V 那一刻。而空 slice 有两条来路：`flatNote()` 把「没有孩子的 note」的 content
- * 换成 `[]`；adapter 压根解不出块（Finder 里拷一个文件）。
- *
- * 不 patch 依赖，改在**事件这一层**把「解出来必然是空的」那几类拦下来，其余照旧交给上游：
- *   · 只有非图片文件（图片归上游，它建图片块，我们只管同一次粘贴的去重）
- *   · 文本和 HTML 里既没有字，也没有图片 / 列表 / 表格 / 代码这种块级东西
- *
- * ★ 拦不住的那半：HTML 看着有内容、上游解析器却吐空 —— 那在 adapter 内部，站在事件这一层
- *   看不见。真出现只能改依赖。
- */
-function guardEmptyPaste(el: HTMLElement): () => void {
-  const onPaste = (e: ClipboardEvent) => {
-    const data = e.clipboardData
-    if (!data) return
-    if (Array.from(data.files).some((f) => f.type.startsWith('image/'))) return
-
-    const html = data.getData('text/html')
-    const text = data.getData('text/plain')
-    const blockish = /<(img|table|ul|ol|pre|blockquote|h[1-6])\b/i.test(html)
-    if (blockish || text.trim() || html.replace(/<[^>]*>/g, ' ').trim()) return
-
-    reportNote('editor', `粘贴拦下：剪贴板里没有能解成块的内容（files=${data.files.length}）`)
-    e.preventDefault()
-    e.stopPropagation()
-  }
-  el.addEventListener('paste', onPaste, true)
-  return () => el.removeEventListener('paste', onPaste, true)
 }
 
 /** 把光标放回标题末尾。标题内部那块才是 contenteditable，外面那圈 padding 是死区。 */

@@ -5,6 +5,9 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
+  '@blocksuite/affine-shared@0.22.4':
+    hash: 00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee
+    path: patches/@blocksuite__affine-shared@0.22.4.patch
   '@blocksuite/affine-widget-slash-menu@0.22.4':
     hash: 4f5952663820e6f8c71ac60955cfca8bca71fcd517857f9711c5761c782b0fcc
     path: patches/@blocksuite__affine-widget-slash-menu@0.22.4.patch
@@ -2502,7 +2505,7 @@ snapshots:
       '@blocksuite/affine-components': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-slash-menu': 0.22.4(patch_hash=4f5952663820e6f8c71ac60955cfca8bca71fcd517857f9711c5761c782b0fcc)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -2531,7 +2534,7 @@ snapshots:
       '@blocksuite/affine-components': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-slash-menu': 0.22.4(patch_hash=4f5952663820e6f8c71ac60955cfca8bca71fcd517857f9711c5761c782b0fcc)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -2558,7 +2561,7 @@ snapshots:
       '@blocksuite/affine-inline-preset': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-slash-menu': 0.22.4(patch_hash=4f5952663820e6f8c71ac60955cfca8bca71fcd517857f9711c5761c782b0fcc)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -2591,7 +2594,7 @@ snapshots:
       '@blocksuite/affine-inline-preset': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-slash-menu': 0.22.4(patch_hash=4f5952663820e6f8c71ac60955cfca8bca71fcd517857f9711c5761c782b0fcc)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -2619,7 +2622,7 @@ snapshots:
       '@blocksuite/affine-components': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-slash-menu': 0.22.4(patch_hash=4f5952663820e6f8c71ac60955cfca8bca71fcd517857f9711c5761c782b0fcc)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/data-view': 0.22.4(@types/debug@4.1.13)(@types/node@26.6.4)(@types/react@19.3.0)(change-case@4.1.2)(lightningcss@1.33.0)(react@19.3.0)
       '@blocksuite/global': 0.22.4
@@ -2668,7 +2671,7 @@ snapshots:
       '@blocksuite/affine-inline-reference': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-drag-handle': 0.22.4(@types/react@19.3.0)(babel-plugin-macros@3.1.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-slash-menu': 0.22.4(patch_hash=4f5952663820e6f8c71ac60955cfca8bca71fcd517857f9711c5761c782b0fcc)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/data-view': 0.22.4(@types/debug@4.1.13)(@types/node@26.6.4)(@types/react@19.3.0)(change-case@4.1.2)(lightningcss@1.33.0)(react@19.3.0)
@@ -2719,7 +2722,7 @@ snapshots:
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/std': 0.22.4
       '@blocksuite/store': 0.22.4
@@ -2747,7 +2750,7 @@ snapshots:
       '@blocksuite/affine-inline-preset': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-edgeless-toolbar': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -2776,7 +2779,7 @@ snapshots:
       '@blocksuite/affine-inline-reference': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-slash-menu': 0.22.4(patch_hash=4f5952663820e6f8c71ac60955cfca8bca71fcd517857f9711c5761c782b0fcc)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -2808,7 +2811,7 @@ snapshots:
       '@blocksuite/affine-inline-reference': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-slash-menu': 0.22.4(patch_hash=4f5952663820e6f8c71ac60955cfca8bca71fcd517857f9711c5761c782b0fcc)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -2838,7 +2841,7 @@ snapshots:
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-gfx-pointer': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-edgeless-toolbar': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-frame-title': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
@@ -2869,7 +2872,7 @@ snapshots:
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-gfx-turbo-renderer': 0.22.4
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-slash-menu': 0.22.4(patch_hash=4f5952663820e6f8c71ac60955cfca8bca71fcd517857f9711c5761c782b0fcc)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -2899,7 +2902,7 @@ snapshots:
       '@blocksuite/affine-inline-latex': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-slash-menu': 0.22.4(patch_hash=4f5952663820e6f8c71ac60955cfca8bca71fcd517857f9711c5761c782b0fcc)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -2932,7 +2935,7 @@ snapshots:
       '@blocksuite/affine-inline-preset': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -2963,7 +2966,7 @@ snapshots:
       '@blocksuite/affine-inline-preset': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-slash-menu': 0.22.4(patch_hash=4f5952663820e6f8c71ac60955cfca8bca71fcd517857f9711c5761c782b0fcc)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -2995,7 +2998,7 @@ snapshots:
       '@blocksuite/affine-inline-preset': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/std': 0.22.4
       '@blocksuite/store': 0.22.4
@@ -3039,7 +3042,7 @@ snapshots:
       '@blocksuite/affine-inline-preset': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-edgeless-selected-rect': 0.22.4(@types/react@19.3.0)(babel-plugin-macros@3.1.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-edgeless-toolbar': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/data-view': 0.22.4(@types/debug@4.1.13)(@types/node@26.6.4)(@types/react@19.3.0)(change-case@4.1.2)(lightningcss@1.33.0)(react@19.3.0)
@@ -3093,7 +3096,7 @@ snapshots:
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-inline-reference': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-slash-menu': 0.22.4(patch_hash=4f5952663820e6f8c71ac60955cfca8bca71fcd517857f9711c5761c782b0fcc)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -3122,7 +3125,7 @@ snapshots:
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/std': 0.22.4
       '@blocksuite/store': 0.22.4
@@ -3153,7 +3156,7 @@ snapshots:
       '@blocksuite/affine-inline-preset': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-slash-menu': 0.22.4(patch_hash=4f5952663820e6f8c71ac60955cfca8bca71fcd517857f9711c5761c782b0fcc)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/data-view': 0.22.4(@types/debug@4.1.13)(@types/node@26.6.4)(@types/react@19.3.0)(change-case@4.1.2)(lightningcss@1.33.0)(react@19.3.0)
       '@blocksuite/global': 0.22.4
@@ -3194,7 +3197,7 @@ snapshots:
   '@blocksuite/affine-components@0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)':
     dependencies:
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -3239,7 +3242,7 @@ snapshots:
       '@blocksuite/affine-components': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/data-view': 0.22.4(@types/debug@4.1.13)(@types/node@26.6.4)(@types/react@19.3.0)(change-case@4.1.2)(lightningcss@1.33.0)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -3284,7 +3287,7 @@ snapshots:
       '@blocksuite/affine-components': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -3309,7 +3312,7 @@ snapshots:
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -3336,7 +3339,7 @@ snapshots:
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -3365,7 +3368,7 @@ snapshots:
       '@blocksuite/affine-fragment-doc-title': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -3393,7 +3396,7 @@ snapshots:
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-edgeless-toolbar': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -3423,7 +3426,7 @@ snapshots:
       '@blocksuite/affine-gfx-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-edgeless-toolbar': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -3453,7 +3456,7 @@ snapshots:
       '@blocksuite/affine-gfx-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-edgeless-toolbar': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -3485,7 +3488,7 @@ snapshots:
       '@blocksuite/affine-gfx-pointer': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-edgeless-toolbar': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -3521,7 +3524,7 @@ snapshots:
       '@blocksuite/affine-gfx-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-edgeless-toolbar': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -3555,7 +3558,7 @@ snapshots:
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-edgeless-toolbar': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -3585,7 +3588,7 @@ snapshots:
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-edgeless-toolbar': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -3615,7 +3618,7 @@ snapshots:
       '@blocksuite/affine-gfx-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-edgeless-toolbar': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -3645,7 +3648,7 @@ snapshots:
       '@blocksuite/affine-gfx-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-edgeless-toolbar': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -3675,7 +3678,7 @@ snapshots:
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-edgeless-toolbar': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -3712,7 +3715,7 @@ snapshots:
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-inline-reference': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -3743,7 +3746,7 @@ snapshots:
       '@blocksuite/affine-inline-reference': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -3778,7 +3781,7 @@ snapshots:
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-inline-reference': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -3807,7 +3810,7 @@ snapshots:
       '@blocksuite/affine-components': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -3842,7 +3845,7 @@ snapshots:
       '@blocksuite/affine-inline-reference': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -3877,7 +3880,7 @@ snapshots:
       '@blocksuite/affine-components': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -3920,7 +3923,7 @@ snapshots:
     dependencies:
       '@blocksuite/affine-components': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -3944,7 +3947,7 @@ snapshots:
       - react
       - supports-color
 
-  '@blocksuite/affine-shared@0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)':
+  '@blocksuite/affine-shared@0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)':
     dependencies:
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/global': 0.22.4
@@ -4005,7 +4008,7 @@ snapshots:
       '@blocksuite/affine-components': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -4034,7 +4037,7 @@ snapshots:
       '@blocksuite/affine-components': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -4056,7 +4059,7 @@ snapshots:
       '@blocksuite/affine-components': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -4084,7 +4087,7 @@ snapshots:
       '@blocksuite/affine-gfx-shape': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-gfx-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -4108,7 +4111,7 @@ snapshots:
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -4132,7 +4135,7 @@ snapshots:
       '@blocksuite/affine-components': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -4156,7 +4159,7 @@ snapshots:
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/std': 0.22.4
       '@lit/context': 1.1.6
@@ -4191,7 +4194,7 @@ snapshots:
       '@blocksuite/affine-inline-reference': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/data-view': 0.22.4(@types/debug@4.1.13)(@types/node@26.6.4)(@types/react@19.3.0)(change-case@4.1.2)(lightningcss@1.33.0)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -4238,7 +4241,7 @@ snapshots:
       '@blocksuite/affine-inline-reference': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -4266,7 +4269,7 @@ snapshots:
       '@blocksuite/affine-components': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-edgeless-selected-rect': 0.22.4(@types/react@19.3.0)(babel-plugin-macros@3.1.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
@@ -4289,7 +4292,7 @@ snapshots:
       '@blocksuite/affine-components': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -4314,7 +4317,7 @@ snapshots:
       '@blocksuite/affine-components': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -4334,7 +4337,7 @@ snapshots:
     dependencies:
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/std': 0.22.4
       '@preact/signals-core': 1.14.4
@@ -4352,7 +4355,7 @@ snapshots:
       '@blocksuite/affine-components': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -4378,7 +4381,7 @@ snapshots:
       '@blocksuite/affine-components': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -4419,7 +4422,7 @@ snapshots:
       '@blocksuite/affine-components': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-ext-loader': 0.22.4
       '@blocksuite/affine-model': 0.22.4
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
@@ -4484,7 +4487,7 @@ snapshots:
       '@blocksuite/affine-inline-reference': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-model': 0.22.4
       '@blocksuite/affine-rich-text': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-drag-handle': 0.22.4(@types/react@19.3.0)(babel-plugin-macros@3.1.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-edgeless-auto-connect': 0.22.4(@types/react@19.3.0)(babel-plugin-macros@3.1.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/affine-widget-edgeless-dragging-area': 0.22.4(@types/react@19.3.0)(babel-plugin-macros@3.1.0)(change-case@4.1.2)(react@19.3.0)
@@ -4536,7 +4539,7 @@ snapshots:
   '@blocksuite/data-view@0.22.4(@types/debug@4.1.13)(@types/node@26.6.4)(@types/react@19.3.0)(change-case@4.1.2)(lightningcss@1.33.0)(react@19.3.0)':
     dependencies:
       '@blocksuite/affine-components': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
-      '@blocksuite/affine-shared': 0.22.4(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
+      '@blocksuite/affine-shared': 0.22.4(patch_hash=00b9a9f60d77a6ef10bacd2fa8c7d441c141a8ca2a75670ed5a29d69fa6349ee)(@types/react@19.3.0)(change-case@4.1.2)(react@19.3.0)
       '@blocksuite/global': 0.22.4
       '@blocksuite/icons': 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
       '@blocksuite/std': 0.22.4
