@@ -12,11 +12,11 @@ import { createElement } from 'react'
 import { listen } from '@tauri-apps/api/event'
 // 事件名与载荷类型都从契约来；`Events` 的声明也在契约里（`declare module` 那一块）
 // —— 消费方不用再各补一份。
-import { CLOSE_ALL, CLOSE_TAB, OPEN_DOC } from '../../src/kernel/contract'
+import { AGENT_TAB_ID, CLOSE_ALL, CLOSE_TAB, DOCS_CHANGED, OPEN_DOC, type DocMeta } from '../../src/kernel/contract'
 import { reportError } from '../../src/kernel/errors'
 // 多窗口：窗口标签（`win-N`）—— 会话恢复与持久化只有主窗口做。
 import { isMainWindow } from '../../src/kernel/window'
-import { createTabs, restore, serialize } from './tabs'
+import { createTabs, pruneSnapshot, restore, serialize } from './tabs'
 import { TabBar } from './view'
 
 export const name = 'shell-tabs'
@@ -37,10 +37,48 @@ export function apply(ctx: Context) {
     isMainWindow ? () => ctx.settings.set(SESSION_KEY, serialize(store.snapshot())) : undefined,
   )
 
+  // 全库文档 id（含回收站）—— 会话恢复靠它裁掉清库时已经没了的文档：那些 id 还在 `meta` 里
+  // （换编辑器时特意保住了标签），文档本身却没了，打开就是 `doc:open` 的 no such doc。
+  let liveIds: Set<string> | null = null
+  let inflight: Promise<void> | null = null
+  const ensureIds = (): Promise<void> => {
+    if (liveIds) return Promise.resolve()
+    if (inflight) return inflight
+    inflight = ctx.rpc
+      .call<DocMeta[]>('doc:list', { includeTrashed: true })
+      .then((all) => {
+        liveIds = new Set(all.map((doc) => doc.id))
+      })
+      // 失败不吞：rejection 冒到全局处理器落进 errors.log（D-0045）
+      .finally(() => {
+        inflight = null
+      })
+    return inflight
+  }
+  /** 助手那一页不是文档，库里查不到 —— 永远留着。 */
+  const keep = (id: string) => id === AGENT_TAB_ID || liveIds?.has(id) === true
+
+  /** 把标签裁到「库里还在的」。一个不剩就跟关光所有标签一样回首页。 */
+  const prune = () => {
+    const before = store.snapshot()
+    store.replace(pruneSnapshot(before, keep))
+    const after = store.snapshot()
+    if (after === before) return
+    if (after.activeId === null) ctx.emit(CLOSE_ALL)
+    else if (after.activeId !== before.activeId) ctx.emit(OPEN_DOC, { id: after.activeId })
+  }
+
   /** 把设置里的会话读回来（`restore` 逐字段校验，坏数据降级成空标签）。 */
   const pull = () => {
+    const restored = restore(ctx.settings.get(SESSION_KEY))
+    // 库还没到：恢复结果里可能有早已没了的 id，先别铺（先别显示），等 ensureIds 回来补一次。
+    // pull **不 await** —— 否则冷启动会等这一趟 rpc。
+    if (!liveIds) {
+      void ensureIds().then(() => pull())
+      return
+    }
     const before = store.snapshot().activeId
-    store.replace(restore(ctx.settings.get(SESSION_KEY)))
+    store.replace(pruneSnapshot(restored, keep))
     const after = store.snapshot().activeId
     // ★ 恢复出来的标签得**告诉编辑器**。少了这一句，重启后标签条上躺着那几篇，
     //   主区却空着 —— 编辑器只认 OPEN_DOC，不认标签条里有什么（契约里没有「当前文档」）。
@@ -63,6 +101,13 @@ export function apply(ctx: Context) {
 
     // 侧栏/编辑器点了文档 → 加一个标签（已开着就切过去）。**不回发**，否则自己收自己。
     ctx.on(OPEN_DOC, ({ id }) => store.open(id)),
+
+    // 库变了（别处删了 / 进了回收站 / 硬删）→ 开着的那篇可能已经没了。重取全库再裁一次，
+    // 否则标签还在、点过去就是 `doc:open` 的 no such doc。
+    ctx.on(DOCS_CHANGED, () => {
+      liveIds = null
+      void ensureIds().then(() => prune())
+    }),
 
     // 标签条本体。返回的 unregister 交给 ctx.effect 记账 —— 卸载时自动撤销（D-0033）。
     ctx.slot.register('titlebar.center', () => createElement(TabBar, { ctx, store })),

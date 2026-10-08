@@ -1,6 +1,6 @@
 //! 内存监控（D-0088）：菜单栏一个数字 + 明细接口。
 //!
-//! **为什么不能只报自己**：编辑器和 Y.Doc 跑在 **WKWebView 的 WebContent 进程**里，
+//! **为什么不能只报自己**：编辑器和它那份 doc 跑在 **WKWebView 的 WebContent 进程**里，
 //! 那是另一个进程。只报我们自己（SQLite + 网络那点），数字是假的。
 //!
 //! **为什么不能靠父子关系认领它**：`ps` 显示那些 XPC 服务（WebContent / GPU / Networking）

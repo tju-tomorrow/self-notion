@@ -58,6 +58,21 @@ function normalize(input: TabSnapshot): TabSnapshot {
   return { tabs, activeId }
 }
 
+/** 只留 `keep` 认可的标签（库里还在的）。激活那篇被裁掉时落到邻居（跟 `close` 同一条规矩）。
+ *  一个不剩返回空快照 —— 调用方自己发 `CLOSE_ALL` 回首页。内容没变时**返回原对象**，好让 `replace` 短路。 */
+export function pruneSnapshot(snap: TabSnapshot, keep: (id: string) => boolean): TabSnapshot {
+  const tabs = snap.tabs.filter((tab) => keep(tab.id))
+  if (tabs.length === snap.tabs.length) return snap
+  let activeId = snap.activeId
+  if (activeId !== null && !tabs.some((tab) => tab.id === activeId)) {
+    const at = snap.tabs.findIndex((tab) => tab.id === activeId)
+    const right = snap.tabs.slice(at + 1).find((tab) => keep(tab.id))
+    const left = snap.tabs.slice(0, at).reverse().find((tab) => keep(tab.id))
+    activeId = (right ?? left)?.id ?? null
+  }
+  return { tabs, activeId }
+}
+
 /** 两份快照内容是否一样（顺序算数）。`replace` 靠它短路，否则"自己写回 → 通知 → 再写回"会转圈。 */
 function sameSnap(a: TabSnapshot, b: TabSnapshot): boolean {
   if (a.activeId !== b.activeId || a.tabs.length !== b.tabs.length) return false

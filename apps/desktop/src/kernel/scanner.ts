@@ -8,7 +8,12 @@ import { load, settled } from './registry'
 // 编译期展开成 import()，自带代码分割。
 // 相对路径而不是别名：插件目录在 `apps/desktop/plugins/`（D-0048 从仓库根搬进来了），
 // 就在 Vite root 底下，不需要 alias 也不需要 `server.fs.allow`。
-const modules = import.meta.glob('../../plugins/*/index.ts')
+// ★ 换基座（D-0129）：旧编辑器插件留着当参考，但**不再装载** —— 两个插件都 provide('editor')
+//   会撞。负模式把它挡在外面，目录原地不动（P1 用完 caret / find-panel 那几个再删）。
+const modules = import.meta.glob([
+  '../../plugins/*/index.ts',
+  '!../../plugins/editor-blocksuite/index.ts',
+])
 
 /** 发现并装载 `plugins/` 下的全部插件，然后做一次 settled 扫描。id = 目录名。 */
 export async function boot(ctx: Context): Promise<Map<string, Fiber>> {

@@ -3,8 +3,9 @@
 -- 并行施工时这份文件是法律。改它 = 回 Stage 0。
 -- 一次建齐 —— 数据模型后改就是丢数据。功能可以以后落地，表必须现在就在。
 --
--- 依据：D-0020（Rust 直连 SQLite 存 Yjs）· D-0023（FTS5）· D-0027（blob 进库）
+-- 依据：D-0020（Rust 直连 SQLite 存正文）· D-0023（FTS5）· D-0027（blob 进库）
 --       · D-0026（备份推 Markdown）· D-0040（doc_text 投影）· D-0043（doc_version）
+--       · D-0131（正文 = PM doc JSON，砍掉 Yjs）
 
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -21,36 +22,37 @@ CREATE TABLE IF NOT EXISTS documents (
   deleted_at     INTEGER,                     -- 非空 = 在回收站
   is_favorite    INTEGER NOT NULL DEFAULT 0,
   -- 置顶（D-0123）：非空 = 被置顶，存的是**什么时候置的顶** —— 「置顶」那一页按它倒序。
-  -- ★ 旧库靠 MIGRATIONS v3 补这一列（ALTER 不幂等，所以不能只写在这儿）。
   pinned_at      INTEGER,
   last_opened_at INTEGER,
   -- 平标签，JSON 数组（D-0086）。形状照 doc_summary.entities —— 一处存 JSON 数组，别处跟着它。
-  -- ★ 旧库靠 MIGRATIONS v2 补这一列（ALTER 不幂等，所以不能只写在这儿）。
   tags           TEXT NOT NULL DEFAULT '[]'
 );
 CREATE INDEX IF NOT EXISTS documents_parent ON documents(parent_id, sort_order);
 CREATE INDEX IF NOT EXISTS documents_recent ON documents(last_opened_at DESC);
 
--- ── Yjs 内容：增量追加，定期合并进 snapshot（顺带就是版本历史）─────────────
-CREATE TABLE IF NOT EXISTS doc_snapshot (
-  doc_id   TEXT PRIMARY KEY,
-  update_  BLOB NOT NULL
+-- ── 文档正文（D-0131）：ProseMirror doc JSON 的**字符串形式**。砍了 CRDT 就没有「增量」
+--    这条路 —— 一次覆盖就是全部（原来的 doc_snapshot + doc_update 两张表合成这一张）。
+--    没有这一行 = 这篇还没落过字节 → `doc:open` 回 content = null，编辑器自己造一份空的。
+CREATE TABLE IF NOT EXISTS doc (
+  doc_id  TEXT PRIMARY KEY,
+  content TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS doc_update (
-  seq      INTEGER PRIMARY KEY AUTOINCREMENT,
-  doc_id   TEXT NOT NULL,
-  update_  BLOB NOT NULL,
-  at       INTEGER NOT NULL,
-  origin   TEXT NOT NULL DEFAULT 'user'        -- 'user' | 'ai' | 'import'（D-0043）
+
+-- ── 同步块（P3-4 / D-0136）：节点只存一个 id，**内容在源里只有一份** ——
+--    「没有 CRDT 也能做到一致」的原因就是要保证一致的是一份、不是两份副本。
+--    ★ **不属于任何一篇文档**，所以清库 / 硬删不跟着 subtree 走（见 `store::reset` 的 DROP 清单）。
+CREATE TABLE IF NOT EXISTS sync (
+  id      TEXT PRIMARY KEY,
+  content TEXT NOT NULL,                      -- 那一段块的 JSON
+  at      INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS doc_update_doc ON doc_update(doc_id, seq);
 
 -- ── 文档版本点（D-0043）：AI 写入前 / 文档关闭 / 每 10 分钟 ─────────────────
 -- 撤销 + 版本历史面板共用它。历史只增不改 —— 「恢复到这里」是再记一个新版本。
 CREATE TABLE IF NOT EXISTS doc_version (
   id       INTEGER PRIMARY KEY AUTOINCREMENT,
   doc_id   TEXT NOT NULL,
-  update_  BLOB NOT NULL,                     -- 该时刻的完整 Yjs 状态
+  content  TEXT NOT NULL,                     -- 该时刻**完整**的 doc JSON
   at       INTEGER NOT NULL,
   origin   TEXT NOT NULL,                     -- 'user' | 'ai' | 'import'
   group_id TEXT,                              -- 一次 AI 回合 = 一个组，撤销按组来
@@ -59,7 +61,7 @@ CREATE TABLE IF NOT EXISTS doc_version (
 CREATE INDEX IF NOT EXISTS doc_version_doc ON doc_version(doc_id, at DESC);
 CREATE INDEX IF NOT EXISTS doc_version_group ON doc_version(group_id);
 
--- ── 全文索引（D-0023）。纯文本由渲染侧在保存时一并送来，Rust 不解析 Yjs ────
+-- ── 全文索引（D-0023）。纯文本由渲染侧在保存时一并送来，Rust 不解析 doc JSON ────
 CREATE VIRTUAL TABLE IF NOT EXISTS doc_fts USING fts5(doc_id UNINDEXED, title, body);
 
 -- ── Markdown 投影（D-0040）：和 doc_fts 同一个 payload，一份投影三处复用 ───

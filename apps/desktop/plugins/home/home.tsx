@@ -4,7 +4,7 @@
  * 一页 = 一个分组（`ListGroup`）：全部文档 / 最近 / 收藏 / 置顶 / 回收站。侧栏点导航行会广播
  * `SHOW_LIST`，这里据此换分组（C12）。结构照 AFFiNE 的 `AllDocsHeader` + `ListViewDoc`。
  *
- * 一行一篇文档（图标 / 标题 / 正文摘要 / 更新·创建时间 / 收藏 / ⋯），按更新时间分
+ * 一行一篇文档（图标 / 标题 / 更新·创建时间 / 收藏 / ⋯），按更新时间分
  * 「今天 / 更早 / 从未更新」。数据一次全量 `doc:list`，分组与筛选的纯函数在 `./group.ts`。
  *
  * 打开文档走契约里那条广播 `OPEN_DOC` —— 和侧栏同一条路，不直接调标签条。
@@ -41,7 +41,6 @@ import {
   DOCS_CHANGED,
   OPEN_DOC,
   type DocMeta,
-  type DocSummary,
   type ListGroup,
 } from '../../src/kernel/contract'
 import { buildSections, filterGroup, timeAgo, type OrderKey } from './group'
@@ -154,50 +153,6 @@ function Popover({
         : null}
     </>
   )
-}
-
-/**
- * 正文摘要：**只给要显示的那几行取**，取过的留在缓存里。
- *
- * 原来一次 batch 当前分组的全部文档 —— 几千篇的库里切一次分组就发一条几千 id 的请求，
- * 回来还得整体重渲。现在跟着窗口走：滚到哪儿取哪儿（C14 的摘要也是这么才有意义）。
- * `DOCS_CHANGED` 一到（别处改过名 / 编辑过正文）整片作废，下次渲染重取可见那几行。
- */
-function useSummaries(ctx: Context, ids: readonly string[]): (id: string) => string {
-  const cache = useRef(new Map<string, string>())
-  /** 问过但库里没有正文的（空文档）—— 记下来，不然每次渲染都要再问一遍。 */
-  const asked = useRef(new Set<string>())
-  const [, bump] = useState(0)
-  // 依赖用 id 串：`ids` 每次渲染都是新数组，直接当依赖会转圈。
-  const key = ids.join(',')
-
-  useEffect(() => {
-    const off = ctx.on(DOCS_CHANGED, () => {
-      cache.current.clear()
-      asked.current.clear()
-      bump((n) => n + 1)
-    })
-    return () => void off()
-  }, [ctx])
-
-  useEffect(() => {
-    const wanted = key === '' ? [] : key.split(',')
-    const missing = wanted.filter((id) => !cache.current.has(id) && !asked.current.has(id))
-    if (missing.length === 0) return
-    for (const id of missing) asked.current.add(id)
-    let live = true
-    // 失败不吞：让 rejection 冒到全局处理器，落进 errors.log（D-0045）
-    void ctx.rpc.call<DocSummary[]>('doc:summary', { ids: missing }).then((rows) => {
-      if (!live) return
-      for (const row of rows) cache.current.set(row.id, row.body)
-      bump((n) => n + 1)
-    })
-    return () => {
-      live = false
-    }
-  }, [ctx, key])
-
-  return (id) => cache.current.get(id) ?? ''
 }
 
 /** 勾那块往外放宽的像素：差几个像素不算差。 */
@@ -562,16 +517,8 @@ export function Home({ ctx }: { ctx: Context }) {
 
   const win = useWindow(items)
   const shown = items.slice(win.start, win.end)
-  // 摘要只问窗口里这几行的；卡片视图没有窗口，退回整页
-  const summaryOf = useSummaries(
-    ctx,
-    view === 'list'
-      ? shown.flatMap((item) => (item.kind === 'doc' ? [item.doc.id] : []))
-      : visible.map((doc) => doc.id),
-  )
 
   const label = (doc: DocMeta) => doc.title || ctx.i18n.t('sidebar.untitled')
-  const bodyOf = (doc: DocMeta) => summaryOf(doc.id)
   const favLabel = (doc: DocMeta) =>
     ctx.i18n.t(doc.isFavorite ? 'home.unfavorite' : 'sidebar.favorite')
 
@@ -694,10 +641,7 @@ export function Home({ ctx }: { ctx: Context }) {
     >
       {check(doc)}
       {icon(doc, ROW_ICON)}
-      <span className={s.rowBrief}>
-        {titleOf(doc, s.rowTitle)}
-        {bodyOf(doc) !== '' && <span className={s.rowSummary}>{bodyOf(doc)}</span>}
-      </span>
+      <span className={s.rowBrief}>{titleOf(doc, s.rowTitle)}</span>
       <span className={s.rowDates}>
         <span
           className={s.rowDate}
@@ -734,7 +678,6 @@ export function Home({ ctx }: { ctx: Context }) {
         {titleOf(doc, s.cardTitle)}
         {actionsFor(doc)}
       </div>
-      {bodyOf(doc) !== '' && <div className={s.cardBody}>{bodyOf(doc)}</div>}
     </div>
   )
 
@@ -742,9 +685,9 @@ export function Home({ ctx }: { ctx: Context }) {
     <div className={s.page}>
       <div className={s.header}>
         <div className={s.tabs}>
-          {/* 列表页标题 = 当前分组名。分组名跟侧栏同一套词条（all 那一页侧栏叫 tree）。 */}
+          {/* 顶部当 mac 的 pwd 用：`~/` + 当前分组名，跟侧栏同一套词条（all 那页侧栏叫 tree）。 */}
           <span className={s.headTitle}>
-            {ctx.i18n.t(`sidebar.group.${active === 'all' ? 'tree' : active}`)}
+            {`~/${ctx.i18n.t(`sidebar.group.${active === 'all' ? 'tree' : active}`)}`}
           </span>
         </div>
 

@@ -74,6 +74,24 @@ pub fn in_links(conn: &Connection, id: &str) -> ApiResult<Vec<Edge>> {
     )
 }
 
+/// 反向链接面板（P3-3）：谁指向我。**按建边时间倒序**（`doc_link.at`）——
+/// 跟 `in_links`（给 vfs 用、按标题排）是两种顺序，所以各写一条，不共用。
+/// 回收站里的排除掉（被删的页面不该出现在反向链接里）。
+/// 回整条 `DocMeta` —— 前端要标题 + id，多出来的字段它自己挑。
+pub fn backlinks(conn: &Connection, id: &str) -> ApiResult<Vec<super::docs::DocMeta>> {
+    let mut st = conn
+        .prepare(
+            "SELECT l.from_id FROM doc_link l JOIN documents d ON d.id = l.from_id
+             WHERE l.to_id = ?1 AND d.deleted_at IS NULL
+             ORDER BY l.at DESC",
+        )
+        .map_err(db_err)?;
+    let rows = st.query_map([id], |r| r.get::<_, String>(0)).map_err(db_err)?;
+    let ids = rows.collect::<rusqlite::Result<Vec<_>>>().map_err(db_err)?;
+    // 元数据形状只有 `docs` 知道，一条一条取回来（反链通常就几条，不值得抄一份 row mapper）。
+    ids.iter().map(|i| super::docs::get(conn, i)).collect()
+}
+
 /// 两个方向的 SQL 只差一个列名，包一层免得抄两遍 row mapper。
 fn edges(conn: &Connection, sql: &str, id: &str) -> ApiResult<Vec<Edge>> {
     let mut st = conn.prepare(sql).map_err(db_err)?;

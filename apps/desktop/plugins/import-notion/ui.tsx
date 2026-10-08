@@ -37,14 +37,12 @@ export function ImportSection({ ctx }: { ctx: Context }) {
       setPercent(0)
       setBusy(t('import.parsing', { name: picked.name }))
       try {
-        // ★ `blocks()` 是同步的，而编辑器是懒装载的 —— 清单在装载完之前是空的（会抛）。
-        //   先 await 一下，导入才拿得到和编辑器一模一样的 schema 清单（D-0064）。
+        // ★ `docFromMarkdown` 走编辑器，而编辑器是懒装载的 —— 先 await 一下再导（契约那条要求）。
         await ctx.editor.ready()
         const summary = await importNotionZip(
           {
             rpc: ctx.rpc,
-            docs: ctx.docs,
-            extensions: ctx.editor.blocks(),
+            editor: ctx.editor,
             onProgress: (done, total) => {
               setBusy(t('import.progress', { done, total }))
               setPercent(total === 0 ? 0 : Math.round((done / total) * 100))

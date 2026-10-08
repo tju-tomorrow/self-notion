@@ -227,9 +227,9 @@ pub fn now(db: &Db, _args: Value) -> ApiResult<Value> {
 
 /// `backup:restore` —— 从 GitHub 拉回 Markdown，重建文档。
 ///
-/// ponytail: 只能重建 **元数据 + Markdown 投影 + 全文索引**，**重建不出 Yjs** ——
-/// Rust 不解析 Yjs（D-0035），Markdown→块的还原是编辑器的活。所以恢复出来的文档
-/// 一打开就要走一遍导入（那份管线是另一个插件）。等导入落地后，这里只需再调它一步。
+/// ponytail: 只能重建 **元数据 + Markdown 投影 + 全文索引**，**重建不出正文** ——
+/// 备份里只有 Markdown，Rust 不解析它成 doc JSON（D-0035），Markdown→块的还原是编辑器的活。
+/// 所以恢复出来的文档一打开就要走一遍导入（那份管线是另一个插件）。等导入落地后，这里只需再调它一步。
 pub fn restore(db: &Db, _args: Value) -> ApiResult<Value> {
     let cfg = db.with(load_config)?;
     if cfg.repo.is_empty() || cfg.token.is_empty() {
@@ -450,12 +450,15 @@ fn upsert_restored(conn: &Connection, d: &ParsedMd) -> ApiResult<()> {
         return Err(ApiError::new("backup_bad_file", "这个 .md 没有 front matter 的 id"));
     }
     let at = store::now_ms();
+    // 从别处推回来的 Markdown 也可能带控制符 —— 进库前清（见 `store::clean_controls`）。
+    let title = store::clean_controls(&d.title);
+    let md = store::clean_controls(&d.md);
     conn.execute(
         "INSERT INTO documents(id, parent_id, title, sort_order, created_at, updated_at)
          VALUES(?1, ?2, ?3, 0, ?4, ?4)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title, parent_id = excluded.parent_id, updated_at = excluded.updated_at",
-        params![d.id, d.parent, d.title, at],
+        params![d.id, d.parent, title, at],
     )
     .map_err(store::db_err)?;
     // 推的时候在回收站里的不推，所以恢复回来的都是「在用」的
@@ -464,7 +467,7 @@ fn upsert_restored(conn: &Connection, d: &ParsedMd) -> ApiResult<()> {
     conn.execute(
         "INSERT INTO doc_text(doc_id, title, md, at) VALUES(?1, ?2, ?3, ?4)
          ON CONFLICT(doc_id) DO UPDATE SET title = excluded.title, md = excluded.md, at = excluded.at",
-        params![d.id, d.title, d.md, at],
+        params![d.id, title, md, at],
     )
     .map_err(store::db_err)?;
 
@@ -474,7 +477,7 @@ fn upsert_restored(conn: &Connection, d: &ParsedMd) -> ApiResult<()> {
     conn.execute("DELETE FROM doc_fts WHERE doc_id = ?1", [&d.id]).map_err(store::db_err)?;
     conn.execute(
         "INSERT INTO doc_fts(doc_id, title, body) VALUES(?1, ?2, ?3)",
-        params![d.id, cjk_space(&d.title), cjk_space(&d.md)],
+        params![d.id, cjk_space(&title), cjk_space(&md)],
     )
     .map_err(store::db_err)?;
     Ok(())

@@ -1,10 +1,10 @@
-//! 文档：元数据（documents）+ Yjs 内容（doc_snapshot / doc_update）+ 索引（doc_text / doc_fts）。
+//! 文档：元数据（documents）+ 正文（doc，PM doc JSON）+ 索引（doc_text / doc_fts）。
 //!
 //! ★ **改内容的唯一入口是 `apply`**，`version::restore` 是另一个。
 //! 「先快照后写」的顺序在这两个函数里强制，调用方（命令分派、AI、前端）跳不过去（D-0043）。
 
-use super::{db_err, links, new_id, not_found, now_ms, version};
-use crate::commands::{ApiError, ApiResult, Bytes};
+use super::{clean_controls, db_err, links, new_id, not_found, now_ms, version};
+use crate::commands::{ApiError, ApiResult};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
@@ -31,16 +31,13 @@ pub struct DocMeta {
     pub tags: Vec<String>,
 }
 
-/// `doc:open` 的返回：让 storage 插件能拼出活的 Y.Doc。
-/// 读取顺序 = 先 applyUpdate(snapshot)，再按 seq 依次 apply updates（architecture 第三节）。
-///
-/// 字节字段一律走 `Bytes`（base64）—— 返回侧和入参同样在热路径上，编码形状必须一致。
+/// `doc:open` 的返回（形状 = 契约里的 `DocHandle`）：元数据 + 正文。
+/// `content` = PM doc JSON 的字符串；库里没有这一行 → null，编辑器自己造一份空的。
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocContent {
     pub doc: DocMeta,
-    pub snapshot: Option<Bytes>,
-    pub updates: Vec<Bytes>,
+    pub content: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -70,18 +67,15 @@ pub struct Summary {
 const HIT_OPEN: char = '\u{2}';
 const HIT_CLOSE: char = '\u{3}';
 
-/// `apply` 的入参。借用而不是拥有，省掉一次 Yjs 字节的拷贝。
+/// `apply` 的入参。借用而不是拥有，省掉一次 doc JSON 的拷贝。
 pub struct Apply<'a> {
     pub id: &'a str,
-    /// 增量。**和 snapshot 至少给一个**（两个都不给 = 什么都不写，见 `apply`）。
-    /// 原来它是必填的，于是「送完整快照」这个动作必须把同一份 base64 送两遍，
-    /// 而 Rust 收到后立刻把这条 update 删掉 —— 纯浪费，正好撞 D-0047 选 base64 的理由。
-    pub update: Option<&'a [u8]>,
+    /// 正文（PM doc JSON 字符串）。**覆盖式**：给了就是「这篇现在长这样」——
+    /// 没有增量、没有合并，一次一份。必给（不给 = 空调用，见 `apply`）。
+    pub content: Option<&'a str>,
     pub origin: &'a str,
     pub group_id: Option<&'a str>,
     pub label: Option<&'a str>,
-    /// 完整状态（前端关闭/合并时把活的 Y.Doc 一次性送来）→ 替换快照并吸收尾段。
-    pub snapshot: Option<&'a [u8]>,
     pub title: Option<&'a str>,
     /// Markdown 投影（D-0040），和 FTS 同一个 payload
     pub md: Option<&'a str>,
@@ -174,6 +168,8 @@ pub fn create(
     let id = id.map(str::to_string).unwrap_or_else(new_id);
     let sort = next_sort(conn, parent_id)?;
     let at = now_ms();
+    // 库是唯一真相 —— 标题进库前先清掉控制符（见 `clean_controls`）。
+    let title = clean_controls(title);
     conn.execute(
         "INSERT INTO documents(id, parent_id, title, icon, sort_order, created_at, updated_at)
          VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?6)",
@@ -184,13 +180,15 @@ pub fn create(
 }
 
 pub fn rename(conn: &Connection, id: &str, title: &str) -> ApiResult<DocMeta> {
+    // 侧栏改名那条路（`doc:rename`）—— 侧栏 / 标签条直接读库，脏字符必须先清。
+    let title = clean_controls(title);
     conn.execute(
         "UPDATE documents SET title = ?2, updated_at = ?3 WHERE id = ?1",
         params![id, title, now_ms()],
     )
     .map_err(db_err)?;
     // 标题也进了 FTS，重命名要一并重建索引，否则按标题搜不到
-    reindex(conn, id, Some(title), None)?;
+    reindex(conn, id, Some(&title), None)?;
     get(conn, id)
 }
 
@@ -254,7 +252,7 @@ pub fn restore_trash(conn: &Connection) -> ApiResult<usize> {
 /// 清空回收站 —— 连同内容一起硬删，**没有撤销**这条路（同 `remove`）。
 pub fn empty_trash(conn: &Connection) -> ApiResult<usize> {
     let tx = conn.unchecked_transaction().map_err(db_err)?;
-    for table in ["doc_update", "doc_snapshot", "doc_version", "doc_text", "doc_fts", "doc_summary"] {
+    for table in ["doc", "doc_version", "doc_text", "doc_fts", "doc_summary"] {
         tx.execute(
             &format!(
                 "DELETE FROM {table} WHERE doc_id IN
@@ -288,7 +286,7 @@ pub fn empty_trash(conn: &Connection) -> ApiResult<usize> {
 pub fn remove(conn: &Connection, id: &str) -> ApiResult<()> {
     let tx = conn.unchecked_transaction().map_err(db_err)?;
     // documents 留到最后 —— 子树是靠它物化的，先删就拿不到子孙了
-    for table in ["doc_update", "doc_snapshot", "doc_version", "doc_text", "doc_fts", "doc_summary"] {
+    for table in ["doc", "doc_version", "doc_text", "doc_fts", "doc_summary"] {
         tx.execute(
             &format!("{SUBTREE} DELETE FROM {table} WHERE doc_id IN (SELECT id FROM sub)"),
             [id],
@@ -342,69 +340,47 @@ pub fn pin(conn: &Connection, id: &str, value: Option<bool>) -> ApiResult<bool> 
 
 pub fn open(conn: &Connection, id: &str) -> ApiResult<DocContent> {
     let doc = get(conn, id)?;
-    let snapshot: Option<Bytes> = conn
-        .query_row("SELECT update_ FROM doc_snapshot WHERE doc_id = ?1", [id], |r| {
-            r.get::<_, Vec<u8>>(0)
-        })
+    let content: Option<String> = conn
+        .query_row("SELECT content FROM doc WHERE doc_id = ?1", [id], |r| r.get(0))
         .optional()
-        .map_err(db_err)?
-        .map(Bytes);
-    let mut stmt = conn
-        .prepare("SELECT update_ FROM doc_update WHERE doc_id = ?1 ORDER BY seq")
         .map_err(db_err)?;
-    let updates = stmt
-        .query_map([id], |r| r.get::<_, Vec<u8>>(0))
-        .map_err(db_err)?
-        .collect::<rusqlite::Result<Vec<Vec<u8>>>>()
-        .map_err(db_err)?
-        .into_iter()
-        .map(Bytes)
-        .collect();
-    Ok(DocContent { doc, snapshot, updates })
+    Ok(DocContent { doc, content })
 }
 
-/// 收一个 Yjs update。
+/// 落一份正文。
 ///
 /// ★ **先快照后写**：origin 不是 `user` 时，这里先把当前状态写进 `doc_version`，再改 ——
 /// 顺序由 Rust 保证，不由模型自觉，也不由前端自觉（D-0043）。
 ///
 /// ponytail: `user` 的 300ms flush 不打版本点（粒度太细，写一次打一次 = 爆炸）。
-/// 它的增量本来就落在 doc_update 里；用户的版本点由 `version:checkpoint` 在显式事件上打
-///（关文档 / 每 10 分钟）。哪天要「每次编辑都可回退」，把下面这个 if 去掉即可。
+/// 用户的版本点由 `version:checkpoint` 在显式事件上打（关文档 / 每 10 分钟）。
+/// 哪天要「每次编辑都可回退」，把下面这个 if 去掉即可。
 pub fn apply(conn: &Connection, a: Apply<'_>) -> ApiResult<()> {
     let tx = conn.unchecked_transaction().map_err(db_err)?;
 
-    // 两个字节字段都不给 = 空调用。静默吞掉是信任边界上的坏味道（前端写错了没人知道），
+    // 没 content = 空调用。静默吞掉是信任边界上的坏味道（前端写错了没人知道），
     // 响亮报错。注意这一句在 checkpoint 之前 —— 别为一次没写的调用打版本点。
-    if a.update.is_none() && a.snapshot.is_none() {
-        return Err(ApiError::new("bad_args", "doc:apply 需要 update 或 snapshot"));
-    }
+    let content = a
+        .content
+        .ok_or_else(|| ApiError::new("bad_args", "doc:apply 需要 content"))?;
 
     if a.origin != "user" {
         version::checkpoint(&tx, a.id, None, a.origin, a.group_id, a.label)?;
     }
 
-    if let Some(u) = a.update {
-        tx.execute(
-            "INSERT INTO doc_update(doc_id, update_, at, origin) VALUES(?1, ?2, ?3, ?4)",
-            params![a.id, u, now_ms(), a.origin],
-        )
-        .map_err(db_err)?;
-    }
+    // 合并点（D-0131）：Rust 仍是唯一写正文的地方 —— 但动作从「合并 Yjs」变成**覆盖 JSON**。
+    tx.execute(
+        "INSERT INTO doc(doc_id, content) VALUES(?1, ?2)
+         ON CONFLICT(doc_id) DO UPDATE SET content = excluded.content",
+        params![a.id, content],
+    )
+    .map_err(db_err)?;
 
-    if let Some(state) = a.snapshot {
-        // 合并点：前端送来了完整状态 → 替换快照，尾段被吸收（顺手就是版本历史的一部分）
-        tx.execute(
-            "INSERT INTO doc_snapshot(doc_id, update_) VALUES(?1, ?2)
-             ON CONFLICT(doc_id) DO UPDATE SET update_ = excluded.update_",
-            params![a.id, state],
-        )
-        .map_err(db_err)?;
-        tx.execute("DELETE FROM doc_update WHERE doc_id = ?1", [a.id]).map_err(db_err)?;
-    }
-
-    if a.md.is_some() || a.title.is_some() {
-        reindex(&tx, a.id, a.title, a.md)?;
+    // 标题 / 投影进库前清掉控制符（`doc:apply` 的 title / md，见 `clean_controls`）。
+    let title = a.title.map(clean_controls);
+    let md = a.md.map(clean_controls);
+    if title.is_some() || md.is_some() {
+        reindex(&tx, a.id, title.as_deref(), md.as_deref())?;
     }
 
     // 出链和 md 投影同一个事务（D-0085）：投影和边一起成一起败，

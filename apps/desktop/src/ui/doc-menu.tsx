@@ -90,15 +90,14 @@ function copyLink(id: string): Promise<void> {
  *  副本留在**原文档同一层**（parentId 跟着源走），不是每次都甩到顶层。 */
 async function duplicate(ctx: Context, doc: DocMeta): Promise<void> {
   const title = doc.title || ctx.i18n.t('doc.untitled')
-  const src = await ctx.rpc.call<{ snapshot: string | null; updates: string[] }>('doc:open', {
+  const src = await ctx.rpc.call<{ content: string | null }>('doc:open', {
     id: doc.id,
   })
   const made = await ctx.rpc.call<DocMeta>('doc:create', {
     parentId: doc.parentId,
     title: `${title} ${ctx.i18n.t('doc.copySuffix')}`,
   })
-  if (src.snapshot !== null) await ctx.rpc.call('doc:apply', { id: made.id, snapshot: src.snapshot })
-  for (const update of src.updates) await ctx.rpc.call('doc:apply', { id: made.id, update })
+  if (src.content !== null) await ctx.rpc.call('doc:apply', { id: made.id, content: src.content })
   ctx.emit(DOCS_CHANGED)
   ctx.emit(OPEN_DOC, { id: made.id })
 }

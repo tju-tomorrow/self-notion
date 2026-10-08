@@ -15,13 +15,13 @@ use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::store::{self, blob, comment, docs, links, version, Db};
+use crate::store::{self, blob, comment, docs, links, sync, version, Db};
 use crate::vfs;
 
 /// 字节字段的线上形状：**base64 字符串**。
 ///
 /// `Vec<u8>` 直接走 JSON 会变成 `[49,50,51,…]` —— 一个字节 ~3.5 个字符。
-/// Yjs update 在「打开文档」和「每次 apply」的热路径上，100 KB 的 update 会变成 350 KB 文本。
+/// 现在只剩 blob（图片/附件）走它 —— 文档正文是 JSON 字符串，不走 base64 这条（D-0131）。
 ///
 /// 只在这里实现一次，所有字节字段都套它 —— 漏一个，下游就会拿到形状不一致的字段。
 /// 解不开就是 `bad_args` 错误（`parse` 兜住），不是 panic。
@@ -246,8 +246,8 @@ pub fn dispatch(
             let a: DocId = parse(args)?;
             docs::touch(c, &a.id)
         }),
-        // ★ 收 Yjs update。origin != 'user' 时由 Rust 强制先快照再写（D-0043）
-        // 写完广播给别的窗口（架构第七节）—— 别的窗口开着这筇的话重读，两边才是一份数据。
+        // ★ 落一份正文（PM doc JSON，覆盖式）。origin != 'user' 时由 Rust 强制先快照再写（D-0043）
+        // 写完广播给别的窗口（架构第七节）—— 别的窗口开着这篇的话重读，两边才是一份数据。
         "doc:apply" => {
             let a: DocApply = parse(args)?;
             let id = a.id.clone();
@@ -261,11 +261,10 @@ pub fn dispatch(
                     c,
                     docs::Apply {
                         id: &a.id,
-                        update: a.update.as_deref(),
+                        content: a.content.as_deref(),
                         origin: &a.origin,
                         group_id: a.group_id.as_deref(),
                         label: a.label.as_deref(),
-                        snapshot: a.snapshot.as_deref(),
                         title: a.title.as_deref(),
                         md: a.md.as_deref(),
                         links: links.as_deref(),
@@ -281,6 +280,23 @@ pub fn dispatch(
         "doc:tags" => call(db, |c| {
             let a: DocTags = parse(args)?;
             docs::set_tags(c, &a.id, &a.tags)
+        }),
+
+        // 反向链接（P3-3）：谁指向我。入参只要 id，回指向它的那些文档（按建边时间倒序）。
+        "link:backlinks" => call(db, |c| {
+            let a: DocId = parse(args)?;
+            links::backlinks(c, &a.id)
+        }),
+
+        // 同步块（P3-4 / D-0136）：内容在源里只有一份，节点只存 id。
+        "sync:new" => call(db, |c| sync::new(c).map(|id| serde_json::json!({ "id": id }))),
+        "sync:get" => call(db, |c| {
+            let a: DocId = parse(args)?;
+            sync::get(c, &a.id).map(|content| serde_json::json!({ "content": content }))
+        }),
+        "sync:put" => call(db, |c| {
+            let a: SyncPut = parse(args)?;
+            sync::put(c, &a.id, &a.content).map(|_| serde_json::json!({ "ok": true }))
         }),
 
         // ── 搜索 ──────────────────────────────────────────────────────────────
@@ -355,7 +371,7 @@ pub fn dispatch(
             version::checkpoint(
                 c,
                 &a.id,
-                a.update.as_deref(),
+                a.content.as_deref(),
                 &a.origin,
                 a.group_id.as_deref(),
                 a.label.as_deref(),
@@ -503,17 +519,13 @@ struct DocIds {
 #[serde(rename_all = "camelCase")]
 struct DocApply {
     id: String,
-    /// 增量。**和 snapshot 至少给一个** —— 见 `store::docs::Apply`。
-    /// `default` 而不是必填：合并/关文档时前端只送完整快照，不必把同一份 base64 送两遍。
-    #[serde(default)]
-    update: Option<Bytes>,
+    /// 正文：**PM doc JSON 的字符串**（覆盖式，一次一份）。没有 `update` 这个参数了。
+    content: Option<String>,
     #[serde(default = "user_origin")]
     origin: String,
     group_id: Option<String>,
     label: Option<String>,
-    /// 完整状态：前端关文档 / 合并时把活的 Y.Doc 一次性送来
-    snapshot: Option<Bytes>,
-    /// 纯文本由渲染侧一并送来，Rust 不解析 Yjs（doc_fts + doc_text 的 payload）
+    /// 纯文本由渲染侧一并送来，Rust 不解析 doc JSON（doc_fts + doc_text 的 payload）
     title: Option<String>,
     md: Option<String>,
     /// 出链（D-0085）。`default` + `Option` 两层是有意的：
@@ -521,6 +533,14 @@ struct DocApply {
     /// 不是"把边全删了"。少了 `default` 这一层，升级应用的一瞬间所有反链消失。
     #[serde(default)]
     links: Option<Vec<LinkArg>>,
+}
+
+/// `sync:put`（P3-4）：覆盖源内容。
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncPut {
+    id: String,
+    content: String,
 }
 
 /// 一条边的线上形状（`contract.ts` 的 `DocLink`）。
@@ -603,8 +623,8 @@ struct VersionRestore {
 #[serde(rename_all = "camelCase")]
 struct VersionCheckpoint {
     id: String,
-    /// 完整 Yjs 状态；不给就用 Rust 手里的最近一份（doc_snapshot）
-    update: Option<Bytes>,
+    /// 完整 doc JSON；不给就用库里那一份（`doc`）
+    content: Option<String>,
     #[serde(default = "user_origin")]
     origin: String,
     group_id: Option<String>,

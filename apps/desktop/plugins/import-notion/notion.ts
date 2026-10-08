@@ -1,32 +1,24 @@
 /**
  * Notion 导出的 zip → 我们库里的文档。
  *
- * **解析不自己写** —— 走 BlockSuite 自带的 `NotionHtmlAdapter`（跟 AFFiNE 用的是同一份代码：
- * 标题、列表、代码块语言、折叠、提示块、图片、页内链接全归它管）。这一层只做四件事：
+ * ★ 换基座后（D-0128）这里**没有 BlockSuite 了**：一篇 HTML 先翻成 **markdown**，再交给
+ *   编辑器 `ctx.editor.docFromMarkdown` 变成 PM doc JSON，最后 `doc:apply` 落库。这一层做四件事：
  *
- *   1. 解压（fflate，BlockSuite 自己就带的那个）
+ *   1. 解压（fflate）
  *   2. 按 zip 里的文件夹层级算出父子（`Parent abc.html` + 文件夹 `Parent abc/` 就是 Notion 的嵌套形状）
- *   3. 图片进 `blob:put`，把 `路径 → blob id` 喂给 adapter 的 assetsManager
- *   4. 解析出来的文档编码成 Yjs，走 `ctx.docs.save` 落库
+ *   3. 图片进 `blob:put`，markdown 里写 `self-notion://blob/<id>`
+ *   4. HTML → markdown（`parseNotionPage`，自己走 DOM —— 不给第三方 html→md 库）
  *
- * ★ 只给 adapter 传**编辑器有的块**（清单来自 `ctx.editor.blocks()`）：Notion 里的数据库、书签、
- *   附件解析出来会变成我们不认识的 flavour，`Transformer` 遇到不认识的 flavour 直接抛 ——
- *   所以落库前先剪掉（`stripUnknown`），被剪掉的内容不会变成半篇烂文档。
+ * ★ 认不出的块（数据库 / 书签 / 附件 / 嵌入）**文字照常进来，块本身降级**：书签 / 嵌入降成
+ *   一行链接，其余认不出的容器往里递归掏文字 —— 跟老 Adapter 那套 `stripUnknown` 一个意思。
  *
  * ponytail: 整包在内存里解（`unzipSync` + 全部条目 map）。几百 MB 的导出会吃内存，
  *   到那天再换流式解压，接口不用动。
  */
-import { FULL_FILE_PATH_KEY, NotionHtmlAdapter } from '@blocksuite/affine/shared/adapters'
-import { type BlockSnapshot, type DocSnapshot, Transformer } from '@blocksuite/affine/store'
-import { TestWorkspace } from '@blocksuite/affine/store/test'
-import { StoreExtensionManager, StoreExtensionProvider } from '@blocksuite/affine/ext-loader'
 import { unzipSync } from 'fflate'
-import * as Y from 'yjs'
 
-import type { DocMeta, DocsService, RpcService } from '../../src/kernel/contract'
+import type { DocMeta, EditorService, RpcService } from '../../src/kernel/contract'
 import { reportError } from '../../src/kernel/errors'
-
-type StoreProvider = typeof StoreExtensionProvider
 
 const IMAGE_EXT = new Set([
   'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif', 'heic', 'bmp', 'tif', 'tiff', 'ico',
@@ -47,8 +39,8 @@ const MIME: Readonly<Record<string, string>> = {
   ico: 'image/x-icon',
 }
 
-/** 内容的 sha，纯给 FTS 当正文用不到 —— 这儿只是给 `blob:put` 铺路。 */
-const CHUNK = 0x8000 // 32768，`String.fromCharCode(...)` 一次喂太多会爆栈
+/** `String.fromCharCode(...bytes)` 一次喂太多会爆栈，按块切。 */
+const CHUNK = 0x8000
 function b64(bytes: Uint8Array): string {
   let raw = ''
   for (let i = 0; i < bytes.length; i += CHUNK) {
@@ -114,42 +106,285 @@ function parentOf(path: string, known: Set<string>): string | null {
   return null
 }
 
-/** 不认识的块（Notion 的数据库 / 书签 / 附件）直接剪掉，别让 Transformer 抛。 */
-function stripUnknown(block: BlockSnapshot, known: (flavour: string) => boolean): number {
-  let dropped = 0
-  block.children = block.children.filter(child => {
-    if (!known(child.flavour)) {
-      dropped++
-      return false
-    }
-    dropped += stripUnknown(child, known)
-    return true
-  })
-  return dropped
+/** 把 `a/../b.png`、`./b.png` 这种收敛成 zip 里那条路径。 */
+function normalize(path: string): string {
+  const parts: string[] = []
+  for (const seg of path.split('/')) {
+    if (seg === '' || seg === '.') continue
+    if (seg === '..') parts.pop()
+    else parts.push(seg)
+  }
+  return parts.join('/')
 }
 
-function countFlavour(block: BlockSnapshot, flavour: string): number {
-  let n = block.flavour === flavour ? 1 : 0
-  for (const child of block.children) n += countFlavour(child, flavour)
-  return n
+/* ─────────────────────────── HTML → markdown ─────────────────────────── */
+
+export interface ParsedPage {
+  /** 页面标题（`<h1 class="page-title">`），拿不到就是空串，调用方回退到文件名。 */
+  title: string
+  markdown: string
+  /** 这篇里认出来的图片数（走 blob 那条路的）。 */
+  images: number
 }
 
-/** 正文纯文本：给 Rust 喂 FTS 和首页摘要（`doc_text`）。只认 BlockSuite 的 text 编码。 */
-function collectText(node: unknown, out: string[]): void {
-  if (Array.isArray(node)) {
-    for (const item of node) collectText(item, out)
-    return
-  }
-  if (!node || typeof node !== 'object') return
-  const obj = node as Record<string, unknown>
-  // marker 和 delta 是兄弟（TextSnapshot 的形状）—— 把 marker 当 delta 的父节点永远取不到字。
-  if (obj['$blocksuite:internal:text$'] === true) {
-    for (const op of (obj['delta'] ?? []) as { insert?: unknown }[]) {
-      if (typeof op.insert === 'string') out.push(op.insert)
+/**
+ * 一篇 Notion 页面 HTML → markdown。
+ *
+ * `resolve` 把图片的相对 `src` 翻成 `self-notion://blob/<id>`（翻不出来返回 null = 丢这一张）。
+ * 返回的 markdown 喂 `ctx.editor.docFromMarkdown` —— 只吐标准 markdown，节点名与 attrs 归编辑器那侧管。
+ */
+export function parseNotionPage(
+  html: string,
+  pagePath: string,
+  assetIds: Map<string, string>,
+): ParsedPage {
+  const dom = new DOMParser().parseFromString(html, 'text/html')
+  const article = dom.querySelector('article') ?? dom.body
+  const title =
+    article.querySelector('header .page-title')?.textContent?.trim() ||
+    article.querySelector('h1.page-title')?.textContent?.trim() ||
+    ''
+
+  const dir = dirOf(pagePath)
+  const resolve = (src: string): string | null => {
+    const joined = normalize(dir ? `${dir}/${src}` : src)
+    let decoded = joined
+    try {
+      decoded = decodeURIComponent(joined)
+    } catch {
+      // 不是合法编码就按原样查
     }
-    return
+    const id = assetIds.get(joined) ?? assetIds.get(decoded) ?? assetIds.get(src)
+    return id ? `self-notion://blob/${id}` : null
   }
-  for (const value of Object.values(obj)) collectText(value, out)
+
+  const { walk } = makeConverter(resolve)
+  const body = article.querySelector('.page-body') ?? article
+  const out: string[] = []
+  walk(body, out, 0)
+  const markdown = out.join('\n\n')
+  const images = (markdown.match(/!\[[^\]]*\]\(/g) ?? []).length
+  return { title, markdown, images }
+}
+
+function makeConverter(resolve: (src: string) => string | null): {
+  walk(parent: Element, out: string[], indent: number): void
+} {
+  /** 行内：text / strong / em / code / s / a / img / br。认不出的一律掏子节点。 */
+  const inline = (node: Node): string => {
+    if (node.nodeType === 3) return node.textContent ?? ''
+    if (node.nodeType !== 1) return ''
+    const el = node as Element
+    const kids = () => Array.from(el.childNodes).map(inline).join('')
+    const tag = el.tagName.toLowerCase()
+    switch (tag) {
+      case 'br':
+        return '\n'
+      case 'strong':
+      case 'b': {
+        const t = kids()
+        return t ? `**${t}**` : ''
+      }
+      case 'em':
+      case 'i': {
+        const t = kids()
+        return t ? `*${t}*` : ''
+      }
+      case 'code':
+        return `\`${el.textContent ?? ''}\``
+      case 's':
+      case 'del':
+      case 'strike': {
+        const t = kids()
+        return t ? `~~${t}~~` : ''
+      }
+      case 'a': {
+        // 外部链接才写成 markdown 链接；页内链接的 href 是导出包里的相对路径，解析不了 → 只留文字
+        const href = el.getAttribute('href') ?? ''
+        const t = kids()
+        return /^https?:\/\//i.test(href) && t ? `[${t}](${href})` : t
+      }
+      case 'img': {
+        const src = el.getAttribute('src')
+        const url = src ? resolve(src) : null
+        if (!url) return ''
+        const alt = (el.getAttribute('alt') ?? '').replace(/[[\]]/g, '')
+        return `![${alt}](${url})`
+      }
+      case 'div':
+        if (el.classList.contains('checkbox')) return ''
+        return kids()
+      default:
+        return kids()
+    }
+  }
+
+  const pushImage = (img: Element, out: string[], indent: number): void => {
+    const src = img.getAttribute('src')
+    const url = src ? resolve(src) : null
+    if (!url) return
+    const alt = (img.getAttribute('alt') ?? '').replace(/[[\]]/g, '')
+    out.push('  '.repeat(indent) + `![${alt}](${url})`)
+  }
+
+  const isChecked = (box: Element): boolean => {
+    const input = box as HTMLInputElement
+    if (input.checked === true) return true
+    if (box.hasAttribute('checked')) return true
+    return box.classList.contains('checkbox-on')
+  }
+
+  /** 列表项的**自身文字**：跳过嵌套的 ul/ol 和那个 checkbox 方块。 */
+  const liText = (li: Element): string => {
+    let s = ''
+    for (const node of Array.from(li.childNodes)) {
+      if (node.nodeType === 3) {
+        s += node.textContent ?? ''
+        continue
+      }
+      if (node.nodeType !== 1) continue
+      const el = node as Element
+      const tag = el.tagName.toLowerCase()
+      if (tag === 'ul' || tag === 'ol' || el.classList.contains('checkbox')) continue
+      s += inline(el)
+    }
+    return s.trim()
+  }
+
+  const list = (el: Element, out: string[], indent: number, ordered: boolean): void => {
+    const pad = '  '.repeat(indent)
+    let n = 0
+    for (const li of Array.from(el.children)) {
+      if (li.tagName.toLowerCase() !== 'li') continue
+      n++
+      const box = li.querySelector('input[type="checkbox"], .checkbox')
+      const marker = box
+        ? `- [${isChecked(box) ? 'x' : ' '}]`
+        : ordered
+          ? `${n}.`
+          : '-'
+      const text = liText(li)
+      out.push(text ? `${pad}${marker} ${text}` : `${pad}${marker}`)
+      // 嵌套列表降一级
+      for (const child of Array.from(li.children)) {
+        const tag = child.tagName.toLowerCase()
+        if (tag === 'ul' || tag === 'ol') list(child, out, indent + 1, tag === 'ol')
+      }
+    }
+  }
+
+  const table = (el: Element, out: string[], indent: number): void => {
+    const rows = Array.from(el.querySelectorAll('tr')).map(tr =>
+      Array.from(tr.children).map(td => inline(td).replace(/\s*\n\s*/g, ' ').trim()),
+    )
+    if (!rows.length) return
+    const width = Math.max(...rows.map(r => r.length))
+    for (const r of rows) while (r.length < width) r.push('')
+    const pad = '  '.repeat(indent)
+    const line = (cells: string[]) => `${pad}| ${cells.join(' | ')} |`
+    out.push(line(rows[0]!))
+    out.push(line(rows[0]!.map(() => '---')))
+    for (let i = 1; i < rows.length; i++) out.push(line(rows[i]!))
+  }
+
+  const emit = (el: Element, out: string[], indent: number): void => {
+    const tag = el.tagName.toLowerCase()
+    const pad = '  '.repeat(indent)
+
+    if (/^h[1-6]$/.test(tag)) {
+      const text = inline(el).trim()
+      if (text) out.push(`${'#'.repeat(Number(tag[1]))} ${text}`)
+      return
+    }
+
+    switch (tag) {
+      case 'p': {
+        if (el.classList.contains('page-title') || el.classList.contains('page-description')) return
+        const text = inline(el).trim()
+        if (text) out.push(pad + text)
+        return
+      }
+      case 'ul':
+      case 'ol':
+        list(el, out, indent, tag === 'ol')
+        return
+      case 'blockquote':
+      case 'aside': {
+        const text = inline(el).trim()
+        if (text) out.push(pad + text.split('\n').map(l => `> ${l}`).join('\n'))
+        return
+      }
+      case 'pre': {
+        const code = el.querySelector('code') ?? el
+        const cls = code.getAttribute('class') ?? el.getAttribute('class') ?? ''
+        const lang = (/language-([\w+#-]+)/.exec(cls)?.[1] ?? '').trim()
+        out.push(`${pad}\`\`\`${lang}\n${code.textContent ?? ''}\n${pad}\`\`\``)
+        return
+      }
+      case 'hr':
+        out.push(`${pad}---`)
+        return
+      case 'img':
+        pushImage(el, out, indent)
+        return
+      case 'figure': {
+        const cls = el.getAttribute('class') ?? ''
+        const media = /(^|\s)(image|img)(\s|$)/.test(cls)
+        const embed = /(embed|video|bookmark|file|audio)/.test(cls)
+        const img = el.querySelector('img')
+        if (img && (media || !embed)) {
+          pushImage(img, out, indent)
+          return
+        }
+        // 书签 / 嵌入 / 附件：降成一行（有链接就写成链接，文字不丢）
+        const a = el.querySelector('a[href]')
+        const href = a?.getAttribute('href') ?? ''
+        const text = inline(el).replace(/\s*\n\s*/g, ' ').trim()
+        if (/^https?:\/\//i.test(href) && text) out.push(`${pad}[${text}](${href})`)
+        else if (text) out.push(pad + text)
+        return
+      }
+      case 'table':
+        table(el, out, indent)
+        return
+      case 'details': {
+        const summary = el.querySelector('summary')
+        const label = summary ? inline(summary).trim() : ''
+        if (label) out.push(`${pad}- ${label}`)
+        for (const child of Array.from(el.children)) {
+          if (child === summary) continue
+          emit(child, out, indent + 2)
+        }
+        return
+      }
+      default: {
+        // 认不出的块（分栏 / 数据库 / 嵌入…）：能往下走就往下走，别把文字丢了
+        if (el.children.length) {
+          for (const child of Array.from(el.children)) emit(child, out, indent)
+        } else {
+          const text = inline(el).trim()
+          if (text) out.push(pad + text)
+        }
+      }
+    }
+  }
+
+  return {
+    walk(parent: Element, out: string[], indent: number) {
+      for (const child of Array.from(parent.children)) emit(child, out, indent)
+    },
+  }
+}
+
+/** 库里那篇的标题是 doc 的 attr（架构 §3.3）—— 落库前把它写进正文 JSON，编辑器才读得到。 */
+function withTitle(content: string, title: string): string {
+  try {
+    const json = JSON.parse(content) as { attrs?: Record<string, unknown> }
+    json.attrs = { ...json.attrs, title }
+    return JSON.stringify(json)
+  } catch {
+    return content
+  }
 }
 
 export interface Summary {
@@ -164,13 +399,11 @@ export interface Summary {
 
 export interface ImportDeps {
   rpc: RpcService
-  docs: DocsService
   /**
-   * `ctx.editor.blocks()` —— **和编辑器同一套**块注册表（契约里那条 `blocks()`）。
-   * schema 少一个 flavour，对应那种块就写不进去（`Transformer` 直接抛），
-   * 所以这份清单不能拄、只能拿现场的。
+   * `ctx.editor` —— markdown → doc JSON 走契约那条 `docFromMarkdown`（要**先 `await ready()`**，
+   * 编辑器本体是懒装载的）。schema 归编辑器那侧管，这里只吐标准 markdown。
    */
-  extensions: readonly unknown[]
+  editor: EditorService
   onProgress?(done: number, total: number): void
   /** 每篇之间问一句 —— 几百篇的库要能中途停手。 */
   shouldCancel?(): boolean
@@ -223,45 +456,6 @@ export async function importNotionZip(deps: ImportDeps, file: File): Promise<Sum
     if (!parentPath && !entryId) entryId = meta.id
   }
 
-  // 临时工作区：解析出来的块先落这儿，编码成 Yjs 之后才算我们的。用完即弃。
-  const ws = new TestWorkspace({ id: 'self-notion-import' })
-  ws.meta.initialize()
-  const extensions = new StoreExtensionManager(deps.extensions as StoreProvider[]).get('store')
-
-  // 探针文档：Schema 和 DI provider 都从它身上拿 —— adapter 要 provider 才找得到各种块的 matcher。
-  const probeDoc = ws.createDoc('import-schema')
-  if (!probeDoc) throw new Error('导入：临时工作区建不出探针文档')
-  probeDoc.load()
-  const probe = probeDoc.getStore({ id: 'import-schema', extensions })
-
-  const transformer = new Transformer({
-    schema: probe.schema,
-    blobCRUD: ws.blobSync,
-    docCRUD: {
-      create: (id: string) => {
-        const doc = ws.createDoc(id)
-        if (!doc) throw new Error(`导入：临时工作区建不出文档「${id}」`)
-        return doc.getStore({ id, extensions })
-      },
-      get: (id: string) => ws.getDoc(id)?.getStore({ id, extensions }) ?? null,
-      delete: (id: string) => ws.removeDoc(id),
-    },
-  })
-  // 图片的 `src` 是相对路径，adapter 拿这张表把它翻成 blob id（→ 图片块的 sourceId）。
-  for (const [path, id] of assetIds) transformer.assetsManager.getPathBlobIdMap().set(path, id)
-
-  // 页内链接：Notion 的 href 是导出包里的相对路径，把每条路径的后缀都登记一遍，
-  // 不管 href 是根相对还是同级相对都认得出来。
-  const pageMap = new Map<string, string>()
-  for (const [path, id] of ids) {
-    let rest = path
-    while (rest) {
-      pageMap.set(rest, id)
-      rest = rest.includes('/') ? rest.slice(rest.indexOf('/') + 1) : ''
-    }
-  }
-
-  const adapter = new NotionHtmlAdapter(transformer, probe.provider)
   const decoder = new TextDecoder()
   let images = 0
   let pages = 0
@@ -276,31 +470,20 @@ export async function importNotionZip(deps: ImportDeps, file: File): Promise<Sum
     const id = ids.get(path)
     if (id) {
       try {
-        // 图片的相对路径是相对**这篇 HTML 所在目录**的，一篇一设。
-        transformer.adapterConfigs.set(FULL_FILE_PATH_KEY, path)
-        const snapshot: DocSnapshot = await adapter.toDocSnapshot({
-          file: decoder.decode(bytes),
-          pageId: id,
-          pageMap,
-        })
-        const dropped = stripUnknown(snapshot.blocks, flavour => !!probe.schema.get(flavour))
-        if (dropped) skipped += dropped
-        images += countFlavour(snapshot.blocks, 'affine:image')
-
-        await transformer.snapshotToDoc(snapshot)
-        const live = ws.getDoc(id)
-        if (!live) throw new Error('导入：文档没落进临时工作区')
-
-        const title = snapshot.meta.title || titleOf(path)
-        const text: string[] = []
-        collectText(snapshot.blocks, text)
-        await deps.docs.save(id, {
-          id,
-          snapshot: Y.encodeStateAsUpdate(live.spaceDoc),
-          updates: [],
-          title,
-          md: text.join('\n'),
-        })
+        const parsed = parseNotionPage(decoder.decode(bytes), path, assetIds)
+        const title = parsed.title || titleOf(path)
+        images += parsed.images
+        if (parsed.markdown.trim()) {
+          // `origin: 'import'` 让 Rust 落库前先打版本点（D-0043）—— 别改成 'user'。
+          const content = withTitle(deps.editor.docFromMarkdown(parsed.markdown), title)
+          await deps.rpc.call('doc:apply', {
+            id,
+            content,
+            origin: 'import',
+            title,
+            md: parsed.markdown,
+          })
+        }
         pages++
       } catch (err) {
         // 一篇解析不了不该带走整单 —— 记下来，继续下一篇（错误也进 errors.log）。

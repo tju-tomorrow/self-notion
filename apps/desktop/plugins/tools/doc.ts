@@ -1,40 +1,28 @@
 /**
- * 写工具的底层 —— 「库里的字节 → 活的 Y.Doc → 只动该动的块 → 落库」。
+ * 写工具的底层 —— 「库里的 JSON → 活的 doc → 只动该动的块 → 落库」。
  *
- * ★ **不做整篇覆盖**（`docs/ai.md` 第五节）：整篇重新生成会把块 id、折叠状态、行内元数据
- *   全丢掉，那是**丢数据的形状**。所以每次都把库里的字节原样装回来，只增删该增删的块
- *   —— 块 id 活在 Yjs 里，跟着一起回去。
+ * ★ **不做整篇覆盖**（`docs/ai.md` 第五节）：整篇重新生成会把块 id 一起换掉，那是**丢数据的形状**。
+ *   所以把库里的 JSON 原样装回来，只用 `Transform` 增删该增删的块 —— 没碰到的块 id 原样回去。
  *
- * ★ 自己搭一个**临时工作区**（和 `import-notion` 同一套路）：插件之间不许互相 import
- *   内部文件（CONVENTIONS §6.2），块 schema 只能从 `ctx.editor.blocks()` 现拿 ——
- *   少一个 flavour，那种块就写不进去（D-0064）。
+ * ★ markdown → 块走契约 `ctx.editor.docFromMarkdown`：解析器住在编辑器那一侧（它拥有
+ *   「schema 节点名 ↔ markdown 语法」这份映射），别处再抄一份就会漂。
  *
  * ★ 这条路是**懒装载**的：`plugins/tools/index.ts` 在 `run()` 里才 `import('./doc')` ——
- *   不写文档的人不该为这几 MB 的块包付冷启动的解析费。
+ *   不写文档的人不该为解析费付冷启动。
  *
- * ★ **先 checkpoint 是调用方的纪律**（`docs/ai.md` 第六节第二层）：这个文件只管搬字节，
- *   一句版本点都不打 —— `index.ts` 那六条工具里，写工具进来的第一件事就是它。
+ * ★ **先 flush 是必须的**（D-0087）：编辑器每 300ms 才落一次库，这里读完就把用户那篇
+ *   重做一遍、末尾还 `reload` 掉活文档 —— 不先 flush，用户最后敲的那 ≤300ms 就随着
+ *   「读旧字节 + 丢活文档」一起没了。三个入口都走 `loadDoc`，漏一处就是一次静默丢字。
+ *
+ * ★ **`links` 故意不送**（D-0085）：`doc:apply` 少这个字段的语义是「别动已有的边」。
+ *   送空数组才是「把边全删了」—— 那会把这篇的反向链接一次抹掉。
  */
-import { MarkdownAdapter } from '@blocksuite/affine/shared/adapters'
-import { StoreExtensionManager, StoreExtensionProvider } from '@blocksuite/affine/ext-loader'
-import { NoteDisplayMode } from '@blocksuite/affine/model'
-import { Text, Transformer, type BlockModel, type Store } from '@blocksuite/affine/store'
-import { TestWorkspace } from '@blocksuite/affine/store/test'
 import type { Context } from 'cordis'
-import * as Y from 'yjs'
+import { Node as PMNode, type Schema } from 'prosemirror-model'
+import { Transform } from 'prosemirror-transform'
 
-import {
-  DOCS_CHANGED,
-  type DocHandle,
-  type DocMeta,
-} from '../../src/kernel/contract'
-
-type StoreProvider = typeof StoreExtensionProvider
-
-/** 临时工作区的 id。和编辑器那个（`self-notion`）分开 —— 两边各有各的 doc 表。 */
-const WORKSPACE = 'self-notion-ai'
-/** 探针文档：schema 和 DI provider 都从它身上拿（adapter 靠 provider 找块的 matcher）。 */
-const PROBE = 'self-notion-ai-probe'
+import { DOCS_CHANGED, type DocMeta } from '../../src/kernel/contract'
+import { reportError } from '../../src/kernel/errors'
 
 /** 一次写的结果。`blocks` 让模型知道有没有真写进去（0 = 只建了空文档 / 没匹配上）。 */
 export interface WriteResult {
@@ -43,134 +31,89 @@ export interface WriteResult {
   blocks: number
 }
 
-interface Bench {
-  doc: { spaceDoc: Y.Doc }
-  store: Store
-  adapter: MarkdownAdapter
-  transformer: Transformer
+interface BlockHit {
+  node: PMNode
+  pos: number
 }
 
 /* ─────────────────────────── 装配 ─────────────────────────── */
 
 /**
- * 从**库里的字节**撑起一个工作台。
+ * 读库里的字节 → PM doc（顺手把 schema 带出来，调用方马上要拿它解 markdown）。
  *
- * ★ 第一句是必须的（D-0087 补的）：编辑器每 300ms 才落一次库，而这里读完就把用户那篇
- *   重做一遍、末尾 `commit` 还会 `reload` 掉活文档 —— 不先 flush，用户最后敲的那 ≤300ms
- *   就随着"读旧字节 + 丢活文档"一起没了。三处读都走这个入口，漏一处就是一次静默丢字。
+ * 第一句 `flush` 的理由见文件头。库里还没这一篇 → 造一份空的，别让下游踩 null。
  */
-async function benchFromStore(ctx: Context, id: string): Promise<Bench> {
+async function loadDoc(ctx: Context, id: string): Promise<{ doc: PMNode; schema: Schema }> {
   await ctx.editor.flush(id)
-  return bench(ctx, id, await ctx.docs.load(id))
-}
-
-async function bench(ctx: Context, id: string, handle: DocHandle): Promise<Bench> {
-  // `blocks()` 有前置条件（契约里那条：先 `await ready()`）。
   await ctx.editor.ready()
-  const extensions = new StoreExtensionManager(ctx.editor.blocks() as StoreProvider[]).get('store')
+  const schema = ctx.editor.schema() as Schema
+  const { content } = await ctx.docs.load(id)
+  const doc = content === null ? emptyDoc(schema) : PMNode.fromJSON(schema, JSON.parse(content))
+  return { doc, schema }
+}
 
-  const ws = new TestWorkspace({ id: WORKSPACE })
-  // 不调 `meta.initialize()` 的话 `createDoc` 会**静默**回 null（`import-notion` 踩过）。
-  ws.meta.initialize()
-  ws.storeExtensions = extensions
+/** 空文档：一个空的段落块 —— `blockGroup` 至少要一个 `blockContainer`。 */
+function emptyDoc(schema: Schema): PMNode {
+  return makeDoc(schema, '', [newBlock(schema)])
+}
 
-  const probeDoc = ws.createDoc(PROBE)
-  if (!probeDoc) throw new Error('AI 写文档：临时工作区建不出探针文档')
-  probeDoc.load()
-  const probe = probeDoc.getStore({ id: PROBE, extensions })
+/** 一个空的段落块（`create` 建新篇时也用它兜 schema 的 `blockContainer+`）。 */
+function newBlock(schema: Schema): PMNode {
+  return schema.node('blockContainer', { id: blockId() }, schema.node('paragraph'))
+}
 
-  const doc = ws.createDoc(id)
-  if (!doc) throw new Error(`AI 写文档：建不出临时文档「${id}」`)
-  doc.load()
-  // 契约规定的顺序：先 snapshot，再按 seq 依次 updates（同 `editor-blocksuite/doc-source.ts`）。
-  if (handle.snapshot) Y.applyUpdate(doc.spaceDoc, handle.snapshot)
-  for (const update of handle.updates) Y.applyUpdate(doc.spaceDoc, update)
+function makeDoc(schema: Schema, title: string, blocks: PMNode[]): PMNode {
+  const group = schema.node('blockGroup', null, blocks.length ? blocks : [newBlock(schema)])
+  return schema.node('doc', { title }, group)
+}
 
-  let store = doc.getStore({ id, extensions })
-  // Store 按 id 缓存、先到先得：缓存里坐着没 schema 的那家，之后补不进去 —— 认出来就重开。
-  if (!store.schema.flavourSchemaMap.has('affine:page')) {
-    doc.removeStore({ id })
-    store = doc.getStore({ id, extensions })
+/** 块 id（写进持久化 JSON，架构 §3.1）。生成法跟编辑器那侧一致（跨插件不 import 内部）。 */
+function blockId(): string {
+  return `b${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
+}
+
+/** markdown → 块数组。`docFromMarkdown` 回的是一整篇 doc：`content[0]` 是那个 `blockGroup`，它的 children 才是块。 */
+function blocksFrom(ctx: Context, schema: Schema, markdown: string): PMNode[] {
+  const whole = JSON.parse(ctx.editor.docFromMarkdown(markdown)) as {
+    content?: { content?: unknown[] }[]
   }
-
-  const transformer = new Transformer({
-    schema: probe.schema,
-    blobCRUD: ws.blobSync,
-    docCRUD: {
-      create: (did: string) => {
-        const made = ws.createDoc(did)
-        if (!made) throw new Error(`AI 写文档：临时工作区建不出文档「${did}」`)
-        return made.getStore({ id: did, extensions })
-      },
-      get: (did: string) => ws.getDoc(did)?.getStore({ id: did, extensions }) ?? null,
-      delete: (did: string) => ws.removeDoc(did),
-    },
-  })
-
-  return { doc, store, adapter: new MarkdownAdapter(transformer, probe.provider), transformer }
+  const raw = whole.content?.[0]?.content ?? []
+  return raw.map((b) => freshIds(PMNode.fromJSON(schema, b)))
 }
 
-/** 种一棵能装字的空树。返回 note 的 id（`addBlock` 回的是 id 不是模型）。 */
-function seed(store: Store): string {
-  const root = store.addBlock('affine:page', { title: new Text('') })
-  return store.addBlock('affine:note', { displayMode: NoteDisplayMode.DocAndEdgeless }, root)
-}
-
-/** 往哪儿追加：最后一棵 note。一篇都没有就先种一棵。 */
-function tailNote(store: Store): string {
-  const notes = store.getModelsByFlavour('affine:note')
-  const last = notes[notes.length - 1]
-  if (last) return last.id
-  return seed(store)
-}
-
-/** Markdown → 块，插进 `parent` 的第 `index` 位。返回插了几个。 */
-async function insert(
-  b: Bench,
-  parent: string,
-  index: number,
-  markdown: string,
-): Promise<number> {
-  const snap = await b.adapter.toBlockSnapshot({ file: markdown })
-  // `toBlockSnapshot` 的根是一整棵 `affine:note` —— 只要它的孩子，**不要**那层 note 壳：
-  // 插进 note 里的东西才该是段落（note 套 note 不合 schema），插进页面的才是 note 本身。
-  let at = index
-  let n = 0
-  for (const child of snap.children) {
-    const made = await b.transformer.snapshotToBlock(child, b.store, parent, at)
-    if (!made) continue
-    at++
-    n++
-  }
-  return n
+/** 给插入的子树换一批新块 id —— id 是评论 / 拖拽 / 落库对齐的唯一锚点，重复的 id 会让定位对不上。 */
+function freshIds(node: PMNode): PMNode {
+  if (node.isText) return node
+  const attrs = node.type.name === 'blockContainer' ? { ...node.attrs, id: blockId() } : node.attrs
+  const kids: PMNode[] = []
+  node.forEach((child) => kids.push(freshIds(child)))
+  return node.type.create(attrs, kids)
 }
 
 /* ─────────────────────────── 落库 ─────────────────────────── */
 
 /**
- * 把改完的 Y.Doc 写回库，并让开着的编辑器重读。
+ * 把改完的 doc 写回库，并让开着的编辑器重读。
  *
- * ★ `links` **故意不送**（D-0085）：`doc:apply` 少这个字段的语义是「别动已有的边」。
- *   送空数组才是「把边全删了」—— 那会把这篇的反向链接一次抹掉。
  * ★ 顺序照 `version-history/actions.ts`：先改库，再 `reload`（它第一句就把落库闸门关上）。
+ * ★ 版本点不用在这儿打 —— 走的是 `doc:apply`，Rust 侧 `origin != 'user'` 时**强制**先快照（D-0043）。
  */
 async function commit(
   ctx: Context,
-  b: Bench,
   id: string,
+  doc: PMNode,
   groupId: string,
   label: string,
 ): Promise<string> {
-  const bytes = Y.encodeStateAsUpdate(b.doc.spaceDoc)
-  const { title, md } = project(b.store)
+  const title = String(doc.attrs.title ?? '')
   await ctx.rpc.call('doc:apply', {
     id,
-    snapshot: b64(bytes),
+    content: JSON.stringify(doc.toJSON()),
     origin: 'ai',
     groupId,
     label,
     title,
-    md,
+    md: textOf(doc),
   })
   await ctx.editor.reload(id)
   // 标题 / 更新时间可能变了 —— 侧栏、标签条、首页靠这条事件重取（D-0073）。
@@ -178,19 +121,9 @@ async function commit(
   return title
 }
 
-/** 正文投影：把块树的 text 摊平 + 那个大标题（Rust 拿它喂 FTS / 首页摘要）。 */
-function project(store: Store): { title: string; md: string } {
-  const lines: string[] = []
-  if (store.root) collectText(store.root, lines)
-  const page = store.getModelsByFlavour('affine:page')[0]
-  const title = (page?.props as { title?: { toString(): string } } | undefined)?.title
-  return { title: title ? title.toString() : '', md: lines.join('\n\n') }
-}
-
-function collectText(model: BlockModel, out: string[]): void {
-  const text = model.text?.toString().trim()
-  if (text) out.push(text)
-  for (const child of model.children) collectText(child, out)
+/** 正文投影（纯文本，按块树顺序摊平）—— Rust 拿它喂 FTS / 首页摘要（`doc_text`）。 */
+function textOf(doc: PMNode): string {
+  return doc.textBetween(0, doc.content.size, '\n\n')
 }
 
 /* ─────────────────────────── 三个动作 ─────────────────────────── */
@@ -202,22 +135,23 @@ export async function create(
   markdown: string,
   groupId: string,
 ): Promise<WriteResult> {
-  const meta = await ctx.rpc.call<DocMeta>('doc:create', { title })
-  if (!markdown.trim()) {
-    // 空文档也要说一声 —— 侧栏 / 首页靠这条事件重取列表，不然新建的那篇看不见。
-    ctx.emit(DOCS_CHANGED)
-    return { id: meta.id, title, blocks: 0 }
+  try {
+    const meta = await ctx.rpc.call<DocMeta>('doc:create', { title })
+    if (!markdown.trim()) {
+      // 空文档也要说一声 —— 侧栏 / 首页靠这条事件重取列表，不然新建的那篇看不见。
+      ctx.emit(DOCS_CHANGED)
+      return { id: meta.id, title, blocks: 0 }
+    }
+    await ctx.editor.ready()
+    const schema = ctx.editor.schema() as Schema
+    const blocks = blocksFrom(ctx, schema, markdown)
+    // 正文顶上那个大标题就是这篇的名字（D-0073）—— 标题是 doc 的 attr（架构 §3.3），和正文一起落库。
+    await commit(ctx, meta.id, makeDoc(schema, title, blocks), groupId, labelOf(markdown, title))
+    return { id: meta.id, title, blocks: blocks.length }
+  } catch (err) {
+    reportError('tools', err)
+    throw err
   }
-
-  const b = await bench(ctx, meta.id, { id: meta.id, snapshot: null, updates: [] })
-  // 正文顶上那个大标题就是这篇的名字（D-0073）—— 库里那份是 `doc:create` 写的，两边必须同名。
-  const page = b.store.getModelsByFlavour('affine:page')[0]
-  if (page) (page.props as { title?: unknown }).title = new Text(title)
-
-  const note = tailNote(b.store)
-  const blocks = await insert(b, note, 0, markdown)
-  const done = await commit(ctx, b, meta.id, groupId, labelOf(markdown, title))
-  return { id: meta.id, title: done, blocks }
 }
 
 /** 追加到末尾。 */
@@ -227,13 +161,19 @@ export async function append(
   markdown: string,
   groupId: string,
 ): Promise<WriteResult> {
-  if (!markdown.trim()) throw new Error('doc_append：markdown 是空的，没什么可加')
-  const b = await benchFromStore(ctx, id)
-  const note = tailNote(b.store)
-  const at = b.store.getBlock(note)?.model?.children.length ?? 0
-  const blocks = await insert(b, note, at, markdown)
-  const title = await commit(ctx, b, id, groupId, labelOf(markdown, ''))
-  return { id, title, blocks }
+  try {
+    if (!markdown.trim()) throw new Error('doc_append：markdown 是空的，没什么可加')
+    const { doc, schema } = await loadDoc(ctx, id)
+    const blocks = blocksFrom(ctx, schema, markdown)
+    const tr = new Transform(doc)
+    // 根 `blockGroup` 内容区的末尾：doc 的内容就那一个 blockGroup，它内容区收在 content.size - 1。
+    if (blocks.length) tr.insert(doc.content.size - 1, blocks)
+    const title = await commit(ctx, id, tr.doc ?? doc, groupId, labelOf(markdown, ''))
+    return { id, title, blocks: blocks.length }
+  } catch (err) {
+    reportError('tools', err)
+    throw err
+  }
 }
 
 /**
@@ -247,24 +187,25 @@ export async function replace(
   markdown: string,
   groupId: string,
 ): Promise<WriteResult> {
-  if (!markdown.trim()) throw new Error('doc_replace：markdown 是空的，没什么可换')
-  const b = await benchFromStore(ctx, id)
+  try {
+    if (!markdown.trim()) throw new Error('doc_replace：markdown 是空的，没什么可换')
+    const { doc, schema } = await loadDoc(ctx, id)
 
-  const models = blockIds
-    .map((bid) => b.store.getBlock(bid)?.model)
-    .filter((m): m is BlockModel => m !== undefined)
-  if (!models.length) throw new Error('doc_replace：这些块 id 一个都不在这篇里')
+    const hits = collectBlocks(doc, blockIds)
+    if (!hits.length) throw new Error('doc_replace：这些块 id 一个都不在这篇里')
 
-  const first = models[0]!
-  const parent = first.parent
-  if (!parent) throw new Error('doc_replace：那个块没有父级，动不了')
-  const at = parent.children.findIndex((c) => c.id === first.id)
+    const blocks = blocksFrom(ctx, schema, markdown)
+    const tr = new Transform(doc)
+    // 从后往前删：留下的位置不受影响，于是 hits[0].pos 删完还是那个锚点。
+    for (let i = hits.length - 1; i >= 0; i--) tr.delete(hits[i].pos, hits[i].pos + hits[i].node.nodeSize)
+    if (blocks.length) tr.insert(hits[0].pos, blocks)
 
-  const blocks = await insert(b, parent.id, at < 0 ? 0 : at, markdown)
-  for (const model of models) b.store.deleteBlock(model)
-
-  const title = await commit(ctx, b, id, groupId, labelOf(markdown, ''))
-  return { id, title, blocks }
+    const title = await commit(ctx, id, tr.doc ?? doc, groupId, labelOf(markdown, ''))
+    return { id, title, blocks: blocks.length }
+  } catch (err) {
+    reportError('tools', err)
+    throw err
+  }
 }
 
 /**
@@ -280,18 +221,36 @@ export async function findByQuote(
 ): Promise<string[]> {
   const needle = quote.trim()
   if (!needle) return []
-  const b = await benchFromStore(ctx, id)
-  const out: string[] = []
-  const walk = (model: BlockModel) => {
-    const text = model.text?.toString() ?? ''
-    if (text !== '' && text.includes(needle)) out.push(model.id)
-    for (const child of model.children) walk(child)
+  try {
+    const { doc } = await loadDoc(ctx, id)
+    const out: string[] = []
+    doc.descendants((node) => {
+      if (node.type.name !== 'blockContainer') return
+      const bid = String(node.attrs.id)
+      // 只看块**自己**的内容（`blockContent` 那一层），不看它 children 的文字 —— 跟块手柄选中的是同一个块。
+      const text = node.firstChild?.textContent ?? ''
+      if (bid && text !== '' && text.includes(needle)) out.push(bid)
+    })
+    return out
+  } catch (err) {
+    reportError('tools', err)
+    throw err
   }
-  if (b.store.root) walk(b.store.root)
-  return out
 }
 
 /* ─────────────────────────── 小东西 ─────────────────────────── */
+
+/** 按 id 找块，位置按文档顺序（`descendants` 保证）。 */
+function collectBlocks(doc: PMNode, ids: string[]): BlockHit[] {
+  const want = new Set(ids)
+  const out: BlockHit[] = []
+  doc.descendants((node, pos) => {
+    if (node.type.name === 'blockContainer' && want.has(String(node.attrs.id))) {
+      out.push({ node, pos })
+    }
+  })
+  return out
+}
 
 /** 版本点上那句说明 —— 取正文第一句，用户翻版本历史时知道这一笔是干嘛的。 */
 function labelOf(markdown: string, fallback: string): string {
@@ -300,14 +259,4 @@ function labelOf(markdown: string, fallback: string): string {
     .map((l) => l.replace(/^[#>\-*\s]+/, '').trim())
     .find((l) => l !== '')
   return (line ?? fallback).slice(0, 60)
-}
-
-// `String.fromCharCode(...bytes)` 一次喂太多会爆栈（约 6.5 万参数上限）—— 按块切（同 `notion.ts`）。
-const CHUNK = 0x8000
-function b64(bytes: Uint8Array): string {
-  let raw = ''
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    raw += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
-  }
-  return btoa(raw)
 }

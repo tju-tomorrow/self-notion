@@ -15,11 +15,14 @@ export interface DocLink {
 }
 
 /** 文档句柄。字节的格式由存储实现决定，别处不解释（D-0035）。
- *  形状照抄 `doc:open` 的返回：先 apply(snapshot)，再按 seq 依次 apply updates。 */
+ *
+ *  ★ 2026-10-08 换了编辑器基座（D-0128 / D-0131）：字节从 **Yjs 二进制**（snapshot + updates）
+ *  变成**一个 JSON 字符串**（ProseMirror 的 `doc.toJSON()`）。没有 CRDT 就没有「增量」这个概念，
+ *  所以 `updates` 整个消失。形状 = `doc:open` 的返回。 */
 export interface DocHandle {
   readonly id: string
-  snapshot: Uint8Array | null
-  updates: Uint8Array[]
+  /** 正文（PM doc JSON 的字符串形式）。`null` = 库里还没有这一篇的字节 —— 编辑器自己造一个空的。 */
+  content: string | null
   /** 正文投影（纯文本）与标题，只有**落库**方向用得上：Rust 拿它喂 FTS / 摘要（`doc_text`）。
    *  不给就保持库里原值，所以 `load` 的返回不必带。没有这两个字段，`doc_text` 永远是空的 ——
    *  搜索搜不到正文，首页也给不出摘要。 */
@@ -40,11 +43,14 @@ export interface DocsService {
 
 export interface EditorService {
   /**
-   * 编辑器本体（BlockSuite，几 MB）是**懒装载**的 —— 冷启动不为不需要它的人付解析费。
+   * 编辑器本体是**懒装载**的 —— 冷启动不为不需要它的人付解析费。
    *
-   * 所以这里多了一条：**要用 `blocks()` 的先 `await ready()`**。它同时保证
+   * 所以这里多了一条：**要用 `schema()` 的先 `await ready()`**。它同时保证
    * `connectDocs` 那几条线已经接上（`mount` 内部也等它）。调几次都是同一个 promise，
    * 但**第一次调才开始装载** —— 别在启动路径上顺手 await 一下，那等于没懒。
+   *
+   * ★ 换基座后（D-0128）这一条**照旧**：ProseMirror 比 BlockSuite 小一个数量级
+   *   （200 KB 级 vs 4 MB+），但「首页 / 搜索 / 设置页不需要编辑器」这个事实没变。
    */
   ready(): Promise<void>
   /** 挂到 el 上，返回卸载函数 */
@@ -55,8 +61,8 @@ export interface EditorService {
    * ★ 这是 Stage 0 冻结之后往契约里加的**第三件**事情（前两件都是评论），破例的理由：
    *   「先改库、再重读」是一对必须原子的动作 —— 中间夹一次落库就会把刚恢复的状态
    *   盖回旧内容，所以不能拆成两个事件让两边各管一半。
-   * ★ 重读意味着**丢掉手里的活 Y.Doc**，不是就地 apply：Yjs 的删除是墓碑，
-   *   往活文档上灌历史字节不能让删掉的内容回来。
+   * ★ 重读 = **丢掉手里的活编辑器、用库里那份重建**。不是把新 JSON 塞进现有的 doc ——
+   *   那样选区和撤销历史会跟内容对不上。
    */
   reload(id: string): Promise<void>
   /**
@@ -69,16 +75,26 @@ export interface EditorService {
    *   （`markDirty`），没有"现在就写"的口子 —— 别人想问它一句都问不了。
    */
   flush(id: string): Promise<void>
-  /** 注册一种块；返回注销函数（D-0033 逆函数纪律） */
-  defineBlock(spec: unknown, view: unknown): () => void
-  /** 已登记的 store 侧 provider（副本）。**先 `await ready()`**，否则清单是空的。
+  /** 编辑器的 schema（ProseMirror `Schema` 对象，只读）。
    *
-   *  ★ 给「要建**同款 schema**」的插件用（就一个：import-notion —— 它要把块写成字节，
-   *   schema 少一个 flavour 那个块就落不进去）。没有它，导入只能自己抄一份 provider 清单，
-   *   而清单必然会漂（D-0064）。只读，不会因为多了一个调用方而改变编辑器。
+   *  ★ 2026-10-08 换基座（D-0129）：这条**取代**了原来的 `defineBlock` + `blocks()`。
+   *  「往基座注册一种块」这件事消失了 —— 块类型是我们 schema 里的一等代码，不再由外部注册。
+   *  这个口子留给**要自己构造一篇文档**的插件（import-notion —— 它要把 Notion 的块写成 doc JSON，
+   *  schema 里少一个节点名那个块就构造不出来）。
    *
-   *  形状是不透明的：拿的人原样交给 BlockSuite 的 `StoreExtensionManager`，别拆开看。 */
-  blocks(): readonly unknown[]
+   *  形状是不透明的（`unknown`）：拿的人自己 `import { Schema } from 'prosemirror-model'` 再 cast，
+   *  跟原来那条 `blocks()` 交给 `StoreExtensionManager` 一个规矩。
+   *  ★ 节点名与 attrs 属于**持久化格式**（写进 JSON），冻在 `docs/editor-architecture.md` §2。 */
+  schema(): unknown
+  /** markdown → 一篇文档的正文（PM doc JSON 字符串）。
+   *
+   *  ★ 给「拿模型产出的 markdown 造块」的插件用 —— 就两个：`tools` 的写工具（模型给的是
+   *  markdown）、`import-notion`（Notion 导出的内容按 markdown 走）。**先 `await ready()`**。
+   *  ★ 走契约不走内部文件：插件之间不许 import 内部（CONVENTIONS §6.2）。
+   *  ★ 解析器留在编辑器这一侧 —— 它拥有「schema 节点名 ↔ markdown 语法」这份映射，
+   *  别处再抄一份就会漂。拿到的整篇 doc JSON 里 `content[0]` 是那个 `blockGroup`，
+   *  它的 children 就是块数组。 */
+  docFromMarkdown(markdown: string): string
   /**
    * 这一篇**活文档**的正文（纯文本，按块树顺序摊平）。没打开过 → null。
    *

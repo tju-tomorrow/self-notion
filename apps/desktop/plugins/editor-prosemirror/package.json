@@ -1,0 +1,27 @@
+{
+  "name": "self-notion-plugin-editor-prosemirror",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "files": [
+    "index.ts",
+    "editor.ts",
+    "view.ts",
+    "doc-source.ts",
+    "schema",
+    "serializers",
+    "editor.css.ts",
+    "sn.patch.yml"
+  ],
+  "selfNotion": {
+    "bundle": {
+      "patch": "./sn.patch.yml"
+    },
+    "permissions": [
+      "ui:main",
+      "docs:read",
+      "docs:write"
+    ]
+  }
+}

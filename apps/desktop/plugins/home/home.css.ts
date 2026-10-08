@@ -323,16 +323,6 @@ export const rowTitle = style({
   whiteSpace: 'nowrap',
 })
 
-/** 行标题下的正文摘要（C14）。数据来自 `doc:summary`；没有就不画，不拿标题糊。 */
-export const rowSummary = style({
-  fontSize: 12,
-  lineHeight: '20px',
-  color: 'var(--affine-v2-text-secondary)',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
-})
-
 /** 工具栏左边那行标题（原来放 tab，现在放当前分组名）。 */
 export const headTitle = style({
   fontSize: 18,
@@ -487,17 +477,6 @@ export const cardTitle = style({
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
-})
-
-/** 卡片里的正文摘要，最多 3 行。 */
-export const cardBody = style({
-  fontSize: 13,
-  lineHeight: '20px',
-  color: 'var(--affine-v2-text-secondary)',
-  overflow: 'hidden',
-  display: '-webkit-box',
-  WebkitLineClamp: 3,
-  WebkitBoxOrient: 'vertical',
 })
 
 /* ── 瀑布流（C15）：CSS 多列，卡片不许被拦腰截断 ── */

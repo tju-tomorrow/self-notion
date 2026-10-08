@@ -9,10 +9,11 @@
  * 读走 `ctx.get('vfs')`（**软依赖**：vfs 没装就那三条报一句清楚的话，而不是假装能读）。
  * 写走 `doc.ts`（懒装载 —— 不写文档的人不该为块包付冷启动费）。
  *
- * ★ **写工具的第一件事是 `version:checkpoint`**（`docs/ai.md` 第六节）：先打版本点，再动
- *   Y.Doc。这是「先快照后写」的**第二层**，第一层在 Rust（`docs.rs::apply`，`origin != 'user'`
- *   就一定先快照，躲不掉）。漏了这一句不至于丢可撤销性，但版本点会缺 `label` / `group_id`，
- *   于是「一个回合一次撤销」就残了 —— 所以它只写在这一个文件里，不散开。
+ * ★ **版本点交给 Rust 打**，前端不再显式调 `version:checkpoint`：`doc:apply` 里
+ *   `origin != 'user'` 就一定先快照（`docs.rs::apply`），而写工具送的 payload 本来就带
+ *   `groupId` / `label`，那一层不缺信息。
+ *   ★ 2026-10-08 之前这里还有一句显式 `checkpoint(...)`，和 Rust 那层**打的是同一份内容**
+ *   （同一个「改之前」被记两遍），已删。
  *
  * ★ `groupId` 由 **`plugin-ai` 每个回合生成一个、塞进 args**（`ToolSpec.run(args)` 只有一个
  *   参数）。模型看不见它：它不在上面那些 `parameters` 里，是调用方加的。
@@ -22,7 +23,7 @@ import type { DocMeta, ToolSpec, ToolsService } from '../../src/kernel/contract'
 
 export const name = 'plugin-tools'
 
-// rpc：`version:checkpoint` / `doc:apply` / `doc:create`；docs / editor：load + reload。
+// rpc：`doc:apply` / `doc:create`；docs / editor：load + reload。
 // vfs 是软依赖，不走 inject（`ctx.get('vfs')`）。
 export const inject = ['rpc', 'docs', 'editor']
 
@@ -157,7 +158,6 @@ function appendTool(ctx: Context): ToolSpec {
       const markdown = str(a, 'markdown')
       const id = await resolve(ctx, ref)
       const groupId = needGroup(a)
-      await checkpoint(ctx, id, groupId, labelOf(markdown))
       const doc = await write()
       return doc.append(ctx, id, markdown, groupId)
     },
@@ -193,8 +193,6 @@ function replaceTool(ctx: Context): ToolSpec {
       const markdown = str(a, 'markdown')
       const id = await resolve(ctx, str(a, 'id'))
       const groupId = needGroup(a)
-      // 第一件事（`docs/ai.md` 第六节）：先打版本点，再碰 Y.Doc。
-      await checkpoint(ctx, id, groupId, labelOf(markdown))
       const doc = await write()
       // 块 id 从 vfs 里看不见（`/tree/X.md` 只有文字，没有 id）—— 允许按原文找。
       const given = strs(a, 'blockIds')
@@ -206,15 +204,6 @@ function replaceTool(ctx: Context): ToolSpec {
 }
 
 /* ─────────────────────────── 帮手 ─────────────────────────── */
-
-/**
- * 先打版本点再动 Y.Doc（`docs/ai.md` 第六节）。
- *
- * 不给 `update` —— Rust 拿自己手里的最近一份全量（`doc_snapshot`），也就是**写之前**那一刻。
- */
-async function checkpoint(ctx: Context, id: string, groupId: string, label: string): Promise<void> {
-  await ctx.rpc.call('version:checkpoint', { id, origin: 'ai', groupId, label })
-}
 
 /** 块包那几 MB 在这一句才进来（`plugins/tools/index.ts` 的文件头写了为什么）。 */
 const write = () => import('./doc')
@@ -246,16 +235,6 @@ async function resolve(ctx: Context, ref: string): Promise<string> {
     )
   }
   return hits[0].id
-}
-
-/** 版本点上那句说明 —— 和 `doc.ts` 里的 `labelOf` 同一个口径。 */
-function labelOf(markdown: string): string {
-  return (
-    markdown
-      .split('\n')
-      .map((l) => l.replace(/^[#>\-*\s]+/, '').trim())
-      .find((l) => l !== '') ?? ''
-  ).slice(0, 60)
 }
 
 function needVfs(ctx: Context) {

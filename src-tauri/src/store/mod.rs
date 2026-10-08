@@ -1,6 +1,7 @@
 //! 数据层。SQLite 是唯一真相源；前端是薄缓存。
 //!
-//! schema 冻结（schema.sql）。迁移走 `meta.schema_version` + 函数表（D-0039）。
+//! schema 冻结（schema.sql）。版本对不上就**重建文档相关的表**（`meta` 留着）——
+//! 换基座后旧库是 Yjs 形状，文档数据不要了（D-0130），不写增量迁移 SQL。
 //!
 //! 模块分工：`docs` 文档元数据 + 内容 + 全文索引 · `version` 版本点 · `links` 链接图谱（D-0085）
 //! · `blob` 图片 · `comment` 评论 · `summary` 每篇的 AI 总结（D-0075）。
@@ -11,6 +12,7 @@ pub mod comment;
 pub mod docs;
 pub mod links;
 pub mod summary;
+pub mod sync;
 pub mod version;
 
 use crate::commands::{ApiError, ApiResult};
@@ -21,30 +23,32 @@ use std::sync::Mutex;
 
 pub struct Db(pub Mutex<Connection>);
 
-/// 当前 schema 版本。改 schema.sql 时 +1，并在 `migrations()` 里补一条。
-pub const SCHEMA_VERSION: i64 = 3;
+/// 当前 schema 版本。★ **只有「改现有表的形状」才 +1** —— 对不上的库会被重建文档相关的表（见
+/// `migrate`，那是**丢数据**的动作）。**加一张新表不算**：它写在 `schema.sql` 里用
+/// `CREATE TABLE IF NOT EXISTS`，每次 open 都跑一遍，新库老库一起照顾到，不用占版本号。
+/// （2026-10-08：加 `sync` 表时误 +1 过，那会把用户的库清掉 —— 已改回。）
+pub const SCHEMA_VERSION: i64 = 4;
 
-/// 从 v(n-1) 到 v(n) 的那一步。**只增不改** —— 已经发出去的一步改了，
-/// 就是有人在旧库上跑到一半跟别人不一样。索引 = 目标版本号。
-///
-/// ★ **这里只放"加列"这类不幂等的语句**。建表/建索引写在 `schema.sql` 里用
-/// `IF NOT EXISTS` —— 那句每次 open 都跑一遍，新库老库一起照顾到，不用占一个版本号。
-fn migrations() -> &'static [(i64, &'static str)] {
-    &[
-        (
-            2,
-            // v2：标签（D-0086）。`doc_link` 表不需要这一步 —— 它走 schema.sql 的
-            // CREATE TABLE IF NOT EXISTS 就够（新表，老库下次 open 时补上）。
-            // ★ 新库这里会**跳过**：它的 schema_version 一开始就写的是 SCHEMA_VERSION。
-            "ALTER TABLE documents ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'",
-        ),
-        (
-            3,
-            // v3：置顶（D-0123）。`is_favorite` 那一路一个字没动 —— 置顶是**独立**的标记，
-            // 一篇文章可以只收藏、只置顶、或者两样都占。
-            "ALTER TABLE documents ADD COLUMN pinned_at INTEGER",
-        ),
-    ]
+/// 换基座那次（D-0131）：正文从 Yjs 二进制变成 PM doc JSON，表形状整个变了。
+/// 只清**文档相关**的表（D-0130：旧数据不要了）—— `meta` 不碰：里面是 settings /
+/// AI 的 baseUrl·model·key / UI 状态 / 上次备份 sha，换编辑器不该让用户重填这些。
+/// 旧表全 DROP 再让 `schema.sql` 重建，不写增量迁移。新库（没有 schema_version 那一行）不走这儿。
+fn reset(conn: &Connection) -> Result<(), rusqlite::Error> {
+    conn.execute_batch(
+        "DROP TABLE IF EXISTS documents;
+         DROP TABLE IF EXISTS doc;
+         DROP TABLE IF EXISTS doc_snapshot;
+         DROP TABLE IF EXISTS doc_update;
+         DROP TABLE IF EXISTS doc_version;
+         DROP TABLE IF EXISTS doc_fts;
+         DROP TABLE IF EXISTS doc_text;
+         DROP TABLE IF EXISTS doc_summary;
+         DROP TABLE IF EXISTS doc_link;
+         DROP TABLE IF EXISTS blob;
+         DROP TABLE IF EXISTS comment;
+         DROP TABLE IF EXISTS sync;",
+    )?;
+    conn.execute_batch(include_str!("schema.sql"))
 }
 
 impl Db {
@@ -87,12 +91,13 @@ impl Db {
             .optional()?
             .and_then(|v| v.parse().ok());
 
-        // 全新的库：schema.sql 已经是最新形状（含 tags），一步都不用跑。
+        // 版本对不上 → 把文档相关的表全重建（`meta` 留着）。`open()` 里那句 schema.sql
+        // 已经把新表建出来了，但旧表的列还是老形状（比如 doc_version.update_ 还在）——
+        // 所以这里必须 DROP 再建。
+        // 没有 schema_version 这一行 = 全新的库，一步都不用跑。
         if let Some(cur) = cur {
-            for (v, sql) in migrations() {
-                if *v > cur {
-                    conn.execute_batch(sql)?;
-                }
+            if cur != SCHEMA_VERSION {
+                reset(&conn)?;
             }
         }
 
@@ -101,6 +106,8 @@ impl Db {
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             [SCHEMA_VERSION.to_string()],
         )?;
+        // 写路径只保新的；历史脏行（`sda\x1d\x1d\x1d` 那种方框）得这趟一次性洗掉。
+        clean_existing(&conn)?;
         Ok(())
     }
 
@@ -136,6 +143,69 @@ pub fn db_err(e: rusqlite::Error) -> ApiError {
 
 pub fn not_found(what: &str) -> ApiError {
     ApiError::new("not_found", format!("no such {what}"))
+}
+
+/// 清掉控制符：C0（`\n`=0x0a / `\t`=0x09 除外，正文里是正常排版）+ DEL/C1（0x7f..=0x9f）。
+/// 判据和编辑器那侧**逐字一致**（`plugins/editor-prosemirror/sanitize.ts`）。
+///
+/// ★ 为什么清在**写库这一层**：库是唯一真相，它脏了就所有人跟着脏 —— 侧栏 / 标签条直接读库，
+///   一排方框就是这么来的。这些字符不是任何人写的，是从 DOM 那侧漏进来的；清在这儿比清在
+///   每个读的人那里都省。
+pub fn clean_controls(s: &str) -> String {
+    s.chars().filter(|c| !is_control(*c as u32)).collect()
+}
+
+fn is_control(code: u32) -> bool {
+    (code < 0x20 && code != 0x0a && code != 0x09) || (0x7f..=0x9f).contains(&code)
+}
+
+/// **一次性**：把库里既有的控制符洗掉（写路径只管新的，历史行没人管 —— P3 收尾抓到的真 bug）。
+/// 洗 `documents.title`（侧栏 / 标签条直接读它）和 `doc_text.title, md`（搜索 / 摘要的投影）。
+///
+/// ★ **版本闸**：`meta.clean_controls` = 1 表示跑过了，之后每次开库直接返回 —— 不全表扫。
+fn clean_existing(conn: &Connection) -> Result<(), rusqlite::Error> {
+    let done = conn
+        .query_row("SELECT value FROM meta WHERE key = 'clean_controls'", [], |r| {
+            r.get::<_, String>(0)
+        })
+        .optional()?
+        .as_deref()
+        == Some("1");
+    if done {
+        return Ok(());
+    }
+
+    let tx = conn.unchecked_transaction()?;
+
+    let metas: Vec<(String, String)> = {
+        let mut st = tx.prepare("SELECT id, title FROM documents")?;
+        let rows = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        rows.collect::<rusqlite::Result<_>>()?
+    };
+    for (id, title) in metas {
+        let clean = clean_controls(&title);
+        if clean != title {
+            tx.execute("UPDATE documents SET title = ?2 WHERE id = ?1", params![id, clean])?;
+        }
+    }
+
+    let texts: Vec<(String, String, String)> = {
+        let mut st = tx.prepare("SELECT doc_id, title, md FROM doc_text")?;
+        let rows = st.query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+        })?;
+        rows.collect::<rusqlite::Result<_>>()?
+    };
+    for (id, title, md) in texts {
+        let (ct, cm) = (clean_controls(&title), clean_controls(&md));
+        if ct != title || cm != md {
+            tx.execute("UPDATE doc_text SET title = ?2, md = ?3 WHERE doc_id = ?1", params![id, ct, cm])?;
+        }
+    }
+
+    // 标记落库 —— 跟那批 UPDATE 同一个事务，成了才记「跑过」。
+    tx.execute("INSERT INTO meta(key, value) VALUES('clean_controls', '1')", [])?;
+    tx.commit()
 }
 
 pub fn now_ms() -> i64 {

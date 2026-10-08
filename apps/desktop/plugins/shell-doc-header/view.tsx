@@ -568,15 +568,14 @@ async function copyBody(ctx: Context, id: string): Promise<void> {
   await copyText(rows[0]?.body ?? '')
 }
 
-/** 创建副本：建一篇新的，把源文档的字节灌进去。后端没有 duplicate，用现成的 open + apply 拼。 */
+/** 创建副本：建一篇新的，把源文档的正文灌进去。后端没有 duplicate，用现成的 open + apply 拼。 */
 async function duplicate(ctx: Context, id: string, title: string): Promise<void> {
-  const src = await ctx.rpc.call<{ snapshot: string | null; updates: string[] }>('doc:open', { id })
+  const src = await ctx.rpc.call<{ content: string | null }>('doc:open', { id })
   const made = await ctx.rpc.call<DocMeta>('doc:create', {
     parentId: null,
     title: `${title} ${ctx.i18n.t('doc.copySuffix')}`,
   })
-  if (src.snapshot !== null) await ctx.rpc.call('doc:apply', { id: made.id, snapshot: src.snapshot })
-  for (const update of src.updates) await ctx.rpc.call('doc:apply', { id: made.id, update })
+  if (src.content !== null) await ctx.rpc.call('doc:apply', { id: made.id, content: src.content })
   ctx.emit(DOCS_CHANGED)
   ctx.emit(OPEN_DOC, { id: made.id })
 }

@@ -1,0 +1,7 @@
+# sn.patch.yml —— 我贡献什么（装载清单）
+#
+# `editor` 这个服务由本插件 provide（见 index.ts）。它挂到 ctx 上，不是"注册"出来的，
+# 所以这里只有一条装载项。
+- insert:
+    - id: editor-prosemirror
+      name: self-notion-plugin-editor-prosemirror

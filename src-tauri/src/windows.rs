@@ -142,8 +142,8 @@ pub fn new_window_requested(app: &AppHandle) {
 
 /// 这篇的字节变了（`docs/architecture.md` 第七节）：告诉**别的**窗口去重读。
 ///
-/// 只传 id、不传字节：合并点在 Rust（`docs::apply` 已经换掉 snapshot），别的窗口 `doc:open`
-/// 拿到的就是合并后那份。省一次 base64，而且「谁是权威」只有一个答案。
+/// 只传 id、不传正文：写入点在 Rust（`docs::apply` 已经把库里的 content 覆盖了），
+/// 别的窗口 `doc:open` 拿到的就是库里那份。省一次传输，而且「谁是权威」只有一个答案。
 pub fn relay_doc(app: &AppHandle, from: Option<&str>, doc_id: &str) {
     for label in app.webview_windows().keys() {
         if Some(label.as_str()) == from {

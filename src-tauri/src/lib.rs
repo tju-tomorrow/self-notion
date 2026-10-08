@@ -55,7 +55,7 @@ pub fn run() {
         .menu(windows::menu)
         .on_menu_event(|app, event| windows::on_menu(app, &event.id().0))
         // 图片 / 附件（D-0027）：`blob:getUrl` 回的就是 `self-notion://blob/<id>`，这里把它接上。
-        // **只读** —— 写一律走 `blob:put` 命令，协议只服务 `<img src>`。
+        // **只读** —— 写一律走 `blob:put` 命令，协议只服务 `<img src>` / `<video>` / `<audio>`。
         // 协议名和 CSP 里那句 `self-notion:`（img-src / connect-src）必须逐字一致，
         // 名字对不上不是报错，是白图（D-0050）。
         .register_uri_scheme_protocol("self-notion", |ctx, request| {
@@ -64,7 +64,11 @@ pub fn run() {
             // 取字节这件事只有 store::blob 一个出口（它和 blob:put 共用同一张表的知识）。
             let hit = db.with(|conn| store::blob::get(conn, id));
             match hit {
-                Ok(Some((mime, bytes))) => reply(StatusCode::OK, &mime, bytes),
+                // ★ 带 Range 就回 206 的那一段 —— `<video>` / `<audio>` 拖进度靠它（没有 Range
+                //   的 `<img>` 那条路维持 200 全量）。
+                Ok(Some((mime, bytes))) => {
+                    blob_response(request.headers().get(header::RANGE), &mime, bytes)
+                }
                 // 信任边界：id 是外面给的，查不到就是 404，不 panic。前端 `<img>` 显示裂图，
                 // 那正是「这个 blob 不存在」该有的样子。
                 // 但**要留痕** —— 404 是静默失败里最难查的一种（AGENTS.md §3）：
@@ -131,6 +135,61 @@ fn blob_id_from(uri: &tauri::http::Uri) -> &str {
     }
 }
 
+/// blob 的响应：带 `Range` 就回 206 的那一段，不带（图片那条路）回 200 全量。
+///
+/// ★ 为什么非有 Range 不可：媒体块把 `self-notion://blob/<id>` 当 `<video>` / `<audio>` 的
+///   `src`，WKWebView 拉本地媒体**常常先发 Range 探测**，拖进度也是 Range。只回 200 全量时
+///   它拿不到 `Content-Range`，就不给播 / 不给拖。图片从不需要 Range，所以这条对图片是透明的。
+fn blob_response(
+    range: Option<&HeaderValue>,
+    mime: &str,
+    bytes: Vec<u8>,
+) -> tauri::http::Response<Vec<u8>> {
+    let total = bytes.len() as u64;
+    match range.and_then(|v| v.to_str().ok()).and_then(|h| parse_range(h, total)) {
+        Some((start, end)) => {
+            // 闭区间两端都要，`..=` 而不是 `..`。
+            let slice = bytes[start as usize..=end as usize].to_vec();
+            let mut out = reply(StatusCode::PARTIAL_CONTENT, mime, slice);
+            if let Ok(v) = HeaderValue::from_str(&format!("bytes {start}-{end}/{total}")) {
+                out.headers_mut().insert(header::CONTENT_RANGE, v);
+            }
+            out
+        }
+        // 没有 Range / 认不出 / 不可满足 → 全量（对 Range 无所谓的调用方拿到的还是整份）。
+        None => reply(StatusCode::OK, mime, bytes),
+    }
+}
+
+/// `Range: bytes=<start>-<end>` → 闭区间的字节范围。认不出 / 不满足回 `None`（退成 200 全量）。
+///
+/// 只认**单段**（多段的 `bytes=0-1,3-4` 要 multipart 响应，媒体播放用不上，整份给它就行）。
+/// 三种写法都认：`start-end` · `start-`（到结尾）· `-suffix`（最后 N 字节）。
+fn parse_range(h: &str, total: u64) -> Option<(u64, u64)> {
+    if total == 0 {
+        return None;
+    }
+    let spec = h.strip_prefix("bytes=")?;
+    if spec.contains(',') {
+        return None;
+    }
+    let (a, b) = spec.split_once('-')?;
+    let last = total - 1;
+    let (start, end) = if a.is_empty() {
+        let n: u64 = b.trim().parse().ok()?;
+        if n == 0 {
+            return None;
+        }
+        (total.saturating_sub(n), last)
+    } else {
+        let start: u64 = a.trim().parse().ok()?;
+        let end = if b.is_empty() { last } else { b.trim().parse().ok()? };
+        (start, end.min(last))
+    };
+    // start 越界 / 区间反了 = 不可满足 → 当没给。
+    (start <= end && start < total).then_some((start, end))
+}
+
 /// 读协议的出参。`mime` 是库里的自由文本 —— 拼不出合法头就退成 octet-stream，不 panic。
 fn reply(status: StatusCode, mime: &str, body: Vec<u8>) -> tauri::http::Response<Vec<u8>> {
     let ctype = HeaderValue::from_str(mime)
@@ -139,6 +198,8 @@ fn reply(status: StatusCode, mime: &str, body: Vec<u8>) -> tauri::http::Response
     *out.status_mut() = status;
     let head = out.headers_mut();
     head.insert(header::CONTENT_TYPE, ctype);
+    // 声明支持按字节取段 —— 媒体块据此才敢拖进度（见 `blob_response`）。
+    head.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
     // ★ 跨源：响应体是给 `http://localhost:1420`（dev）和 `tauri://localhost`（打包）中的
     //   网页看的，而请求发往 `self-notion://`。WKWebView 对跨源 fetch 做 CORS 检查，
     //   缺这个头就是 `TypeError: Load failed` —— 请求根本到不了这里，图片全裂（D-0027）。

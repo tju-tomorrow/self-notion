@@ -1,0 +1,360 @@
+/**
+ * 编辑器本体 —— 挂载、建 ProseMirror 的 `EditorView`、串插件。`index.ts` 懒 import 它。
+ *
+ * P1 的范围：schema 全量 + Notion 语义的编辑交互（`commands/`）+ 手柄与拖拽（`plugins/block-handle`）
+ * + 斜杠菜单（`plugins/slash`）+ 输入规则与行内工具栏（`plugins/input-rules` / `inline-toolbar`）
+ * + 查找替换（`find`）。块级多选的机制在 `plugins/block-selection`。
+ */
+import { baseKeymap } from 'prosemirror-commands'
+import { dropCursor } from 'prosemirror-dropcursor'
+import { history, redo, undo } from 'prosemirror-history'
+import { keymap } from 'prosemirror-keymap'
+import type { Node as PMNode } from 'prosemirror-model'
+import { EditorState, type Plugin } from 'prosemirror-state'
+import { EditorView } from 'prosemirror-view'
+
+import type {
+  CommentState,
+  CommentTarget,
+  DocsService,
+  DocMem,
+} from '../../src/kernel/contract'
+import { reportError } from '../../src/kernel/errors'
+import { renderBacklinks, type BacklinksView } from './backlinks'
+import { commentApi, type CommentHooks } from './comment'
+import { newBlockId, notionKeymap } from './commands'
+import { docsBacking, type DocPayload, type DocsBacking } from './doc-source'
+import { createFindApi, findPlugin, type FindApi } from './find'
+import { nodeViews } from './nodes'
+import { renderPageHead, type PageHead } from './page-head'
+import { blockHandlePlugin } from './plugins/block-handle'
+import { inlineToolbarPlugin } from './plugins/inline-toolbar'
+import { inputRulesPlugin } from './plugins/input-rules'
+import { mentionPlugin } from './plugins/mention'
+import { pastePlugin } from './plugins/paste'
+import { slashPlugin } from './plugins/slash'
+import { tablePlugin } from './plugins/table'
+import { sanitizePlugin } from './sanitize'
+import { schema } from './schema'
+import { docToMarkdown } from './serializers/markdown'
+import { docLinks } from './serializers/links'
+
+/** 落库节流窗口，跟外壳那条一致（CONVENTIONS §4）。 */
+const SAVE_MS = 300
+
+export interface EditorHandle {
+  unmount(): void
+}
+
+/** `index.ts` 装载时接进来的线 —— 编辑器这层不认识 ctx / i18n。 */
+export interface EditorWiring {
+  /** 落库成功 → 外壳发 `DOC_SAVED`（顶栏据此显示「已保存」）。 */
+  saved(docId: string): void
+  /** 往评论插件去的两个口子（形状在 `comment.ts`）—— 编辑器这一层不认识 `ctx`。 */
+  comment: CommentHooks
+  /** 标题输入框的占位（走 i18n）。 */
+  untitled: string
+}
+
+export interface Live {
+  readonly id: string
+  readonly view: EditorView
+  readonly titleEl: HTMLInputElement
+  readonly head: PageHead
+  readonly backlinks: BacklinksView
+  dirty: boolean
+  /** 重读（`reload`）期间落库闸门关上 —— 手里那份是**恢复前**的状态，落一次就把库盖回去。 */
+  muted: boolean
+  timer: number | undefined
+}
+
+let backing: DocsBacking | undefined
+let wiring: EditorWiring | undefined
+
+const live = new Map<string, Live>()
+
+export function connectDocs(docs: DocsService, lines: EditorWiring): void {
+  backing = docsBacking(docs)
+  wiring = lines
+  // 评论的 hooks 要从 `ctx.get('comment')` 来 —— 只有 wiring 这一条线能把它们带进来。
+  comments = commentApi(() => currentView(), lines.comment)
+}
+
+function need(): DocsBacking {
+  if (!backing) throw new Error('编辑器还没接上 ctx.docs —— 要先 await ctx.editor.ready()')
+  return backing
+}
+
+/** 库里还没这一篇时造的空文档 —— 一个空的段落块。 */
+function emptyDocJson(): unknown {
+  return {
+    type: 'doc',
+    attrs: { title: '' },
+    content: [
+      {
+        type: 'blockGroup',
+        content: [
+          { type: 'blockContainer', attrs: { id: newBlockId() }, content: [{ type: 'paragraph' }] },
+        ],
+      },
+    ],
+  }
+}
+
+/** 库里的字节 → PM 的 doc。坏字节（手改库之类）降级成一篇空的，别让编辑器挂不起来。 */
+function parseDoc(raw: string | null): PMNode {
+  if (raw !== null) {
+    try {
+      return schema.nodeFromJSON(JSON.parse(raw))
+    } catch (err) {
+      reportError('editor-prosemirror', err)
+    }
+  }
+  return schema.nodeFromJSON(emptyDocJson())
+}
+
+function buildPlugins(): Plugin[] {
+  return [
+    history(),
+    keymap({ 'Mod-z': undo, 'Mod-y': redo, 'Shift-Mod-z': redo }),
+    // ★ 顺序是规矩：`slash` 和 `notionKeymap` 都排在 `baseKeymap` **之前** —— PM 的 handleKeyDown
+    //   取「第一个说处理了的」插件。菜单开着时 Enter / ↑↓ 归斜杠；没开就落到 Notion 语义；
+    //   再认不出才回 baseKeymap。
+    slashPlugin(),
+    // `@` 提及（跟斜杠同一套 suggestion，触发符换成 `@`）—— 同样要排在 keymap 之前。
+    mentionPlugin(),
+    // ★ 表格必须在 notionKeymap **之前**：`tableEditing` 靠 handleKeyDown 接管表格内的方向键和
+    //   Backspace（删单元格选区），排在后面会被 notionKeymap 的 backspace 先吃掉。
+    tablePlugin(),
+    keymap(notionKeymap),
+    inputRulesPlugin(),
+    // 工具条那颗「评论」→ 把量好的选区交给评论插件（D-0079）。软依赖，没接上就不建那颗按钮。
+    inlineToolbarPlugin((at) => wiring?.comment.selection(at)),
+    blockHandlePlugin(),
+    // 粘贴：只接管「剪贴板里有文件」（图片 / 附件），纯文本 / HTML / 块一律交回 PM。
+    pastePlugin(),
+    // 拖拽的落点线。不装就没那条线（拖拽本身照样能用）。
+    dropCursor({ color: 'var(--sn-accent, #1e96eb)', width: 2 }),
+    findPlugin, // 查找命中的高亮（decoration）
+    // 控制符清洗：那种字符不是任何人写的，是从 DOM 那侧进来的 —— 只守结果（见 sanitize.ts）。
+    sanitizePlugin(),
+    keymap(baseKeymap),
+  ]
+}
+
+export async function mountEditor(el: HTMLElement, docId: string): Promise<EditorHandle> {
+  const doc = parseDoc(await need().hydrate(docId))
+
+  dispose(live.get(docId))
+  el.replaceChildren()
+  // 面包屑块要知道「本页是谁」——它从 `view.dom` 往上找这个属性（每栏的 `el` 各带各的，
+  // 多栏并存时比一个「当前文档」的全局更准）。
+  el.dataset.docId = docId
+
+  // 页头（封面 + 图标）在标题之上。图标只读（改它走外壳的 ⋯ 菜单），封面归编辑器。
+  let view: EditorView | undefined
+  const head = renderPageHead(
+    docId,
+    () => String(doc.attrs.cover ?? ''),
+    (blobId) => view?.dispatch(view.state.tr.setDocAttribute('cover', blobId)),
+  )
+  el.appendChild(head.el)
+
+  // 标题是 doc 的 attr、不进 block 树（架构 §3.3）—— P0 用一个输入框读写它。
+  const titleEl = document.createElement('input')
+  titleEl.type = 'text'
+  titleEl.className = 'sn-pm-title'
+  titleEl.placeholder = wiring?.untitled ?? ''
+  titleEl.value = String(doc.attrs.title ?? '')
+  el.appendChild(titleEl)
+
+  view = new EditorView(el, {
+    state: EditorState.create({ doc, plugins: buildPlugins() }),
+    nodeViews,
+    dispatchTransaction(tr) {
+      view!.updateState(view!.state.apply(tr))
+      if (tr.docChanged) markDirty(docId)
+    },
+  })
+
+  // 正文之后：反向链接（谁提到了这一篇）。**现算**的，不进 doc。
+  const backlinks = renderBacklinks(docId)
+  el.appendChild(backlinks.el)
+
+  const rec: Live = { id: docId, view, titleEl, head, backlinks, dirty: false, muted: false, timer: undefined }
+  live.set(docId, rec)
+
+  titleEl.addEventListener('input', () => {
+    view.dispatch(view.state.tr.setDocAttribute('title', titleEl.value))
+  })
+
+  return {
+    unmount: () => dispose(live.get(docId)),
+  }
+}
+
+function dispose(rec: Live | undefined): void {
+  if (!rec) return
+  live.delete(rec.id)
+  if (rec.timer !== undefined) clearTimeout(rec.timer)
+  rec.head.destroy()
+  rec.backlinks.destroy()
+  rec.view.destroy()
+  rec.titleEl.remove()
+}
+
+/** 判据（`diagnose.ts`）要看的那几样 —— 只暴露这些，`titleEl` / 定时器那些不外传。 */
+export interface LiveDoc {
+  readonly id: string
+  readonly view: EditorView
+  readonly dirty: boolean
+  readonly muted: boolean
+}
+
+/** 活文档一览 —— 判据要看「谁开着、谁还没落库」。 */
+export function liveDocs(): readonly LiveDoc[] {
+  return [...live.values()].map((rec) => ({
+    id: rec.id,
+    view: rec.view,
+    dirty: rec.dirty,
+    muted: rec.muted,
+  }))
+}
+
+/**
+ * 库里的名字**改到正文顶上那个大标题**（旧插件的 `applyTitle`）。
+ *
+ * ★ 为什么必须有：标题两边各有一份（`documents.title` 是给侧栏 / 搜索看的，`doc.attrs.title`
+ *   是正文顶上那个可编辑的）。别的入口（侧栏重命名 / 导入 / 助手）改的是**库里那份** ——
+ *   不同步回来，下一次落库就把新名字用旧的那份盖回去。
+ */
+export function applyTitle(id: string, title: string): void {
+  const rec = live.get(id)
+  if (!rec || rec.muted) return
+  if (String(rec.view.state.doc.attrs.title ?? '') === title) return
+  rec.titleEl.value = title
+  rec.view.dispatch(rec.view.state.tr.setDocAttribute('title', title))
+}
+
+/** 丢掉某一篇手里的活编辑器（`reload` 前先丢，再照库里那份重建到同一栏）。 */
+export function dropDoc(id: string): void {
+  dispose(live.get(id))
+}
+
+/** 落库闸门：重读期间关掉，免得把**恢复前**的状态写回库里。 */
+export function muteDoc(id: string): void {
+  const rec = live.get(id)
+  if (rec) rec.muted = true
+}
+
+export function unmuteDoc(id: string): void {
+  const rec = live.get(id)
+  if (rec) rec.muted = false
+}
+
+function markDirty(docId: string): void {
+  const rec = live.get(docId)
+  if (!rec || rec.muted) return
+  rec.dirty = true
+  // 节流（不是防抖）：一窗一次，期间再怎么敲都只挪到窗末那一次。
+  if (rec.timer === undefined) {
+    rec.timer = window.setTimeout(() => {
+      rec.timer = undefined
+      void flushDoc(docId)
+    }, SAVE_MS)
+  }
+}
+
+function project(rec: Live): DocPayload {
+  const doc = rec.view.state.doc
+  return {
+    id: rec.id,
+    content: JSON.stringify(doc.toJSON()),
+    title: String(doc.attrs.title ?? ''),
+    // 一份投影三处复用（D-0085）：`md` 喂 FTS / 摘要，`links`（出链）喂链接图谱。
+    md: docToMarkdown(doc),
+    links: docLinks(doc),
+  }
+}
+
+/** 攒着的改动立刻落库，不等那 300ms。没开着 / 没装载过就什么都不做。 */
+export async function flushDoc(docId: string): Promise<void> {
+  const rec = live.get(docId)
+  if (!rec) return
+  if (rec.timer !== undefined) {
+    clearTimeout(rec.timer)
+    rec.timer = undefined
+  }
+  if (!rec.dirty || rec.muted) return
+  rec.dirty = false
+  try {
+    await need().flush(project(rec))
+    wiring?.saved(docId)
+  } catch (err) {
+    // 落库失败不能吞：内容还在活文档里，留着脏标记下次再试。
+    rec.dirty = true
+    reportError('editor-prosemirror', err)
+  }
+}
+
+/** 关窗口 / 拔插件前，把每一篇攒着的改动都落完。 */
+export async function flushAll(): Promise<void> {
+  await Promise.all([...live.keys()].map((id) => flushDoc(id)))
+}
+
+/** 当前活编辑器（取第一篇开着的）—— 查找面板要一个「现在在编辑哪个 view」的口子。 */
+export function currentView(): EditorView | null {
+  return live.values().next().value?.view ?? null
+}
+
+/** 查找面板要的 API —— 给它一个「取当前活编辑器」的口子。 */
+export function findApiForCurrentView(): FindApi {
+  return createFindApi(() => currentView())
+}
+
+/** 活文档的正文（纯文本）。没打开过 → null。 */
+export function liveText(id: string): string | null {
+  const rec = live.get(id)
+  if (!rec) return null
+  const doc = rec.view.state.doc
+  return doc.textBetween(0, doc.content.size, '\n')
+}
+
+/** 内存监控（D-0088 / 架构 §8）。`bytes` 的含义换了：从「Y.Doc 编码字节」变成「doc JSON 字节数」。 */
+export function memoryStats(): DocMem[] {
+  const out: DocMem[] = []
+  for (const rec of live.values()) {
+    const doc = rec.view.state.doc
+    let blocks = 0
+    doc.descendants((node) => {
+      if (node.type.name === 'blockContainer') blocks++
+    })
+    out.push({
+      id: rec.id,
+      title: String(doc.attrs.title ?? ''),
+      bytes: JSON.stringify(doc.toJSON()).length,
+      blocks,
+      chars: doc.textContent.length,
+    })
+  }
+  return out
+}
+
+export function schemaOf(): unknown {
+  return schema
+}
+
+/** 契约 `docFromMarkdown`：markdown → 整篇 doc JSON。解析器在 serializers 那一侧。 */
+export { docFromMarkdown } from './serializers/markdown'
+
+/* ── 评论（D-0067）：机制在 `comment.ts`（架构 §3.2：锚点是 `comment` mark），这里只转一道。 ── */
+
+/** 评论那一套。`connectDocs` 时会按 wiring 重建一次（hooks 要拿到评论插件）。 */
+let comments = commentApi(() => currentView())
+
+export const commentTextSelection = () => comments.textSelection()
+export const commentBlockSelection = () => comments.blockSelection()
+export const addCommentAnchor = (id: string, at: CommentTarget) => comments.addAnchor(id, at)
+export const removeCommentAnchor = (id: string) => comments.removeAnchor(id)
+export const revealCommentAnchor = (id: string) => comments.reveal(id)
+export const pushCommentStates = (list: readonly CommentState[]) => comments.setStates(list)
