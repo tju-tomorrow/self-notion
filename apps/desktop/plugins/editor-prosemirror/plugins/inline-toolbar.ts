@@ -35,6 +35,12 @@ const COLORS: Readonly<Record<ColorKind, readonly string[]>> = {
   highlight: ['', '#ffe2dd', '#fadec9', '#fdecc8', '#dbeddb', '#d3e5ef', '#e8deee', '#f5e0e9', '#e3e2e0'],
 }
 
+/**
+ * 上一次用过的那个色 —— **⌘⇧H** 刷的就是它（`kind` 一起记：上次可能是底纹，也可能是字色）。
+ * 内存态、不落库：它是「刚才那一下」的手感，不是文档内容。
+ */
+let lastColor: { kind: ColorKind; color: string } | undefined
+
 const LINK_ICON =
   '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M6.6 9.4 9.4 6.6"/><path d="M7 4.4 8.2 3.2a2.5 2.5 0 0 1 3.6 3.6L10.6 8"/><path d="M9 11.6 7.8 12.8a2.5 2.5 0 0 1-3.6-3.6L5.4 8"/></svg>'
 
@@ -52,6 +58,12 @@ type CommentAnchor = { blockId: string; index: number; length: number; quote: st
 
 export function inlineToolbarPlugin(onComment?: (at: CommentAnchor) => void): Plugin {
   return new Plugin({
+    props: {
+      // ⌘⇧H / Ctrl+⇧H：抄 Notion 的「上次用过的颜色」。没选中文字就不认，交回给别的处理者
+      // （这个键位在浏览器里另有含义，别抢）。
+      handleKeyDown: (view, e) =>
+        e.key.toLowerCase() === 'h' && e.shiftKey && (e.metaKey || e.ctrlKey) && lastColorShortcut(view),
+    },
     view: (view) => {
       const bar = createBar(view, onComment)
       document.body.appendChild(bar.el)
@@ -141,7 +153,7 @@ function createBar(view: EditorView, onComment?: (at: CommentAnchor) => void) {
       if (color) sw.style.background = color
       if ((active ?? '') === color) sw.dataset.on = 'true'
       sw.addEventListener('click', () => {
-        setColor(view, kind, (active ?? '') === color ? '' : color)
+        applyColor(kind, (active ?? '') === color ? '' : color)
         closePopovers()
       })
       palette.appendChild(sw)
@@ -223,12 +235,9 @@ function createBar(view: EditorView, onComment?: (at: CommentAnchor) => void) {
     colorBar.style.background = tc || 'currentColor'
   }
 
-  function setColor(target: EditorView, kind: ColorKind, color: string): void {
-    const mark = schema.marks[kind]
-    const { from, to } = target.state.selection
-    const tr = target.state.tr.removeMark(from, to, mark)
-    if (color) tr.addMark(from, to, mark.create({ color }))
-    target.dispatch(tr)
+  /** 工具条上点一块色：刷完把工具条收一下（快捷那条路不走这儿 —— 它不该动焦点，也不该挪浮层）。 */
+  function applyColor(kind: ColorKind, color: string): void {
+    setColor(view, kind, color)
     after()
   }
 
@@ -277,6 +286,35 @@ function mkSeparator(): HTMLElement {
   const sep = document.createElement('span')
   sep.className = 'sn-itb-sep'
   return sep
+}
+
+/**
+ * 给选区刷一个色（空串 = 撤掉）。工具条那排色块和 ⌘⇧H 走的是**同一条路** —— 两处行为必须一模一样。
+ *
+ * 刷之前先按 mark 类型整段清一遍：一个位置只该有一个底纹 / 一个字色（Notion 也是替换不是叠加）。
+ */
+function setColor(target: EditorView, kind: ColorKind, color: string): void {
+  if (color) lastColor = { kind, color }
+  const mark = schema.marks[kind]
+  const { from, to } = target.state.selection
+  const tr = target.state.tr.removeMark(from, to, mark)
+  if (color) tr.addMark(from, to, mark.create({ color }))
+  target.dispatch(tr)
+}
+
+/**
+ * Notion 的 **⌘⇧H**：把**上一次用过的那个色**刷到选区上（底纹和字色都算，看上次用的是哪一类）；
+ * 选区已经就是这个色，再按一次 = 撤掉 —— 跟工具条上再点一次同一块色是同一个意思。
+ * 一次都还没用过色 → 落到默认黄底（Notion 的默认高亮色）。没选中文字就什么都不做。
+ */
+function lastColorShortcut(view: EditorView): boolean {
+  const sel = view.state.selection
+  if (!(sel instanceof TextSelection) || sel.empty) return false
+  const pick = lastColor ?? { kind: 'highlight' as ColorKind, color: COLORS.highlight[3] ?? '' }
+  if (!pick.color) return false
+  const now = activeColor(view.state, schema.marks[pick.kind])
+  setColor(view, pick.kind, now === pick.color ? '' : pick.color)
+  return true
 }
 
 /** 整个选区共用同一种颜色才算「激活」，否则返回 null。 */

@@ -117,6 +117,7 @@ function AppearanceSection({ ctx }: { ctx: Context }) {
       ...[
         ['⌘K', ctx.i18n.t('search.placeholder')],
         ['⌘= / ⌘- / ⌘0', ctx.i18n.t('font.scale')],
+        ['⌘⇧H', ctx.i18n.t('settings.shortcuts.color')],
         ['Esc', ctx.i18n.t('settings.shortcuts.close')],
         ['double-click', ctx.i18n.t('doc.rename')],
       ].map(([key, what]) =>
