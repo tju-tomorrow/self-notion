@@ -1,0 +1,60 @@
+diff --git a/src/transformer/transformer.ts b/src/transformer/transformer.ts
+index 54cefa6e2bea62d7fbec588286e66efef8a48ac4..b9d8200a1fb23685cdc59db34973b37e98576550 100644
+--- a/src/transformer/transformer.ts
++++ b/src/transformer/transformer.ts
+@@ -307,11 +307,23 @@ export class Transformer {
+         pageId,
+       });
+ 
+-      this._slots.afterImport.next({
+-        type: 'slice',
+-        snapshot,
+-        slice,
+-      });
++      // self-notion：块**已经插进文档了**。afterImport 那批订阅（`tr.pasted()` /
++      // replace-id / upload）是善后，它们抛错不该把这次导入判成失败 ——
++      // 调用方 `Clipboard._getSnapshotByPriority`（std/src/clipboard/clipboard.ts:109）
++      // 见到 falsy 就 `continue` 换下一条 adapter 再插一遍，一次 ⌘V 出来两份（D-0124）。
++      try {
++        this._slots.afterImport.next({
++          type: 'slice',
++          snapshot,
++          slice,
++        });
++      } catch (error) {
++        // 但也不许悄悄消失：异步重抛一次，让它进 `installErrorSink` 那个唯一的出口
++        // （AGENTS §3）。从微任务里抛，回不到这个 try，所以不影响上面的返回值。
++        queueMicrotask(() => {
++          throw error;
++        });
++      }
+ 
+       return slice;
+     } catch (error) {
+@@ -546,11 +558,21 @@ export class Transformer {
+         );
+       }
+ 
+-      this._slots.afterImport.next({
+-        type: 'block',
+-        model,
+-        snapshot: node.snapshot,
+-      });
++      // self-notion：「块已经 addBlock 进去了」这件事不能因为善后订阅抛错就作废 ——
++      // 这条在**插入途中**发，抛出去会打断整棵树，外层的 catch 再把整次导入判成失败，
++      // 于是换下一条 adapter 重插一遍（D-0124，同 snapshotToSlice 那条）。
++      try {
++        this._slots.afterImport.next({
++          type: 'block',
++          model,
++          snapshot: node.snapshot,
++        });
++      } catch (error) {
++        // 同上：不重插，也不吞掉（进 errors.log）。
++        queueMicrotask(() => {
++          throw error;
++        });
++      }
+ 
+       counter++;
+       if (counter % BATCH_SIZE === 0) {

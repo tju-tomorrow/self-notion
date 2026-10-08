@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>self-notion</title>
+    <!-- 本机字体包。放在 public 下、用 <link> 引：它是一堆静态 @font-face 分片，
+         过 Vite 的 CSS 管线只会多绕一圈（而且 /fonts 是 public 路径，打包器本来就该放手）。 -->
+    <link rel="stylesheet" href="/fonts/fonts.css" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

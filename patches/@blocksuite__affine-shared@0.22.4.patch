@@ -1,0 +1,23 @@
+diff --git a/src/adapters/middlewares/paste.ts b/src/adapters/middlewares/paste.ts
+index 852aa49859e0297b17edba4c7287f68fea4035ac..ad77c40970eacc7494f7e30c226bed7ab07b3f48 100644
+--- a/src/adapters/middlewares/paste.ts
++++ b/src/adapters/middlewares/paste.ts
+@@ -533,6 +533,18 @@ export const pasteMiddleware = (
+         const { snapshot } = payload;
+         flatNote(snapshot);
+ 
++        // self-notion：**解出来是空 slice 就别往下走**。上游这条路上没有任何一处判空 ——
++        // `PasteTr` 的构造函数直接读 `this.firstSnapshot.flavour`，而 `firstSnapshot` 就是
++        // `snapshot.content[0]`，空 slice 时是 undefined，于是崩在按 ⌘V 那一刻。
++        // 空 slice 有两条来路：`flatNote()` 把「没有孩子的 note」换成 `[]`；adapter 压根解不出块
++        // （Finder 里拷一个文件、从网页拷一段解析器不认的东西）。
++        // 没东西可粘 = 什么都不做。顺手把 `tr` 清掉：不清的话 `afterImport` 会拿着**上一次**
++        // 那个 tr 去 `pasted()` / `focusPasted()`，光标和落库都会跑到上一段粘贴上去。
++        if (payload.snapshot.content.length === 0) {
++          tr = undefined;
++          return;
++        }
++
+         const text = std.selection.find(TextSelection);
+         if (!text) {
+           return;

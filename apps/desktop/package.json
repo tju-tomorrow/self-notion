@@ -1,0 +1,47 @@
+{
+  "name": "@self-notion/desktop",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "verify": "node scripts/typecheck.mjs && oxlint"
+  },
+  "dependencies": {
+    "@blocksuite/affine": "0.22.4",
+    "@blocksuite/icons": "^2.2.17",
+    "@tauri-apps/api": "^2",
+    "@toeverything/theme": "^1.1.23",
+    "cordis": "4.0.0-rc.10",
+    "fflate": "^0.8.3",
+    "katex": "^0.19.0",
+    "lit": "^3.3.3",
+    "prosemirror-commands": "^1.7.2",
+    "prosemirror-dropcursor": "^1.8.4",
+    "prosemirror-gapcursor": "^1.4.1",
+    "prosemirror-history": "^1.5.1",
+    "prosemirror-inputrules": "^1.5.1",
+    "prosemirror-keymap": "^1.2.3",
+    "prosemirror-markdown": "^1.13.8",
+    "prosemirror-model": "^1.25.12",
+    "prosemirror-state": "^1.4.4",
+    "prosemirror-tables": "^1.8.5",
+    "prosemirror-transform": "^1.12.2",
+    "prosemirror-view": "^1.42.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "yjs": "13.6.33",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/katex": "^0.16.8",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vanilla-extract/css": "^1.16.0",
+    "@vanilla-extract/vite-plugin": "^5.0.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "oxlint": "^1.0.0",
+    "typescript": "^5.7.0",
+    "vite": "^7.0.0"
+  }
+}
