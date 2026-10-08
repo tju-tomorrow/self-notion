@@ -7,6 +7,8 @@ use tauri::Manager;
 mod ai;
 mod aiweb;
 mod assoc;
+#[cfg(target_os = "macos")]
+mod autocheck;
 mod backup;
 mod bugs;
 mod commands;
@@ -23,6 +25,11 @@ mod windows;
 pub fn run() {
     // panic 也进 errors.log —— 先装，后面任何一步崩了都有记录。
     log::install_panic_hook();
+
+    // macOS 的自动替换（弯引号 / 自动大写 / 拼写）在写作工具里只会捣乱。
+    // ★ 位置要紧：**webview 建起来之前**，WebKit 构造 preferences 时才读得到（见 `autocheck.rs`）。
+    #[cfg(target_os = "macos")]
+    autocheck::disarm();
 
     let mut builder = tauri::Builder::default();
 

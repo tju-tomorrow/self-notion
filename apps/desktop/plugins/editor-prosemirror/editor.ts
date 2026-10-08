@@ -252,6 +252,9 @@ export async function mountEditor(el: HTMLElement, docId: string, side?: HTMLEle
   el.appendChild(metaEl)
 
   view = new EditorView(el, {
+    // 关掉 macOS 那套「自动检查」—— 正文是 markdown 和代码，`"` 变弯引号、句首自动大写、
+    // 拼写红线，全是破坏（用户 2026-10-09）。
+    attributes: { spellcheck: 'false', autocorrect: 'off', autocapitalize: 'off' },
     state: EditorState.create({ doc, plugins: buildPlugins({ body: el, meta: metaEl, side, docId, file }) }),
     nodeViews,
     dispatchTransaction(tr) {

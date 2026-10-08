@@ -30,6 +30,24 @@ import { createTheme } from './theme/tokens'
 // 最早装：后面任何一步炸了都有一条记录。
 installErrorSink()
 
+// macOS 那套「自动检查」在输入框里只会捣乱：`"` 变弯引号、句首自动大写、拼写红线。
+// 正文自己设了（`editor.ts` 的 `attributes`），这里管住其余输入框 —— 标题、搜索、AI 输入框、
+// 设置页那些（用户 2026-10-09）。
+// ★ 走 `focusin` 不逐个挂：输入框是随页面长出来的，挨个找永远漏。
+// ★ 只管应用自己的 DOM。网页版 AI 面板里那些框在**另一个 webview** 里，碰不到也不该碰。
+document.addEventListener(
+  'focusin',
+  (e) => {
+    const t = e.target
+    if (!(t instanceof HTMLElement)) return
+    if (!t.isContentEditable && !(t instanceof HTMLInputElement) && !(t instanceof HTMLTextAreaElement)) return
+    t.spellcheck = false
+    t.setAttribute('autocorrect', 'off')
+    t.setAttribute('autocapitalize', 'off')
+  },
+  true,
+)
+
 const el = document.getElementById('root')
 if (!el) throw new Error('#root 不见了')
 
