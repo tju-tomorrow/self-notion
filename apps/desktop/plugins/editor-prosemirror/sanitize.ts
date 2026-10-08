@@ -25,6 +25,18 @@ function hasBad(s: string): boolean {
   return false
 }
 
+/**
+ * 剔掉一段文本里的控制符（按原顺序拼回去）。
+ *
+ * ★ 给**标题那个 `input`** 用的：插件只能清模型，清不掉框里那份 —— 框里留着就是「一排缺字方框」
+ *   （2026-10-08 用户：「标题又出现框框了」）。两边必须用**同一份**判据，不然框里和模型里对不上。
+ */
+export function stripBad(s: string): string {
+  let out = ''
+  for (const ch of s) if (!bad(ch.codePointAt(0) ?? 0)) out += ch
+  return out
+}
+
 /** 把一段文本里所有控制符按**位置**从后往前删掉（整段重写会把行内格式一起抹掉）。 */
 function cleanText(tr: EditorState['tr'], pos: number, text: string): boolean {
   let touched = false
@@ -54,8 +66,7 @@ export function sanitizePlugin(): Plugin {
       // 标题是 doc 的 attr（不在 text 里），单独扫一遍。
       const title = String(next.doc.attrs.title ?? '')
       if (hasBad(title)) {
-        // 逐字过一遍（不用带控制符字面量的正则 —— 那条 lint 规则不是没道理，这里绕开写法即可）。
-        tr.setDocAttribute('title', [...title].filter((c) => !bad(c.charCodeAt(0))).join(''))
+        tr.setDocAttribute('title', stripBad(title))
         touched = true
       }
 

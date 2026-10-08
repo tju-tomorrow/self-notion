@@ -1,9 +1,13 @@
 /**
- * ⌘V —— **只接文件**，其余（纯文本 / HTML / 跨文档的块）全放行给 PM 默认。
+ * ⌘V —— 抢两样东西，其余放行给 PM 默认（契约 `docs/paste.md`）。
  *
- * PM 自带富文本和块的粘贴，我们自己写不出更好的；唯独「剪贴板里是文件」它不认 ——
- * 默认 parse 只看 `text/html` / `text/plain`，一张图会整个丢掉。所以这里只抢「有文件」那一类：
- * 存进库（`putBlob`）、在当前块处插 image / file 块。旧插件那一大坨调度（`editor-blocksuite/paste.ts`）不用搬。
+ * 1. **剪贴板里是文件**：PM 默认只看 `text/html` / `text/plain`，一张图会整个丢掉。
+ *    这类存进库（`putBlob`）、在当前块处插 image / file 块。
+ * 2. **不带 HTML 的纯文本，且像 markdown**：解成真结构（标题 / 引用 / 列表 / 围栏）。
+ *    PM 只会原样吐文本，而解析器我们本来就有（导入那条路在用）。
+ *
+ * 带 `text/html` 的、跨文档贴的块 —— 全交回 PM，它自己那套比我们写得好。
+ * 旧插件那一大坨调度（`editor-blocksuite/paste.ts`）不用搬。
  */
 import { Fragment, Slice, type Node as PMNode } from 'prosemirror-model'
 import { Plugin, Selection } from 'prosemirror-state'
@@ -11,6 +15,7 @@ import type { EditorView } from 'prosemirror-view'
 
 import { reportError } from '../../../src/kernel/errors'
 import { putBlob } from '../blob'
+import { blocksFromMarkdown } from '../serializers/markdown'
 import { newBlockId } from '../commands'
 import { blockAt, type BlockRef } from '../commands/block'
 import { schema } from '../schema'
@@ -44,12 +49,21 @@ export function pastePlugin(): Plugin {
         const data = event.clipboardData
         if (!data) return false
 
+        const html = data.getData('text/html')
         const files = Array.from(data.files)
         const sources = files.length
           ? files.map(sourceOfFile)
-          : imageOnlyHtml(data.getData('text/html')).map(sourceOfDataUrl)
-        // 纯文本 / HTML / 块 → 交回 PM 默认。
-        if (sources.length === 0) return false
+          : imageOnlyHtml(html).map(sourceOfDataUrl)
+
+        if (sources.length === 0) {
+          // 带 HTML 的一律让路：那份 HTML 才是原格式，`text/plain` 只是它的降级版（契约 P2）。
+          if (html) return false
+          const blocks = markdownBlocks(data.getData('text/plain'))
+          // 不像 markdown → 照旧交回 PM。
+          if (!blocks) return false
+          insertBlocks(view, blocks)
+          return true
+        }
 
         const targets = targetsFor(view)
         if (!targets) return false
@@ -81,6 +95,28 @@ async function insert(view: EditorView, targets: Targets, sources: Source[]): Pr
 
   const total = blocks.reduce((n, b) => n + b.nodeSize, 0)
   const tr = view.state.tr.replaceWith(targets.from, targets.to, blocks)
+  tr.setSelection(Selection.near(tr.doc.resolve(targets.from + total), 1))
+  view.dispatch(tr.scrollIntoView().setMeta('paste', true))
+}
+
+/** 行首的块级标记 / 行内的成对标记 —— 见一个就当 markdown（口径「看到就转」，契约 P1）。 */
+const BLOCK_MARKER = /^[ \t]{0,3}(#{1,6}\s|>|[-*+]\s|\d+[.)]\s|```|~~~|\|)/m
+const INLINE_MARKER = /\*\*|__|~~|`|\]\(/
+
+function markdownBlocks(text: string): PMNode[] | null {
+  if (text.trim() === '') return null
+  if (!BLOCK_MARKER.test(text) && !INLINE_MARKER.test(text)) return null
+  return blocksFromMarkdown(text)
+}
+
+/** markdown 解出来的那几块直接落 —— 全是新块，id 得换新（同 `freshIds` 的道理，契约 P4）。 */
+function insertBlocks(view: EditorView, blocks: PMNode[]): void {
+  const targets = targetsFor(view)
+  if (!targets) return
+  const list = targets.replace ? [...blocks, emptyParagraphBlock()] : blocks
+  const content = replaceIds(Fragment.fromArray(list))
+  const total = content.size
+  const tr = view.state.tr.replaceWith(targets.from, targets.to, content)
   tr.setSelection(Selection.near(tr.doc.resolve(targets.from + total), 1))
   view.dispatch(tr.scrollIntoView().setMeta('paste', true))
 }

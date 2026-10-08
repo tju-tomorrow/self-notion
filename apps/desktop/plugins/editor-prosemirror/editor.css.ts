@@ -247,8 +247,14 @@ globalStyle('.sn-cover-btn', {
   opacity: 0,
 })
 globalStyle('.sn-cover:hover .sn-cover-btn', { opacity: 1 })
-// 「添加」只在没封面时露（那时封面条是 0 高，按钮得自己浮在标题上方）。
-globalStyle('.sn-cover[data-on="0"] .sn-cover-add', { bottom: -24, opacity: 0 })
+/**
+ * 「添加」只在没封面时露（那时封面条是 0 高，按钮得自己浮在标题上方）。
+ * ★ `bottom: 0` **不是** `-24`：`-24` 是"往下 24px"，而封面条是 0 高 —— 那颗按钮于是**压在标题头上**，
+ *   而且 `opacity: 0` 照样吃点击（隐形 ≠ 点不着），用户点标题点到的就是它
+ *   （2026-10-08：「点未命名还是不让我点啊」，三次才揪出来）。
+ *   `bottom: 0` 让它落在纸面顶部那 60px 留白里 —— 在标题**上方**，跟标题不抢点击。
+ */
+globalStyle('.sn-cover[data-on="0"] .sn-cover-add', { bottom: 0, opacity: 0 })
 globalStyle('.sn-cover[data-on="0"]:hover .sn-cover-add', { opacity: 1 })
 globalStyle('.sn-cover[data-on="0"] .sn-cover-del', { display: 'none' })
 globalStyle('.sn-cover[data-on="1"] .sn-cover-add', { display: 'none' })

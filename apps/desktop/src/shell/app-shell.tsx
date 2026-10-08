@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useState, type CSSProperties, type PointerEvent } from 'react'
 import type { Context } from 'cordis'
 import { SidebarIcon } from '@blocksuite/icons/rc'
-import { AGENT_TAB_ID, CLOSE_ALL, OPEN_DOC, SHOW_LIST } from '../kernel/contract'
+import { AGENT_TAB_ID, CLOSE_ALL, OPEN_DOC, SHOW_LIST, isFileId } from '../kernel/contract'
 import * as s from './shell.css'
 import * as motion from '../ui/motion.css'
 import { readLocal, writeLocal } from '../kernel/local'
@@ -14,14 +14,20 @@ import { SlotHost } from './slot-host'
 /** 主区显示哪一页。放外壳是因为只有外壳知道主区该给谁。 */
 type MainView = 'home' | 'doc' | 'agent'
 
-function useDocView(ctx: Context): MainView {
-  const [view, setView] = useState<MainView>('home')
+function useDocView(ctx: Context): { view: MainView; id: string | null } {
+  const [state, setState] = useState<{ view: MainView; id: string | null }>({
+    view: 'home',
+    id: null,
+  })
   useEffect(() => {
     // 助手那个虚拟标签（D-0095）也走 OPEN_DOC —— 外壳靠 id 分流，不走第二个事件。
-    const offOpen = ctx.on(OPEN_DOC, ({ id }) => setView(id === AGENT_TAB_ID ? 'agent' : 'doc'))
+    const offOpen = ctx.on(OPEN_DOC, ({ id }) =>
+      setState({ view: id === AGENT_TAB_ID ? 'agent' : 'doc', id }),
+    )
     // 「回首页」有两条路：关光标签（CLOSE_ALL）+ 侧栏点了某个列表页（SHOW_LIST）。
-    const offClose = ctx.on(CLOSE_ALL, () => setView('home'))
-    const offList = ctx.on(SHOW_LIST, () => setView('home'))
+    const home = () => setState({ view: 'home', id: null })
+    const offClose = ctx.on(CLOSE_ALL, home)
+    const offList = ctx.on(SHOW_LIST, home)
     // ctx.on 的逆函数返回 boolean，React 要 void —— 包一层（D-0033）
     return () => {
       void offOpen()
@@ -29,7 +35,7 @@ function useDocView(ctx: Context): MainView {
       void offList()
     }
   }, [ctx])
-  return view
+  return state
 }
 
 function TitleBar({
@@ -76,7 +82,7 @@ function TitleBar({
 }
 
 export function AppShell({ ctx }: { ctx: Context }) {
-  const view = useDocView(ctx)
+  const { view, id } = useDocView(ctx)
   const [collapsed, setCollapsed] = useState(() => readLocal('sn.shell.collapsed', false))
   const [width, setWidth] = useState(() => readLocal('sn.shell.width', s.SIDEBAR_W))
 
@@ -141,8 +147,10 @@ export function AppShell({ ctx }: { ctx: Context }) {
               <div className={s.docHeader}>
                 <SlotHost ctx={ctx} name="doc.header" />
                 {/* 最右端那一格：评论入口（D-0070）。它是单独一格 — 谁先装谁先渲染，
-                    靠 DOM 顺序抢右端是不靠靠的。 */}
-                <SlotHost ctx={ctx} name="doc.header.right" />
+                    靠 DOM 顺序抢右端是不靠靠的。
+                    ★ 外部文件（D-0137）整格不画：评论 / 版本历史 / web AI 三个入口都住这儿，
+                      而这条路上它们真的没有（D-0140）—— 画出来点了没反应比不画更糟。 */}
+                {!(id !== null && isFileId(id)) && <SlotHost ctx={ctx} name="doc.header.right" />}
               </div>
               {/* 正文 + 右侧评论栏。`doc.aside` 空着时里面一个节点都没有 → 宽度 0，不占地方
                   （槽宿主不给插件包壳，见 slot-host.tsx）。 */}

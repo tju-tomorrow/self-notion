@@ -83,6 +83,15 @@ export async function fallbackToClipboard(body: string): Promise<void> {
   }
 }
 
+/** 把面板当前那一页丢给系统默认浏览器。URL 由 Rust 从子 webview 现拿（Rust `aiweb::open_external`）。 */
+export async function openInBrowser(ctx: Context): Promise<void> {
+  try {
+    await ctx.rpc.call('aiweb:open-external')
+  } catch (err) {
+    reportError('aiweb', err)
+  }
+}
+
 export function siteUrl(key: SiteKey): string {
   return SITES[key].url
 }

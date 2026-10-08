@@ -218,7 +218,7 @@ function useWindow(items: readonly Item[]) {
  */
 export function HomePage({ ctx }: { ctx: Context }) {
   const active = useSyncExternalStore(subscribeGroup, currentGroup, currentGroup)
-  return active === 'vfs' || active === 'bugs' ? null : <Home ctx={ctx} />
+  return active === 'vfs' || active === 'bugs' || active === 'files' ? null : <Home ctx={ctx} />
 }
 
 export function Home({ ctx }: { ctx: Context }) {

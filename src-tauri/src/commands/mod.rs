@@ -154,6 +154,8 @@ pub fn dispatch(
         "aiweb:hide" => aiweb_call(app, win, crate::aiweb::hide),
         "aiweb:close" => aiweb_call(app, win, crate::aiweb::close),
         "aiweb:probe" => aiweb_call(app, win, crate::aiweb::probe),
+        // 面板那一页丢给系统默认浏览器（`src/aiweb.rs::open_external`）。
+        "aiweb:open-external" => aiweb_call(app, win, crate::aiweb::open_external),
         "aiweb:inject" => {
             let a: crate::aiweb::InjectArgs = parse(args)?;
             aiweb_call(app, win, |h, w| crate::aiweb::inject(h, w, &a.text))
@@ -396,6 +398,30 @@ pub fn dispatch(
             let a: vfs::StatArgs = parse(args)?;
             vfs::stat(c, &a.path)
         }),
+
+        // ── 外部 Markdown 文件（D-0137，全文见 docs/external-md.md）─────────────
+        // 双击一个 .md → 直接编辑那个文件，文件是唯一真相源，正文不落库。
+        // ★ 这 8 条**故意不走 `call`**：读写盘是几毫秒到几十毫秒的 I/O，攥着库锁会把别的
+        //   命令全卡住（和 `backup:*` 同一个理由）。入口自己拿 `&Db`，读库与磁盘 I/O 分段进行。
+        "file:roots" => crate::disk::roots(db, args),
+        "file:addRoot" => crate::disk::add_root(db, args),
+        "file:removeRoot" => crate::disk::remove_root(db, args),
+        "file:list" => crate::disk::list(db, args),
+        "file:read" => crate::disk::read(db, args),
+        "file:write" => crate::disk::write(db, args),
+        "file:create" => crate::disk::create(db, args),
+        "file:rename" => crate::disk::rename(db, args),
+        // 接住系统递进来的文件 / 「设为默认」—— A2 的 `src-tauri/src/assoc.rs`。不碰库，不走 `call`。
+        "file:drainOpened" => crate::assoc::drain()
+            .map_err(|e| ApiError::new("io", e))
+            .and_then(|v| serde_json::to_value(v).map_err(|e| ApiError::new("encode", e.to_string()))),
+        "file:defaultStatus" => crate::assoc::status()
+            .map_err(|e| ApiError::new("io", e))
+            .and_then(|v| serde_json::to_value(v).map_err(|e| ApiError::new("encode", e.to_string()))),
+        "file:setDefault" => {
+            crate::assoc::set_default().map_err(|e| ApiError::new("io", e))?;
+            Ok(Value::Null)
+        }
 
         // ── GitHub 备份（D-0026）────────────────────────────────────────────────
         // ★ 这几条**故意不走 `call`**：里面有一次几秒级的网络往返，攥着库锁会把

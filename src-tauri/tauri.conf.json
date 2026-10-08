@@ -46,6 +46,15 @@
   "bundle": {
     "active": true,
     "targets": ["dmg"],
+    "fileAssociations": [
+      {
+        "ext": ["md", "markdown"],
+        "name": "Markdown",
+        "contentTypes": ["net.daringfireball.markdown", "public.plain-text"],
+        "role": "Editor",
+        "rank": "Default"
+      }
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

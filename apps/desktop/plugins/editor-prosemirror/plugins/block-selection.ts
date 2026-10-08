@@ -188,7 +188,11 @@ export function blankDragPlugin(): Plugin {
         if (e.button !== 0) return
         const target = e.target
         if (!(target instanceof Element)) return
-        if (target.closest('.sn-block') !== null) return
+        // ★ 落点是**控件**（标题那个 input、封面按钮、链接）就不是「空白拖选」。
+        //   往下走会 `preventDefault()`，而 mousedown 上那一压会让输入框**永远拿不到焦点**：
+        //   点标题点不进去就是它（2026-10-08，探针量出来的：落点是标题、焦点却没动）。
+        //   原来只排除 `.sn-block` —— 标题不是块，于是被当成空白。
+        if (target.closest('.sn-block, input, textarea, select, button, a') !== null) return
         const id = blockIdAt(host, e.clientY)
         if (id === null) return
         // 压住浏览器那套原生拖选（不压的话拖到一半会连字带块一起花掉）。

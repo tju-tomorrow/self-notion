@@ -127,10 +127,17 @@ globalStyle('.sn-codeblock', {
   background: WASH,
 })
 
-globalStyle('.sn-codeblock-lang', {
+// 右上角那条：语言 + （mermaid 时的）Code/Preview/Split。
+globalStyle('.sn-codeblock-bar', {
   position: 'absolute',
   top: 6,
   right: 6,
+  display: 'flex',
+  alignItems: 'center',
+  gap: 4,
+})
+
+globalStyle('.sn-codeblock-lang, .sn-codeblock-view', {
   maxWidth: 160,
   padding: '0 4px',
   border: 'none',
@@ -143,7 +150,9 @@ globalStyle('.sn-codeblock-lang', {
   cursor: 'pointer',
 })
 
-globalStyle('.sn-codeblock-lang:hover', { opacity: 1 })
+globalStyle('.sn-codeblock-lang:hover, .sn-codeblock-view:hover', { opacity: 1 })
+
+globalStyle('.sn-codeblock[data-mermaid="false"] .sn-codeblock-view', { display: 'none' })
 
 globalStyle('.sn-code', {
   margin: 0,
@@ -159,6 +168,53 @@ globalStyle('.sn-code-text', {
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
   fontSize: 13,
   lineHeight: 1.5,
+})
+
+/* ── codeBlock · mermaid（照 Notion 的三态）── */
+
+globalStyle('.sn-codeblock[data-mermaid="true"]', {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(0, 1fr)',
+})
+
+globalStyle('.sn-codeblock[data-mermaid="true"][data-view="split"]', {
+  gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+})
+
+globalStyle('.sn-codeblock[data-mermaid="true"][data-view="split"] .sn-code', {
+  borderRight: `1px solid ${LINE}`,
+})
+
+// Preview 只是把源码区收起来 —— `contentDOM` 还在 DOM 里，切回 Code 光标没丢（契约 D8）。
+globalStyle('.sn-codeblock[data-mermaid="true"][data-view="preview"] .sn-code', { display: 'none' })
+globalStyle('.sn-codeblock[data-mermaid="true"][data-view="code"] .sn-mermaid', { display: 'none' })
+globalStyle('.sn-codeblock[data-mermaid="false"] .sn-mermaid', { display: 'none' })
+
+globalStyle('.sn-mermaid', {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  minWidth: 0,
+  padding: '12px 14px',
+  overflow: 'auto',
+})
+
+globalStyle('.sn-mermaid svg', { maxWidth: '100%', height: 'auto' })
+
+globalStyle('.sn-mermaid[data-state="empty"]::after', {
+  content: '"在这里写 mermaid 语法"',
+  fontSize: 12,
+  opacity: 0.4,
+})
+
+globalStyle('.sn-mermaid[data-state="error"]', {
+  alignItems: 'flex-start',
+  justifyContent: 'flex-start',
+  color: '#e5484d',
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+  fontSize: 12,
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
 })
 
 /* ── equation / inlineEquation ── */
@@ -376,6 +432,27 @@ globalStyle('.sn-mention', {
 globalStyle('.sn-mention:hover', { background: 'rgba(30, 150, 235, .16)' })
 
 globalStyle('.sn-mention[data-empty="true"]', { color: 'rgba(128, 128, 128, .9)' })
+
+/* ── rawBlock（外部文件里看不懂的整块，只读等宽）── */
+
+globalStyle('.sn-raw', {
+  margin: '2px 0',
+  borderRadius: 4,
+  background: WASH,
+  userSelect: 'text',
+  cursor: 'default',
+})
+
+globalStyle('.sn-raw > pre', {
+  margin: 0,
+  padding: '8px 10px',
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  fontSize: 12.5,
+  lineHeight: 1.6,
+  whiteSpace: 'pre-wrap',
+  overflowX: 'auto',
+  color: 'rgba(128, 128, 128, .95)',
+})
 
 /* ── breadcrumb ── */
 

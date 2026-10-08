@@ -31,6 +31,7 @@ import {
   CodeIcon,
   CollectionsIcon,
   DeleteTemporarilyIcon,
+  FileIconMdIcon,
   FolderIcon,
   HistoryIcon,
   PageIcon,
@@ -153,9 +154,9 @@ function Empty({ Icon, text }: { Icon: typeof StarIcon; text: string }) {
 export function Sidebar({ ctx }: { ctx: Context }) {
   const [docs, setDocs] = useState<readonly DocMeta[]>([])
   const [group, setGroup] = useState<Group>(() => readGroup(ctx))
-  /** 主区停在「文档列表」还是「虚拟目录」（D-0094）。后者不属于四个分组 ——
-   *  它是一棵投影出来的目录树，所以单独记，点了分组行就回来。 */
-  const [page, setPage] = useState<'list' | 'vfs'>('list')
+  /** 主区停在「文档列表」还是「虚拟目录」（D-0094）/「外部文件」（D-0137）。后两个不属于
+   *  四个分组 —— 它们是各自的页面，所以单独记，点了分组行就回来。 */
+  const [page, setPage] = useState<'list' | 'vfs' | 'files'>('list')
   // 展开集合按 id 记（不看层级）：重建树之后还认得出原来展开的是谁。
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(
     () => new Set(readLocal<string[]>('sn.sidebar.expanded', [])),
@@ -616,6 +617,25 @@ export function Sidebar({ ctx }: { ctx: Context }) {
               <CodeIcon width={ICON} height={ICON} />
             </span>
             <span className={s.navLabel}>{ctx.i18n.t('vfs.nav')}</span>
+          </button>
+        )}
+
+        {/* 外部文件（D-0137，`plugins/external-files/`）。跟「虚拟目录」同一个形状：
+            不占分组，点它主区换成**真实目录树**。`files` 服务不在（插件被卸了）就整行不画。
+            ★ 点的时候**再取一次**服务（不是渲染时取一次）—— 软依赖谁先装不定。 */}
+        {ctx.get('files') !== undefined && (
+          <button
+            type="button"
+            className={`${s.navItem} ${page === 'files' ? s.navItemOn : ''}`}
+            onClick={() => {
+              setPage('files')
+              ctx.get('files')?.open()
+            }}
+          >
+            <span className={s.navIcon}>
+              <FileIconMdIcon width={ICON} height={ICON} />
+            </span>
+            <span className={s.navLabel}>{ctx.i18n.t('files.nav')}</span>
           </button>
         )}
 

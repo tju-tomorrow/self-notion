@@ -289,6 +289,16 @@ const nodes: Record<string, NodeSpec> = {
       parseDOM: [{ tag: 'div.sn-breadcrumb' }],
       toDOM: () => ['div', { class: 'sn-breadcrumb' }],
     }),
+  // 外部文件模式下「我们看不懂的整块」（frontmatter / markdown 表格 / 块级 HTML）—— 原文照抄（D-0142，架构 §2.2.2）。
+  // ★ 只在 `file:` 那条路上出现，**不落库**：块树是从磁盘现解析的，`doc` / `doc_text` 里不会有这个名字。
+  // ★ atom + 无 content = 只读（能删、能整块移动，改不了）；原文就在 attr 里。
+  rawBlock: content(
+    {
+      atom: true,
+      attrs: { text: { default: '' } },
+      parseDOM: [{ tag: 'div.sn-raw', getAttrs: (el) => ({ text: (el as HTMLElement).textContent ?? '' }) }],
+      toDOM: (node) => ['div', { class: 'sn-raw' }, ['pre', String(node.attrs.text ?? '')]],
+    }),
   // 媒体 / 附件：字节走 blob（`self-notion://blob/<id>`），JSON 里只存 blobId（+ 显示名）。
   video: content(mediaNode('video', 'sn-video')),
   audio: content(mediaNode('audio', 'sn-audio')),

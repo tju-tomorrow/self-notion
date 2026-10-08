@@ -104,5 +104,8 @@ export function filterGroup(docs: readonly DocMeta[], group: ListGroup): DocMeta
     // bug 现场那一页同理，归 plugin-bugs 画（D-0126）。
     case 'bugs':
       return []
+    // 外部文件那一页同理，归 plugin-external-files 画（D-0137）。
+    case 'files':
+      return []
   }
 }

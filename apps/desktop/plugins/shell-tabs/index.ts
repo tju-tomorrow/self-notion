@@ -12,7 +12,7 @@ import { createElement } from 'react'
 import { listen } from '@tauri-apps/api/event'
 // 事件名与载荷类型都从契约来；`Events` 的声明也在契约里（`declare module` 那一块）
 // —— 消费方不用再各补一份。
-import { AGENT_TAB_ID, CLOSE_ALL, CLOSE_TAB, DOCS_CHANGED, OPEN_DOC, type DocMeta } from '../../src/kernel/contract'
+import { AGENT_TAB_ID, CLOSE_ALL, CLOSE_TAB, DOCS_CHANGED, OPEN_DOC, isFileId, type DocMeta } from '../../src/kernel/contract'
 import { reportError } from '../../src/kernel/errors'
 // 多窗口：窗口标签（`win-N`）—— 会话恢复与持久化只有主窗口做。
 import { isMainWindow } from '../../src/kernel/window'
@@ -55,8 +55,9 @@ export function apply(ctx: Context) {
       })
     return inflight
   }
-  /** 助手那一页不是文档，库里查不到 —— 永远留着。 */
-  const keep = (id: string) => id === AGENT_TAB_ID || liveIds?.has(id) === true
+  /** 助手那一页不是文档，库里查不到 —— 永远留着。外部文件同理（D-0137）：
+   *  它在磁盘上，`doc:list` 里当然没有它，不特判就会一裁就被关掉。 */
+  const keep = (id: string) => id === AGENT_TAB_ID || isFileId(id) || liveIds?.has(id) === true
 
   /** 把标签裁到「库里还在的」。一个不剩就跟关光所有标签一样回首页。 */
   const prune = () => {

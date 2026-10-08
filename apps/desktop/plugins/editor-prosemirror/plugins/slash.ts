@@ -18,6 +18,7 @@ import type { EditorState } from 'prosemirror-state'
 import { Decoration, DecorationSet } from 'prosemirror-view'
 import type { EditorView } from 'prosemirror-view'
 
+import { isFileId } from '../../../src/kernel/contract'
 import { reportError } from '../../../src/kernel/errors'
 import { firstTextPos } from '../commands/block'
 import { allDocs, createDoc } from '../doc-meta'
@@ -178,6 +179,15 @@ const ITEMS: readonly SlashItem[] = [
     alias: ['代码块', '代码', 'daima', 'daimakuai', 'codeblock'],
   },
   {
+    name: 'Mermaid',
+    group: 'advanced',
+    hint: 'Diagram',
+    icon: '◇',
+    // 就是一块语言已经选好的代码块 —— 图由 codeBlock 的 NodeView 画（docs/mermaid.md 的 D1）。
+    block: { type: 'codeBlock', attrs: { language: 'mermaid' } },
+    alias: ['mermaid', '图', '图表', '流程图', '时序图', 'tubiao', 'liuchengtu', 'diagram'],
+  },
+  {
     name: 'Callout',
     group: 'advanced',
     hint: 'Highlighted note',
@@ -314,15 +324,17 @@ interface SlashGroup {
 }
 
 /** 按组切好、顺手过滤掉搜不到的。query 为空时顶上叠一格「最近使用」（D-0124）。 */
-function visibleGroups(query: string): SlashGroup[] {
+function visibleGroups(query: string, file: boolean): SlashGroup[] {
   const q = query.trim().toLowerCase()
   const groups: SlashGroup[] = []
+  // 文件模式不出「子页面 / 同步块」：它们要往库里建文档 / 建源，而外部文件不进库（D-0140）。
+  const usable = ITEMS.filter((item) => !file || (!item.page && !item.sync))
   if (q === '') {
-    const recent = recentItems()
+    const recent = recentItems().filter((item) => !file || (!item.page && !item.sync))
     if (recent.length) groups.push({ label: 'Recently Used', items: recent })
   }
   for (const g of GROUPS) {
-    const items = ITEMS.filter((item) => item.group === g.id && hit(item, q))
+    const items = usable.filter((item) => item.group === g.id && hit(item, q))
     if (items.length) groups.push({ label: g.label, items })
   }
   return groups
@@ -420,6 +432,8 @@ function currentDocId(view: EditorView): string {
  * 建文档是异步的（走 rpc），所以回填按 blockContainer 的 id 找回位置 —— 期间被撤销 / 删掉就跳过。
  */
 async function fillSubpage(view: EditorView, containerId: string): Promise<void> {
+  // 兜一手上游漏过的路径（菜单里的入口在文件模式下已经收掉）—— 建文档 = 往库里写，外部文件不许（D-0140）。
+  if (isFileId(currentDocId(view))) return
   try {
     const docId = await createDoc('', currentDocId(view) || null)
     const at = firstContentPos(view.state.doc, containerId)
@@ -435,6 +449,8 @@ async function fillSubpage(view: EditorView, containerId: string): Promise<void>
  * 建源是异步的（走 rpc），按 blockContainer 的 id 找回位置 —— 期间被撤销 / 删掉就跳过。
  */
 async function fillSync(view: EditorView, containerId: string): Promise<void> {
+  // 同 `fillSubpage`：建同步源也是往库里写，文件模式下兜一手（D-0140）。
+  if (isFileId(currentDocId(view))) return
   try {
     const srcId = await newSrc()
     const at = firstContentPos(view.state.doc, containerId)
@@ -712,7 +728,7 @@ class SlashMenu {
   }
 
   private paint(match: SlashMatch): void {
-    const groups = visibleGroups(match.query)
+    const groups = visibleGroups(match.query, isFileId(currentDocId(this.view)))
     this.items = groups.flatMap((g) => [...g.items])
     this.rows = []
     const frag = document.createDocumentFragment()

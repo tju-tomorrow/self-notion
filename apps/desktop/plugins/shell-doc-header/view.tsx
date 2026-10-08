@@ -14,6 +14,7 @@ import {
   DoneIcon,
   DuplicateIcon,
   ExpandWideIcon,
+  FileIconMdIcon,
   FontIcon,
   HistoryIcon,
   LinkIcon,
@@ -32,6 +33,7 @@ import {
   OPEN_DOC,
   SHOW_LIST,
   SPLIT_VIEW,
+  fileTitleOf,
   type DocMeta,
   type DocSummary,
 } from '../../src/kernel/contract'
@@ -182,8 +184,10 @@ export function DocHeader({ ctx }: { ctx: Context }) {
   if (id === null) return null
 
   const here = docs.find((d) => d.id === id)
-  const title = here?.title || ctx.i18n.t('doc.untitled')
-  const trail = trailOf(docs, id)
+  /** 外部文件（D-0137）：库里没有它，名字取文件名，也**没有祖先路径**可走。 */
+  const fileTitle = fileTitleOf(id)
+  const title = fileTitle ?? (here?.title || ctx.i18n.t('doc.untitled'))
+  const trail = fileTitle === null ? trailOf(docs, id) : []
 
   const favorite = () => {
     void ctx.rpc
@@ -195,43 +199,70 @@ export function DocHeader({ ctx }: { ctx: Context }) {
   return (
     <header className={s.bar}>
       <nav className={s.crumbs}>
-        {/* 路径的第一段：文档树最上面是「全部文档」这一页。它**不是** DocMeta（没有 id，点了是
-            `SHOW_LIST` 不是 `OPEN_DOC`），所以不塞进 `trail`，单独画一段 —— 跟侧栏点导航行同一条路。 */}
-        <button
-          type="button"
-          className={s.crumb}
-          onClick={() => ctx.emit(SHOW_LIST, { group: 'all' })}
-        >
-          <span className={s.crumbIcon}>
-            <AllDocsIcon width={14} height={14} />
-          </span>
-          <span className={s.crumbLabel}>{ctx.i18n.t('sidebar.group.tree')}</span>
-        </button>
-        <span className={s.sep}>{'>'}</span>
-        {trail.map((doc, i) => (
-          <Fragment key={doc.id}>
-            {i > 0 && <span className={s.sep}>{'>'}</span>}
+        {fileTitle !== null ? (
+          <>
+            {/* 外部文件（D-0137）：库里没有它，所以没有祖先路径 —— 一段「外部文件」+ 文件名。 */}
+            <button type="button" className={s.crumb} onClick={() => ctx.get('files')?.open()}>
+              <span className={s.crumbIcon}>
+                <FileIconMdIcon width={14} height={14} />
+              </span>
+              <span className={s.crumbLabel}>{ctx.i18n.t('files.nav')}</span>
+            </button>
+            <span className={s.sep}>{'>'}</span>
+            <button type="button" className={`${s.crumb} ${s.crumbOn}`}>
+              <span className={s.crumbIcon}>
+                <FileIconMdIcon width={14} height={14} />
+              </span>
+              <span className={s.crumbLabel}>{fileTitle}</span>
+            </button>
+          </>
+        ) : (
+          <>
+            {/* 路径的第一段：文档树最上面是「全部文档」这一页。它**不是** DocMeta（没有 id，点了是
+                `SHOW_LIST` 不是 `OPEN_DOC`），所以不塞进 `trail`，单独画一段 —— 跟侧栏点导航行同一条路。 */}
             <button
               type="button"
-              className={i === trail.length - 1 ? `${s.crumb} ${s.crumbOn}` : s.crumb}
-              onClick={() => ctx.emit(OPEN_DOC, { id: doc.id })}
+              className={s.crumb}
+              onClick={() => ctx.emit(SHOW_LIST, { group: 'all' })}
             >
-              <span className={s.crumbIcon}>{doc.icon ?? <PageIcon width={14} height={14} />}</span>
-              <span className={s.crumbLabel}>{doc.title || ctx.i18n.t('doc.untitled')}</span>
+              <span className={s.crumbIcon}>
+                <AllDocsIcon width={14} height={14} />
+              </span>
+              <span className={s.crumbLabel}>{ctx.i18n.t('sidebar.group.tree')}</span>
             </button>
-          </Fragment>
-        ))}
+            <span className={s.sep}>{'>'}</span>
+            {trail.map((doc, i) => (
+              <Fragment key={doc.id}>
+                {i > 0 && <span className={s.sep}>{'>'}</span>}
+                <button
+                  type="button"
+                  className={i === trail.length - 1 ? `${s.crumb} ${s.crumbOn}` : s.crumb}
+                  onClick={() => ctx.emit(OPEN_DOC, { id: doc.id })}
+                >
+                  <span className={s.crumbIcon}>{doc.icon ?? <PageIcon width={14} height={14} />}</span>
+                  <span className={s.crumbLabel}>{doc.title || ctx.i18n.t('doc.untitled')}</span>
+                </button>
+              </Fragment>
+            ))}
+          </>
+        )}
       </nav>
 
       <div className={s.actions}>
-        {/* 动作区**最左端**那一格：网页版 AI 那颗挂这儿（D-0096）。 */}
-        <SlotHost ctx={ctx} name="doc.header.leading" />
-        {/* 紧贴它右边：内置助手那颗宠物（D-0106 续 —— 用户圈了 ∇ 右边这一格）。
-            不摆在整行最右：用户要的是「在打开网页版 AI **右边一位**」，一位就是一位的距离。 */}
-        <SlotHost ctx={ctx} name="doc.header.agent" />
-        {/* 动作区里最靠左的一格：别的东西（总结那颗按钮，D-0075）挂进来就落在这儿。
+        {/* 外部文件这条路上这三格**如实不画**（D-0140）：AI 写入 / 总结 / 助手都不碰它 ——
+            画出来点了没反应，比不画更糟。 */}
+        {fileTitle === null && (
+          <>
+            {/* 动作区**最左端**那一格：网页版 AI 那颗挂这儿（D-0096）。 */}
+            <SlotHost ctx={ctx} name="doc.header.leading" />
+            {/* 紧贴它右边：内置助手那颗宠物（D-0106 续 —— 用户圈了 ∇ 右边这一格）。
+                不摆在整行最右：用户要的是「在打开网页版 AI **右边一位**」，一位就是一位的距离。 */}
+            <SlotHost ctx={ctx} name="doc.header.agent" />
+            {/* 动作区里最靠左的一格：别的东西（总结那颗按钮，D-0075）挂进来就落在这儿。
             空着时里面一个节点都没有，不占地方。 */}
-        <SlotHost ctx={ctx} name="doc.header.actions" />
+            <SlotHost ctx={ctx} name="doc.header.actions" />
+          </>
+        )}
         {savedAt !== null ? (
           <span className={s.saved}>
             <span className={s.savedCheck}>
@@ -240,17 +271,20 @@ export function DocHeader({ ctx }: { ctx: Context }) {
             {ctx.i18n.t('doc.savedAt', { time: clock(savedAt) })}
           </span>
         ) : null}
-        <Hint text={ctx.i18n.t(here?.isFavorite ? 'doc.unfavorite' : 'doc.favorite')}>
-          <button
-            type="button"
-            className={s.iconButton}
-            style={here?.isFavorite ? { color: 'var(--affine-primary-color)' } : undefined}
-            aria-label={ctx.i18n.t(here?.isFavorite ? 'doc.unfavorite' : 'doc.favorite')}
-            onClick={favorite}
-          >
-            <StarIcon width={ICON} height={ICON} />
-          </button>
-        </Hint>
+        {/* 收藏也归库：外部文件没有这一栏（D-0140）。 */}
+        {fileTitle === null && (
+          <Hint text={ctx.i18n.t(here?.isFavorite ? 'doc.unfavorite' : 'doc.favorite')}>
+            <button
+              type="button"
+              className={s.iconButton}
+              style={here?.isFavorite ? { color: 'var(--affine-primary-color)' } : undefined}
+              aria-label={ctx.i18n.t(here?.isFavorite ? 'doc.unfavorite' : 'doc.favorite')}
+              onClick={favorite}
+            >
+              <StarIcon width={ICON} height={ICON} />
+            </button>
+          </Hint>
+        )}
 
         {/* 并排看（D-0118）：1 → 2 → 3 栏，到顶之后再点就是取消并排（回 1 栏）。
             只加不减的话用户没有路退回来。文案按当前栏数变 —— 不然这一颗按钮
@@ -268,21 +302,25 @@ export function DocHeader({ ctx }: { ctx: Context }) {
           </button>
         </Hint>
 
-        <div className={s.anchor} ref={anchor}>
-          <Hint text={ctx.i18n.t('doc.menu')}>
-            <button
-              type="button"
-              className={s.iconButton}
-              aria-label={ctx.i18n.t('doc.menu')}
-              onClick={() => setOpen((v) => !v)}
-            >
-              <MoreHorizontalIcon width={ICON} height={ICON} />
-            </button>
-          </Hint>
-          {open && (
-            <PageMenu ctx={ctx} id={id} title={title} docs={docs} onClose={() => setOpen(false)} />
-          )}
-        </div>
+        {/* ⋯ 菜单整个是库里的操作（重命名 / 移动 / 复制 / 历史版本 / 图标 / 删）——
+            外部文件一条都用不上，所以整颗不画（D-0140）。 */}
+        {fileTitle === null && (
+          <div className={s.anchor} ref={anchor}>
+            <Hint text={ctx.i18n.t('doc.menu')}>
+              <button
+                type="button"
+                className={s.iconButton}
+                aria-label={ctx.i18n.t('doc.menu')}
+                onClick={() => setOpen((v) => !v)}
+              >
+                <MoreHorizontalIcon width={ICON} height={ICON} />
+              </button>
+            </Hint>
+            {open && (
+              <PageMenu ctx={ctx} id={id} title={title} docs={docs} onClose={() => setOpen(false)} />
+            )}
+          </div>
+        )}
       </div>
     </header>
   )

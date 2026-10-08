@@ -108,6 +108,17 @@ pub fn close(app: &tauri::AppHandle, win: &str) -> Result<(), String> {
 }
 
 /// 把页面里像输入框的东西列出来，回给那个窗口（`aiweb:probe`）。排错用。
+/// 把面板当前那一页丢给系统默认浏览器。
+///
+/// URL 是**现从子 webview 拿的**，不是站点表里那个首页 —— 网页版里点进哪个对话，开的就是哪一页
+/// （`Webview::url()` 跟着导航走）。登录态不共享，浏览器那边要自己再登一次，这没办法。
+pub fn open_external(app: &tauri::AppHandle, win: &str) -> Result<(), String> {
+    let (label, _) = labels(win);
+    let wv = app.get_webview(&label).ok_or("面板还没开")?;
+    let url = wv.url().map_err(|e| e.to_string())?;
+    tauri_plugin_opener::open_url(url.as_str(), None::<&str>).map_err(|e| e.to_string())
+}
+
 pub fn probe(app: &tauri::AppHandle, win: &str) -> Result<(), String> {
     eval(app, win, &labels(win).0, PROBE_JS, "aiweb:probe")
 }

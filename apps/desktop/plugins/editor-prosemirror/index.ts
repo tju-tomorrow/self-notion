@@ -23,6 +23,7 @@ import { setLoadBacklinks } from './backlinks'
 import { setPutBlob } from './blob'
 import { setCreateDoc, setDocs, setLoadDoc, setOpenDoc } from './doc-meta'
 import { setSyncApi } from './sync'
+import { setScheme as setMermaidScheme } from './nodes/mermaid'
 import { FindPanel, type FindApi } from './find-panel'
 import { registerEditorView, reloadDoc } from './view'
 
@@ -45,6 +46,11 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 export function apply(ctx: Context) {
+  // mermaid 的配色跟明暗走 —— `nodes/mermaid.ts` 那层拿不到 ctx，这边推给它（契约 D10）。
+  const pushScheme = () => setMermaidScheme(ctx.theme.scheme)
+  pushScheme()
+  ctx.effect(() => ctx.theme.onChange(pushScheme))
+
   /** 装载完的模块。同步口子（`schema()`）靠它 —— 装载前是 null。 */
   let mod: EditorModule | null = null
 
@@ -59,6 +65,8 @@ export function apply(ctx: Context) {
       // 字节路径接上 `ctx.docs`：落库成功由编辑器那边回叫，这里转成 `DOC_SAVED`（顶栏显示「已保存」）。
       editor.connectDocs(ctx.docs, {
         saved: (docId) => ctx.emit(DOC_SAVED, { id: docId }),
+        // 标题变了 → 广播，让标签条 / 侧栏 / 面包屑重取（rename 那条路也是这么做的）。
+        docsChanged: () => ctx.emit(DOCS_CHANGED),
         // 编辑器那层不认识 i18n，占位文案装载时写进去。
         untitled: ctx.i18n.t('doc.untitled'),
         outline: ctx.i18n.t('editor.outline'),

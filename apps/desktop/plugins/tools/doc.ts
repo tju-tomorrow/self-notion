@@ -21,7 +21,7 @@ import type { Context } from 'cordis'
 import { Node as PMNode, type Schema } from 'prosemirror-model'
 import { Transform } from 'prosemirror-transform'
 
-import { DOCS_CHANGED, type DocMeta } from '../../src/kernel/contract'
+import { DOCS_CHANGED, isFileId, type DocMeta } from '../../src/kernel/contract'
 import { reportError } from '../../src/kernel/errors'
 
 /** 一次写的结果。`blocks` 让模型知道有没有真写进去（0 = 只建了空文档 / 没匹配上）。 */
@@ -44,6 +44,12 @@ interface BlockHit {
  * 第一句 `flush` 的理由见文件头。库里还没这一篇 → 造一份空的，别让下游踩 null。
  */
 async function loadDoc(ctx: Context, id: string): Promise<{ doc: PMNode; schema: Schema }> {
+  // ★ 外部文件不归 AI 改（D-0140）：那条路上没有 `doc_id`，`commit` 又直接走 `doc:apply`
+  //   ——放过去就是拿一个 `file:/…` 当 doc id 往 `doc_text` 里写，脏数据。
+  //   三个入口都从这儿过，所以闸设在这儿一处就够。
+  if (isFileId(id)) {
+    throw new Error('外部文件不归 AI 改（它不在库里，没有 doc_id）')
+  }
   await ctx.editor.flush(id)
   await ctx.editor.ready()
   const schema = ctx.editor.schema() as Schema

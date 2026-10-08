@@ -9,11 +9,11 @@
  */
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react'
 import type { Context } from 'cordis'
-import { ChatWithAiIcon, CloseIcon, StopIcon, VoiceIcon } from '@blocksuite/icons/rc'
+import { ChatWithAiIcon, CloseIcon, OpenInNewIcon, StopIcon, VoiceIcon } from '@blocksuite/icons/rc'
 import { reportError } from '../../src/kernel/errors'
 import { readLocal, writeLocal } from '../../src/kernel/local'
 import { Hint } from '../../src/ui/hint'
-import { closePanel, openPanel, setSite, siteUrl } from './actions'
+import { closePanel, openInBrowser, openPanel, setSite, siteUrl } from './actions'
 import { getWebAiState, SITE_ORDER, SITES, useWebAiState } from './state'
 import { toggleSpeak, useVoicePhase } from './voice'
 import * as watch from './watch'
@@ -290,15 +290,29 @@ export function WebAiPanel({ ctx }: { ctx: Context }) {
         <span className={s.headTitle}>
           {ctx.i18n.t(st.mode === 'voice' ? 'voice.panel' : 'webai.title')}
         </span>
-        <button
-          type="button"
-          className={s.iconButton}
-          title={ctx.i18n.t('webai.close')}
-          aria-label={ctx.i18n.t('webai.close')}
-          onClick={() => closePanel(ctx)}
-        >
-          <CloseIcon width={18} height={18} />
-        </button>
+        <div className={s.headActions}>
+          {/* 朗读那一页不开 —— `open-external` 拿的是面板那个子 webview 的 URL，跟朗读页不是一页。 */}
+          {st.mode === 'voice' ? null : (
+            <button
+              type="button"
+              className={s.iconButton}
+              title={ctx.i18n.t('webai.openInBrowser')}
+              aria-label={ctx.i18n.t('webai.openInBrowser')}
+              onClick={() => void openInBrowser(ctx)}
+            >
+              <OpenInNewIcon width={18} height={18} />
+            </button>
+          )}
+          <button
+            type="button"
+            className={s.iconButton}
+            title={ctx.i18n.t('webai.close')}
+            aria-label={ctx.i18n.t('webai.close')}
+            onClick={() => closePanel(ctx)}
+          >
+            <CloseIcon width={18} height={18} />
+          </button>
+        </div>
       </div>
 
       {st.mode === 'voice' ? null : (

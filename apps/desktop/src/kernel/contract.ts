@@ -2,7 +2,7 @@
  * ★ 冻结的契约 ★
  *
  * 并行施工时这份文件是法律。改它 = 回 Stage 0，先问一句为什么。
- * 依据：D-0031 · D-0035 · D-0040 · D-0042 · D-0043 · D-0052 · D-0053。
+ * 依据：D-0031 · D-0035 · D-0040 · D-0042 · D-0043 · D-0052 · D-0053 · D-0137 ~ D-0142。
  */
 
 /* ─────────────────────────── 硬依赖（inject 声明，缺了不装载） ─────────────────────────── */
@@ -21,13 +21,22 @@ export interface DocLink {
  *  所以 `updates` 整个消失。形状 = `doc:open` 的返回。 */
 export interface DocHandle {
   readonly id: string
-  /** 正文（PM doc JSON 的字符串形式）。`null` = 库里还没有这一篇的字节 —— 编辑器自己造一个空的。 */
+  /** 正文（PM doc JSON 的字符串形式）。`null` = 库里还没有这一篇的字节 —— 编辑器自己造一个空的。
+   *  ★ **外部文件那条路上它也是 `null`**：那种文档的载荷是 `raw`（读进来）和 `md`（写回去），
+   *    见下面两个字段。 */
   content: string | null
   /** 正文投影（纯文本）与标题，只有**落库**方向用得上：Rust 拿它喂 FTS / 摘要（`doc_text`）。
    *  不给就保持库里原值，所以 `load` 的返回不必带。没有这两个字段，`doc_text` 永远是空的 ——
-   *  搜索搜不到正文，首页也给不出摘要。 */
+   *  搜索搜不到正文，首页也给不出摘要。
+   *  ★ **外部文件模式下 `md` 是另一件事**：它是**要写回那个文件的整篇内容**（保真序列化的结果，
+   *    未被碰过的块写原文）。这条路上 `content` 恒为 `null`、只有 `md` 有货。 */
   title?: string
   md?: string
+  /** **外部文件模式：文件那一段原文。** `load` 给出来，编辑器**自己解析** ——
+   *  解析的顺带把每块的原文和「打开那一刻的快照」记进 side table（D-0142）。
+   *  所以这条路上的文档**不能再走 `docFromMarkdown`**（那条路把原文扔了，保真就没了）。
+   *  没有这个字段 = 库里的文档，照旧。 */
+  raw?: string
   /** 这一篇的**出链**（D-0085）。和 `md` 同一个 payload、同一个时机 ——
    *  「一份投影多处复用」现在多这一处。**全量**：Rust 拿它替换式重建这篇的边
    *  （先删后插），所以给空数组 = 这篇没有出链，不是"别动"。 */
@@ -275,10 +284,12 @@ export const CLOSE_ALL = 'ui:closeAll'
  *  ★ 事件不是服务：外侧栏不关心主区有没有装。`all` 就是「All docs」首页。 */
 export const SHOW_LIST = 'ui:showList'
 
-/** `vfs` = 虚拟目录那一页（D-0094）· `bugs` = bug 现场那一页（D-0126）。这两个**不是文档列表**，
- *  由各自的插件自己画；这里只是为了让它俩蹭同一条「主区该显示哪一页」的路。
+/** `vfs` = 虚拟目录那一页（D-0094）· `bugs` = bug 现场那一页（D-0126）·
+ *  `files` = 外部文件那一页（D-0137）。这三个**不是文档列表**，由各自的插件自己画；
+ *  这里只是为了让它仨蹭同一条「主区该显示哪一页」的路 —— 首页靠这个值**让开**
+ *  （`plugins/home/home.tsx`，不让就两页叠在一起）。
  *  `pinned` = 置顶那一页（D-0123），是普通的文档列表（跟 `favorite` 同一类）。 */
-export type ListGroup = 'all' | 'recent' | 'favorite' | 'pinned' | 'trash' | 'vfs' | 'bugs'
+export type ListGroup = 'all' | 'recent' | 'favorite' | 'pinned' | 'trash' | 'vfs' | 'bugs' | 'files'
 
 export interface ShowListEvent {
   group: ListGroup
@@ -294,6 +305,83 @@ export const DOC_SAVED = 'ui:docSaved'
 
 export interface DocSavedEvent {
   id: string
+}
+
+/* ───────── 外部 Markdown 文件（D-0137 ~ D-0142，全文见 docs/external-md.md） ─────────
+ *
+ * 双击一个 `.md` → **直接编辑那个文件**。它不进 `documents` 表：没有 `doc_id`、正文不落库，
+ * 文件是唯一真相源。所以这类文档靠 **id 前缀**和库里的文档分开：`plugin-storage` 按前缀分流
+ * （`file:` → `file:read` / `file:write`，其余照旧走 `doc:*`）——
+ * **编辑器那一侧不需要知道背后是库还是文件**。
+ *
+ * 代价（D-0140）：进不了评论 / 版本历史 / AI 写工具 / vfs 树 / 全文搜索 / 备份。
+ * 界面上这些入口对这种文档**如实不见**。 */
+
+/** 外部文件的 id = `file:` + **绝对路径**。库里没有这一行，这个 id 只在内存里活着。 */
+export const FILE_ID_PREFIX = 'file:'
+
+export const fileId = (path: string): string => FILE_ID_PREFIX + path
+
+export const isFileId = (id: string): boolean => id.startsWith(FILE_ID_PREFIX)
+
+/** `file:/a/b.md` → `/a/b.md`。不是文件 id → null —— 别把库里的 id 当路径剥。 */
+export const filePathOf = (id: string): string | null =>
+  isFileId(id) ? id.slice(FILE_ID_PREFIX.length) : null
+
+/** 外部文件在界面上显示的名字：`file:/a/b/notes.md` → `notes`。
+ *  不是文件 id → null（调用方自己回退到库里的标题）。
+ *  放契约里是因为**两个外壳插件都要它**（标签条 + 顶栏面包屑），各抄一份就会漂。 */
+export const fileTitleOf = (id: string): string | null => {
+  const path = filePathOf(id)
+  if (path === null) return null
+  return (path.split('/').pop() ?? path).replace(/\.(md|markdown)$/i, '')
+}
+
+/** 用户要打开的文件。Rust 收到 macOS 的 `RunEvent::Opened` 就发它
+ *  （双击 / 拖到图标上 / 「打开方式 → self-notion」）。
+ *
+ *  ★ 事件不是服务：发的人（Rust）不知道前端起来没有、有没有人在听。
+ *  ★ **可能早于前端**：那会儿来的存在 Rust 的信箱里，boot 时用 `file:drainOpened` 取走 ——
+ *    只发事件会丢（`tauri dev` 下不可验，见 D-0050 第 4 条那条纪律）。 */
+export const FILE_OPENED = 'ui:fileOpened'
+
+export interface FileOpenedEvent {
+  /** 绝对路径。一次可能多个（Finder 里选中一批回车厢）。 */
+  paths: string[]
+}
+
+/** 目录树的一行 / 一个挂载的根。形状 = Rust `fsx::Entry`。 */
+export interface FileEntry {
+  path: string
+  kind: 'file' | 'dir'
+  /** 基名 —— 路径的显示名，别让每处自己切。 */
+  name: string
+  /** 字节数。目录没有这个字段。 */
+  size?: number
+  /** 最后修改时间（毫秒）。写盘的冲突检测拿它比。 */
+  mtime: number
+}
+
+/** `file:read` 的返回。`mtime` + `hash` 一起当**乐观锁**：写回时原样带回去（`file:write` 的
+ *  `expect`），对不上就是在外面被改过 → `conflict`，**不覆盖**（D-0137 §3）。 */
+export interface FileRead {
+  text: string
+  mtime: number
+  /** 内容的 sha256。 */
+  hash: string
+}
+
+/** `file:write` 的返回：写完之后的**新**那把锁。 */
+export interface FileStamp {
+  mtime: number
+  hash: string
+}
+
+/** 「是不是 .md 的默认应用」。`bundlePath` = 系统现在认的那个 app ——
+ *  不是我们的时候显示出来，让用户知道被谁占着（D-0138）。 */
+export interface FileDefaultStatus {
+  isDefault: boolean
+  bundlePath: string | null
 }
 
 /* ────────────────────── IPC 载荷的形状（类型源就是这儿，D-0049） ────────────────────── */
@@ -504,6 +592,16 @@ export interface VersionService {
   open(): void
 }
 
+/** 软依赖：`ctx.get('files')`。**外部文件那一页**（D-0137，全文见 `docs/external-md.md`）。
+ *
+ *  侧栏那一行靠这个服务**探在不在**（插件卸了就整行不画 —— 不留一个点了没反应的入口，
+ *  跟 vfs 那条同一个规矩），点它就是 `open()`。
+ *  ★ 它同时负责把 `SHOW_LIST { group: 'files' }` 广播出去（首页靠那个值让开），
+ *    所以侧栏只需要这一句、不需要自己发事件。 */
+export interface FilesService {
+  open(): void
+}
+
 export interface ToolSpec {
   name: string
   description: string
@@ -595,6 +693,7 @@ declare module 'cordis' {
     [SHOW_LIST]: (payload: ShowListEvent) => void
     [DOCS_CHANGED]: () => void
     [DOC_SAVED]: (payload: DocSavedEvent) => void
+    [FILE_OPENED]: (payload: FileOpenedEvent) => void
   }
 }
 
@@ -615,6 +714,7 @@ declare module 'cordis' {
     mem?: MemService
     comment?: CommentService
     version?: VersionService
+    files?: FilesService
     webai?: WebAiService
     agent?: AgentService
     mascot?: MascotService

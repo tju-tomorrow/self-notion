@@ -120,6 +120,13 @@ export const iconButton = style({
   },
 })
 
+/** 头右侧那一撮按钮（「在浏览器打开」+ 收起）—— 跟标题分两端，所以自己包一层。 */
+export const headActions = style({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 4,
+})
+
 /** 顶栏那一行里的一格（`doc.header.right`，和评论入口并排）。 */
 export const entryBar = style({
   flex: '0 0 auto',

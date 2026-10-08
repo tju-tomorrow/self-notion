@@ -6,8 +6,8 @@
 import { type DragEvent, type ReactNode, useEffect, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import type { Context } from 'cordis'
-import { CloseIcon, PageIcon, PlusIcon } from '@blocksuite/icons/rc'
-import { AGENT_TAB_ID, CLOSE_ALL, DOCS_CHANGED, OPEN_DOC, type DocMeta } from '../../src/kernel/contract'
+import { CloseIcon, FileIconMdIcon, PageIcon, PlusIcon } from '@blocksuite/icons/rc'
+import { AGENT_TAB_ID, CLOSE_ALL, DOCS_CHANGED, OPEN_DOC, fileTitleOf, type DocMeta } from '../../src/kernel/contract'
 import type { TabsStore } from './tabs'
 import * as s from './tabs.css'
 
@@ -99,7 +99,9 @@ function TabItem({
 }) {
   const agent = id === AGENT_TAB_ID
   // 助手那一个不是文档：库里查不到它的名字和图标，所以名字和图标都自己给（D-0095）。
-  const title = agent ? ctx.i18n.t('agent.title') : (doc?.title ?? '')
+  // 外部文件同理（D-0137）：库里没有它，名字就是文件名。
+  const fileTitle = fileTitleOf(id)
+  const title = agent ? ctx.i18n.t('agent.title') : (fileTitle ?? doc?.title ?? '')
   // 拖拽悬停的落点高亮（落点用下落当下的下标算，所以只需一个布尔）
   const [over, setOver] = useState(false)
   /** 标签上那个小菜单（关闭其他 / 关闭全部）的位置。null = 没开。 */
@@ -184,6 +186,8 @@ function TabItem({
         {agent ? (
           // 助手那个标签的图标也是**那只宠物**（D-0095 续）。拿不到就不画 —— 名字还在。
           (ctx.get('mascot')?.face(16) as ReactNode) ?? null
+        ) : fileTitle !== null ? (
+          <FileIconMdIcon width={16} height={16} />
         ) : (
           (doc?.icon ?? <PageIcon width={16} height={16} />)
         )}

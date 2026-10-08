@@ -6,9 +6,11 @@ use tauri::Manager;
 
 mod ai;
 mod aiweb;
+mod assoc;
 mod backup;
 mod bugs;
 mod commands;
+mod disk;
 #[cfg(target_os = "macos")]
 mod dock;
 mod log;
@@ -102,8 +104,25 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![commands::api])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        // ★ 有回调才接得到 `RunEvent::Opened`（原来那个 `builder.run(ctx)` 是 `build()?.run(|_,_| {})`，
+        //   事件全被丢掉了）。这条路径只在 macOS 上存在，别的平台连 variant 都没有。
+        .run(|handle, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = event {
+                let paths = urls
+                    .iter()
+                    .filter_map(|u| u.to_file_path().ok())
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .collect();
+                if let Err(err) = assoc::deliver(handle, paths) {
+                    log::record("assoc", &err);
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (handle, event);
+        });
 }
 
 /// 把窗口露出来。**窗口定义里是 `visible: false`**（`tauri.conf.json`）——

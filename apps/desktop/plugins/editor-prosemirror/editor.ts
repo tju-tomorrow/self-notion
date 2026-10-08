@@ -19,11 +19,13 @@ import type {
   DocsService,
   DocMem,
 } from '../../src/kernel/contract'
+import { filePathOf } from '../../src/kernel/contract'
 import { reportError } from '../../src/kernel/errors'
 import { renderBacklinks, type BacklinksView } from './backlinks'
 import { commentApi, type CommentHooks } from './comment'
 import { newBlockId, notionKeymap } from './commands'
 import { firstTextPos } from './commands/block'
+import { metaOf } from './doc-meta'
 import { docsBacking, type DocPayload, type DocsBacking } from './doc-source'
 import { createFindApi, findPlugin, type FindApi } from './find'
 import { nodeViews } from './nodes'
@@ -38,9 +40,9 @@ import { mentionPlugin } from './plugins/mention'
 import { pastePlugin } from './plugins/paste'
 import { slashPlugin } from './plugins/slash'
 import { tablePlugin } from './plugins/table'
-import { sanitizePlugin } from './sanitize'
+import { sanitizePlugin, stripBad } from './sanitize'
 import { schema } from './schema'
-import { docToMarkdown } from './serializers/markdown'
+import { docFromRaw, docToMarkdown, docToMarkdownFidelity, type SideEntry } from './serializers/markdown'
 import { docLinks } from './serializers/links'
 
 /** 落库节流窗口，跟外壳那条一致（CONVENTIONS §4）。 */
@@ -54,6 +56,9 @@ export interface EditorHandle {
 export interface EditorWiring {
   /** 落库成功 → 外壳发 `DOC_SAVED`（顶栏据此显示「已保存」）。 */
   saved(docId: string): void
+  /** **标题变过**了 → 外壳发 `DOCS_CHANGED`：库里的名字变了，标签条 / 侧栏 / 面包屑要重取。
+   *  存盘不广播的话，列表永远停在旧名字上（用户 2026-10-08：「不同步了又」）。 */
+  docsChanged(): void
   /** 往评论插件去的两个口子（形状在 `comment.ts`）—— 编辑器这一层不认识 `ctx`。 */
   comment: CommentHooks
   /** 标题输入框的占位（走 i18n）。 */
@@ -78,6 +83,13 @@ export interface Live {
   /** 重读（`reload`）期间落库闸门关上 —— 手里那份是**恢复前**的状态，落一次就把库盖回去。 */
   muted: boolean
   timer: number | undefined
+  /** 外部文件那条路的 side table（每块原文 + 打开时的快照）；库文档是 `null`（D-0142）。 */
+  side: Map<string, SideEntry> | null
+}
+
+/** 文件模式下不建的那几个 UI（页头 / 反链）拿它顶位 —— 形状对就行，什么都不画。 */
+function noopView(): { el: HTMLElement; destroy(): void } {
+  return { el: document.createElement('div'), destroy: (): void => {} }
 }
 
 let backing: DocsBacking | undefined
@@ -130,6 +142,7 @@ function buildPlugins(parts: {
   meta: HTMLElement
   side: HTMLElement | undefined
   docId: string
+  file: boolean
 }): Plugin[] {
   const plugins: Plugin[] = [
     history(),
@@ -146,7 +159,8 @@ function buildPlugins(parts: {
     keymap(notionKeymap),
     inputRulesPlugin(),
     // 工具条那颗「评论」→ 把量好的选区交给评论插件（D-0079）。软依赖，没接上就不建那颗按钮。
-    inlineToolbarPlugin((at) => wiring?.comment.selection(at)),
+    // ★ 文件模式**也不建**：锚点按 docId 写进 `comment` 表，而外部文件不进库（D-0140）。
+    inlineToolbarPlugin(parts.file ? undefined : (at) => wiring?.comment.selection(at)),
     blockHandlePlugin(),
     // 空白处按住拖动 → 划过的块一串选上（跟手柄的 ⇧ 点是同一套块选区）。
     blankDragPlugin(),
@@ -179,7 +193,12 @@ function buildPlugins(parts: {
 
 /** @param side 栏右侧那一列（大纲）。不给就没有大纲 —— 契约 `mount()` 那条口子给不出这一列。 */
 export async function mountEditor(el: HTMLElement, docId: string, side?: HTMLElement): Promise<EditorHandle> {
-  const doc = parseDoc(await need().hydrate(docId))
+  const handle = await need().hydrate(docId)
+  // `raw` 非空 = 外部文件那条路：**自己解析**（顺带建 side table），保存时走保真序列化（D-0142）。
+  const raw = handle.raw
+  const parsed = raw !== undefined ? docFromRaw(raw) : null
+  const file = parsed !== null
+  const doc = parsed ? parsed.doc : parseDoc(handle.content)
 
   dispose(live.get(docId))
   el.replaceChildren()
@@ -188,20 +207,42 @@ export async function mountEditor(el: HTMLElement, docId: string, side?: HTMLEle
   el.dataset.docId = docId
 
   // 页头（封面 + 图标）在标题之上。图标只读（改它走外壳的 ⋯ 菜单），封面归编辑器。
+  // ★ 文件模式整块不出现：封面 / 图标是**文档级**的，markdown 里没有它们，写进去也是丢（D-0140）。
   let view: EditorView | undefined
-  const head = renderPageHead(
-    docId,
-    () => String(doc.attrs.cover ?? ''),
-    (blobId) => view?.dispatch(view.state.tr.setDocAttribute('cover', blobId)),
-  )
-  el.appendChild(head.el)
+  const head: PageHead = file
+    ? noopView()
+    : renderPageHead(
+        docId,
+        () => String(doc.attrs.cover ?? ''),
+        (blobId) => view?.dispatch(view.state.tr.setDocAttribute('cover', blobId)),
+      )
+  if (!file) el.appendChild(head.el)
+
+  /**
+   * ★ 库里有名字、正文里还没有 → **以库为准**（跟 `applyTitle` 同一条规矩，D-0073）。
+   *
+   * 少了这一句就是真事（2026-10-08 实撞）：改名只写库（`doc:rename`），正文顶上那个标题一直空着
+   * 显示占位符；**下一次落库把空标题又写回库**（`store/docs.rs` 的 reindex 照写空串），
+   * 库里的名字就没了 —— 而存盘不发 `DOCS_CHANGED`，界面靠内存还挂着旧名字，
+   * 看着就是「标签叫 Agent题目、正文写着未命名」这种两处不一致。
+   * 原来只有 `DOCS_CHANGED` 那一刻会灌（`applyTitle`），**打开一篇早就改过名的文档时没人灌**。
+   */
+  const libraryTitle = file ? '' : stripBad((metaOf(docId)?.title ?? '').trim())
+  const adoptTitle = String(doc.attrs.title ?? '') ? '' : libraryTitle
 
   // 标题是 doc 的 attr、不进 block 树（架构 §3.3）—— P0 用一个输入框读写它。
   const titleEl = document.createElement('input')
   titleEl.type = 'text'
   titleEl.className = 'sn-pm-title'
   titleEl.placeholder = wiring?.untitled ?? ''
-  titleEl.value = String(doc.attrs.title ?? '')
+  if (file) {
+    // 文件模式标题 = 磁盘上的文件名，**键进去改名 v1 不做**（改名 = 换路径 = 换标签 id）—— 只读、也不回写库。
+    titleEl.readOnly = true
+    titleEl.value = filePathOf(docId)?.split('/').pop() ?? ''
+  } else {
+    // 库里那份也可能是干净的旧值 + 正文里混进来的控制符（老版本写的 / 别处灌的），进框之前先清。
+    titleEl.value = stripBad(String(doc.attrs.title ?? '')) || adoptTitle
+  }
   el.appendChild(titleEl)
 
   // 标题下那行（创建时间 · 字数，图 3）。★ 必须在建 view **之前** append —— ProseMirror 是把自己
@@ -211,7 +252,7 @@ export async function mountEditor(el: HTMLElement, docId: string, side?: HTMLEle
   el.appendChild(metaEl)
 
   view = new EditorView(el, {
-    state: EditorState.create({ doc, plugins: buildPlugins({ body: el, meta: metaEl, side, docId }) }),
+    state: EditorState.create({ doc, plugins: buildPlugins({ body: el, meta: metaEl, side, docId, file }) }),
     nodeViews,
     dispatchTransaction(tr) {
       view!.updateState(view!.state.apply(tr))
@@ -219,9 +260,13 @@ export async function mountEditor(el: HTMLElement, docId: string, side?: HTMLEle
     },
   })
 
+  // 采用的那一份得真的进 doc：落库送的是 `doc.attrs.title`，只改输入框的话下一次落库还是空串。
+  if (adoptTitle) view.dispatch(view.state.tr.setDocAttribute('title', adoptTitle))
+
   // 正文之后：反向链接（谁提到了这一篇）。**现算**的，不进 doc。
-  const backlinks = renderBacklinks(docId)
-  el.appendChild(backlinks.el)
+  // ★ 文件模式不取（`link:backlinks` 是按库里的 docId 算的，外部文件不进图谱，D-0140）。
+  const backlinks = file ? noopView() : renderBacklinks(docId)
+  if (!file) el.appendChild(backlinks.el)
 
   const rec: Live = {
     id: docId,
@@ -233,12 +278,31 @@ export async function mountEditor(el: HTMLElement, docId: string, side?: HTMLEle
     dirty: false,
     muted: false,
     timer: undefined,
+    side: parsed ? parsed.side : null,
   }
   live.set(docId, rec)
 
-  titleEl.addEventListener('input', () => {
-    view.dispatch(view.state.tr.setDocAttribute('title', titleEl.value))
-  })
+  // 文件模式不回写标题（只读，见上）—— 库文档才双向同步。
+  if (!file) {
+    /**
+     * 标题是 `input`、不归 PM 管：`sanitize.ts` 只清得掉**模型**那一份，清不掉这个框里的字
+     * —— 缺字方框就留在框里（正文不显示，是因为 PM 拿清过的模型重绘了它）。
+     * 所以这儿也清一遍、**并写回框里**：显示的、落库的、光标前的那三份得同时是清过的那份。
+     */
+    const syncTitle = (midComposition: boolean): void => {
+      const raw = titleEl.value
+      const clean = stripBad(raw)
+      // 输入法合成中不改框里的值 —— 改写 `value` 会打断输入法，等合完那一下再清。
+      if (clean !== raw && !midComposition) {
+        const caret = stripBad(raw.slice(0, titleEl.selectionStart ?? raw.length)).length
+        titleEl.value = clean
+        titleEl.setSelectionRange(caret, caret)
+      }
+      view.dispatch(view.state.tr.setDocAttribute('title', clean))
+    }
+    titleEl.addEventListener('input', (e) => syncTitle((e as InputEvent).isComposing))
+    titleEl.addEventListener('compositionend', () => syncTitle(false))
+  }
 
   // 标题里按 ⏎ → 落到正文第一行（Notion 的规矩）。★ 标题是个 `input`、不归 PM 管，
   //   PM 收不到它的 keydown —— 不自己接这一下就什么都不发生。
@@ -265,6 +329,7 @@ function dispose(rec: Live | undefined): void {
   rec.backlinks.destroy()
   rec.view.destroy()
   rec.titleEl.remove()
+  sentTitle.delete(rec.id)
   rec.meta.remove()
 }
 
@@ -296,9 +361,18 @@ export function liveDocs(): readonly LiveDoc[] {
 export function applyTitle(id: string, title: string): void {
   const rec = live.get(id)
   if (!rec || rec.muted) return
-  if (String(rec.view.state.doc.attrs.title ?? '') === title) return
-  rec.titleEl.value = title
-  rec.view.dispatch(rec.view.state.tr.setDocAttribute('title', title))
+  const mine = String(rec.view.state.doc.attrs.title ?? '')
+  /**
+   * ★ **空的不覆盖非空**：库里空、正文里有 —— 这是「刚打进去还没落库」（落库有 300ms 防抖），
+   *   不是「用户把名字删了」。这会儿照写，用户看到的就是**打完字自己没了**，也就是
+   *   「编辑不了标题」（2026-10-08 实撞）。用户真想清空时两边都是空的，这条不拦。
+   */
+  if (!title && mine) return
+  // 库里那份也过一遍：别处（导入 / 助手 / 手改过的库）灌进来的控制符，不该从这儿回到框里。
+  const clean = stripBad(title)
+  if (mine === clean) return
+  rec.titleEl.value = clean
+  rec.view.dispatch(rec.view.state.tr.setDocAttribute('title', clean))
 }
 
 /** 丢掉某一篇手里的活编辑器（`reload` 前先丢，再照库里那份重建到同一栏）。 */
@@ -317,6 +391,9 @@ export function unmuteDoc(id: string): void {
   if (rec) rec.muted = false
 }
 
+/** 已经落过库的标题。存盘时不比一下，就没法知道"这次是不是改了名字"。 */
+const sentTitle = new Map<string, string>()
+
 function markDirty(docId: string): void {
   const rec = live.get(docId)
   if (!rec || rec.muted) return
@@ -332,10 +409,16 @@ function markDirty(docId: string): void {
 
 function project(rec: Live): DocPayload {
   const doc = rec.view.state.doc
+  const title = String(doc.attrs.title ?? '')
+  if (rec.side) {
+    // 外部文件：写回**整篇保真 markdown**（未被碰过的块写原文），`content` 恒 null（契约 DocHandle 注释）。
+    // 出链不通（D-0140）—— 给空数组，别让它进链接图谱。
+    return { id: rec.id, content: null, title, md: docToMarkdownFidelity(doc, rec.side), links: [] }
+  }
   return {
     id: rec.id,
     content: JSON.stringify(doc.toJSON()),
-    title: String(doc.attrs.title ?? ''),
+    title,
     // 一份投影三处复用（D-0085）：`md` 喂 FTS / 摘要，`links`（出链）喂链接图谱。
     md: docToMarkdown(doc),
     links: docLinks(doc),
@@ -353,7 +436,16 @@ export async function flushDoc(docId: string): Promise<void> {
   if (!rec.dirty || rec.muted) return
   rec.dirty = false
   try {
-    await need().flush(project(rec))
+    const payload = project(rec)
+    await need().flush(payload)
+    // 名字变了要广播 —— 库里的 title 跟着 doc:apply 走了（D-0073），
+    // 但标签条 / 侧栏 / 面包屑读的是 `doc:list` 那份缓存，不重取就永远停在旧名字。
+    if (sentTitle.get(docId) !== payload.title) {
+      const first = !sentTitle.has(docId)
+      sentTitle.set(docId, payload.title)
+      // 第一次落库不算"改名"（那只是这篇刚建出来），别为此多刷一次列表。
+      if (!first) wiring?.docsChanged()
+    }
     wiring?.saved(docId)
   } catch (err) {
     // 落库失败不能吞：内容还在活文档里，留着脏标记下次再试。
