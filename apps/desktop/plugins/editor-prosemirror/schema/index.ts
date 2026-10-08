@@ -388,7 +388,14 @@ const marks: Record<string, MarkSpec> = {
       // style 规则拿到的是**样式值**本身（不是元素）
       { style: 'background-color', getAttrs: (value) => ({ color: String(value) }) },
     ],
-    toDOM: (mark) => ['mark', { 'data-color': mark.attrs.color }, 0],
+    // `data-color` 留着（插件内复制粘贴靠它回读）；`--sn-hl` 是给 CSS 读的 ——
+    // 选择器读不了属性**值**，颜色只能从自定义属性递进去（`editor.css.ts` 那条）。
+    toDOM: (mark) => {
+      const color = String(mark.attrs.color ?? '')
+      return color
+        ? ['mark', { 'data-color': color, style: `--sn-hl:${color}` }, 0]
+        : ['mark', { 'data-color': '' }, 0]
+    },
   },
   textColor: {
     attrs: { color: { default: '' } },

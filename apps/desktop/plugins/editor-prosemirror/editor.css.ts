@@ -165,6 +165,29 @@ globalStyle(':is(.sn-pm-title, .sn-block)', { paddingLeft: 12, paddingRight: 12 
 // blockContainer 的 toDOM —— 每个块自己一条纵向留白。
 globalStyle('.sn-block', { paddingTop: 2, paddingBottom: 2 })
 
+/**
+ * 高亮（`schema` 的 `highlight` mark，DOM 就是 `<mark>`）。
+ *
+ * ★ 这条以前**一条样式都没有** —— `data-color`（工具条那 8 个颜色）没人读，
+ *   于是每个高亮都掉到浏览器默认的 `<mark>`：**纯黄 + 黑字**。深色主题下就是一块荧光板，
+ *   而且这是**默认样式**里的黄，不跟主题走。用户 2026-10-09：「展示就是一个颜色的优化」。
+ *
+ * ★ 颜色走 `--sn-hl`（`toDOM` 写成内联自定义属性）：CSS 读不了属性值（`attr()` 只认 `content`），
+ *   而 `data-color` 还得留着 —— 插件内复制粘贴靠它回读（`parseDOM` 的 `mark` 那条）。
+ *   压成半透明是**故意的**：那 8 个色是浅色主题的粉彩色，深色主题下整块铺上去字就没法看了；
+ *   半透明一层在明暗两边都读得出来（Notion 深色下也是这么处理的）。
+ */
+globalStyle('.sn-block mark', {
+  background: 'color-mix(in srgb, var(--sn-hl, transparent) 45%, transparent)',
+  color: 'inherit',
+})
+
+// 真上过高亮才要圆角与内边距 —— 空色（工具条那格「无」/ 粘贴来的裸 `<mark>`）就等于没上。
+globalStyle('.sn-block mark[data-color]:not([data-color=""])', {
+  borderRadius: 3,
+  padding: '0 2px',
+})
+
 /* ── 标题下那行：创建时间 · 字数（`page-meta.ts`） ── */
 
 // 版心跟标题同宽同内边距 —— 差一点，这行就跟标题的左缘对不齐（跟上面 `:is(.sn-pm-title, .sn-block)`
