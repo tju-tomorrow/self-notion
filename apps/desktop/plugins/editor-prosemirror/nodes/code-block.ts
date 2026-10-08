@@ -12,7 +12,6 @@
 import type { Node as PMNode } from 'prosemirror-model'
 import type { NodeViewConstructor } from 'prosemirror-view'
 
-import { reportError } from '../../../src/kernel/errors'
 import { asString } from './attrs'
 import { onSchemeChange, renderSvg } from './mermaid'
 
@@ -122,9 +121,9 @@ export const codeBlockView: NodeViewConstructor = (node, view, getPos) => {
       figure.dataset.state = 'ready'
       figure.innerHTML = svg
     } catch (err) {
-      // 语法错只烂这张图，编辑器照常用（契约 D7）。错走唯一出口。
+      // 语法错只烂这张图，就地写进图里，编辑器照常用（契约 D7）。
+      // ★ 不进 `errors.log`、不弹右上角红条：打到一半的 `fla` 是常态，不是事故（用户 2026-10-09）。
       if (mine !== token) return
-      reportError('editor-prosemirror', err)
       figure.dataset.state = 'error'
       figure.textContent = String((err as Error).message ?? err)
     }

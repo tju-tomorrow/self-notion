@@ -7,8 +7,6 @@
  *      的竞态，调用方一个 token 就掐死了（见 `code-block.ts` 的 `draw`）。
  *   3. 明暗读 `<html data-theme>`：那个属性是 `src/theme/tokens.ts` 写的，跟着它就有两档配色。
  */
-import { reportError } from '../../../src/kernel/errors'
-
 type Mermaid = typeof import('mermaid')['default']
 
 let scheme: 'light' | 'dark' = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'
@@ -35,7 +33,13 @@ function load(): Promise<Mermaid> {
 
 let seq = 0
 
-/** 渲染一段 mermaid 源码。语法错就 reject（调用方决定怎么显示），顺带把 mermaid 留下的临时节点收干净。 */
+/**
+ * 渲染一段 mermaid 源码。语法错就 reject（调用方决定怎么显示），顺带把 mermaid 留下的临时节点收干净。
+ *
+ * ★ 语法错**在这里不报全局**：打字打到一半（`fla`）本来就不是图，是常态、不是异常 ——
+ *   往 `errors.log` 和右上角红条上送，等于把正在写的那半句话变成一场事故。
+ *   调用方在那张图的位置就地显示（`code-block.ts` 的 `figure`），错照旧 reject 出去（用户 2026-10-09）。
+ */
 export async function renderSvg(text: string): Promise<string> {
   const mermaid = await load()
   // theme 每次重设：`initialize` 是全局的，切了明暗不重设就还是上一档的配色。
@@ -51,10 +55,8 @@ export async function renderSvg(text: string): Promise<string> {
   try {
     const { svg } = await mermaid.render(id, text)
     return svg
-  } catch (err) {
-    // mermaid 渲染失败会往 body 里留一个同 id 的探针节点，不清会越攒越多。
+  } finally {
+    // mermaid 渲染失败会往 body 里留一个同 id 的探针节点，不清会越攒越多（成功那条路它是自己收的）。
     document.getElementById(id)?.remove()
-    reportError('editor-prosemirror', err)
-    throw err
   }
 }
