@@ -10,7 +10,7 @@ import { dropCursor } from 'prosemirror-dropcursor'
 import { history, redo, undo } from 'prosemirror-history'
 import { keymap } from 'prosemirror-keymap'
 import type { Node as PMNode } from 'prosemirror-model'
-import { EditorState, type Plugin } from 'prosemirror-state'
+import { EditorState, Selection, type Plugin } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 
 import type {
@@ -23,11 +23,15 @@ import { reportError } from '../../src/kernel/errors'
 import { renderBacklinks, type BacklinksView } from './backlinks'
 import { commentApi, type CommentHooks } from './comment'
 import { newBlockId, notionKeymap } from './commands'
+import { firstTextPos } from './commands/block'
 import { docsBacking, type DocPayload, type DocsBacking } from './doc-source'
 import { createFindApi, findPlugin, type FindApi } from './find'
 import { nodeViews } from './nodes'
+import { outlinePlugin } from './outline'
 import { renderPageHead, type PageHead } from './page-head'
+import { metaPlugin } from './page-meta'
 import { blockHandlePlugin } from './plugins/block-handle'
+import { blankDragPlugin } from './plugins/block-selection'
 import { inlineToolbarPlugin } from './plugins/inline-toolbar'
 import { inputRulesPlugin } from './plugins/input-rules'
 import { mentionPlugin } from './plugins/mention'
@@ -54,6 +58,12 @@ export interface EditorWiring {
   comment: CommentHooks
   /** 标题输入框的占位（走 i18n）。 */
   untitled: string
+  /** 右侧大纲：按钮的 title、空态那句。 */
+  outline: string
+  outlineEmpty: string
+  /** 标题下那行：`创建于 {time}` · `{count} 字`。 */
+  createdAt: string
+  words: string
 }
 
 export interface Live {
@@ -62,6 +72,8 @@ export interface Live {
   readonly titleEl: HTMLInputElement
   readonly head: PageHead
   readonly backlinks: BacklinksView
+  /** 标题下那行（创建时间 · 字数）—— 它不是 NodeView，得自己摘。 */
+  readonly meta: HTMLElement
   dirty: boolean
   /** 重读（`reload`）期间落库闸门关上 —— 手里那份是**恢复前**的状态，落一次就把库盖回去。 */
   muted: boolean
@@ -113,8 +125,13 @@ function parseDoc(raw: string | null): PMNode {
   return schema.nodeFromJSON(emptyDocJson())
 }
 
-function buildPlugins(): Plugin[] {
-  return [
+function buildPlugins(parts: {
+  body: HTMLElement
+  meta: HTMLElement
+  side: HTMLElement | undefined
+  docId: string
+}): Plugin[] {
+  const plugins: Plugin[] = [
     history(),
     keymap({ 'Mod-z': undo, 'Mod-y': redo, 'Shift-Mod-z': redo }),
     // ★ 顺序是规矩：`slash` 和 `notionKeymap` 都排在 `baseKeymap` **之前** —— PM 的 handleKeyDown
@@ -131,18 +148,37 @@ function buildPlugins(): Plugin[] {
     // 工具条那颗「评论」→ 把量好的选区交给评论插件（D-0079）。软依赖，没接上就不建那颗按钮。
     inlineToolbarPlugin((at) => wiring?.comment.selection(at)),
     blockHandlePlugin(),
+    // 空白处按住拖动 → 划过的块一串选上（跟手柄的 ⇧ 点是同一套块选区）。
+    blankDragPlugin(),
     // 粘贴：只接管「剪贴板里有文件」（图片 / 附件），纯文本 / HTML / 块一律交回 PM。
     pastePlugin(),
     // 拖拽的落点线。不装就没那条线（拖拽本身照样能用）。
     dropCursor({ color: 'var(--sn-accent, #1e96eb)', width: 2 }),
     findPlugin, // 查找命中的高亮（decoration）
+    // 标题下那行（创建时间 · 字数）。现算的投影，跟着 doc 变。
+    metaPlugin(parts.meta, parts.docId, {
+      createdAt: wiring?.createdAt ?? '{time}',
+      words: wiring?.words ?? '{count}',
+    }),
     // 控制符清洗：那种字符不是任何人写的，是从 DOM 那侧进来的 —— 只守结果（见 sanitize.ts）。
     sanitizePlugin(),
     keymap(baseKeymap),
   ]
+  // 右侧大纲那一列。★ 只有走栏位（`view.ts`）挂载时才有这一列；契约里那条 `mount()` 没有。
+  if (parts.side) {
+    plugins.push(
+      outlinePlugin(parts.side, parts.body, {
+        label: wiring?.outline ?? '大纲',
+        empty: wiring?.outlineEmpty ?? '',
+        untitled: wiring?.untitled ?? '',
+      }),
+    )
+  }
+  return plugins
 }
 
-export async function mountEditor(el: HTMLElement, docId: string): Promise<EditorHandle> {
+/** @param side 栏右侧那一列（大纲）。不给就没有大纲 —— 契约 `mount()` 那条口子给不出这一列。 */
+export async function mountEditor(el: HTMLElement, docId: string, side?: HTMLElement): Promise<EditorHandle> {
   const doc = parseDoc(await need().hydrate(docId))
 
   dispose(live.get(docId))
@@ -168,8 +204,14 @@ export async function mountEditor(el: HTMLElement, docId: string): Promise<Edito
   titleEl.value = String(doc.attrs.title ?? '')
   el.appendChild(titleEl)
 
+  // 标题下那行（创建时间 · 字数，图 3）。★ 必须在建 view **之前** append —— ProseMirror 是把自己
+  // 的 DOM 追加到 `el` 末尾的，晚一步这行就跑到正文下面去了。
+  const metaEl = document.createElement('div')
+  metaEl.className = 'sn-page-meta'
+  el.appendChild(metaEl)
+
   view = new EditorView(el, {
-    state: EditorState.create({ doc, plugins: buildPlugins() }),
+    state: EditorState.create({ doc, plugins: buildPlugins({ body: el, meta: metaEl, side, docId }) }),
     nodeViews,
     dispatchTransaction(tr) {
       view!.updateState(view!.state.apply(tr))
@@ -181,11 +223,33 @@ export async function mountEditor(el: HTMLElement, docId: string): Promise<Edito
   const backlinks = renderBacklinks(docId)
   el.appendChild(backlinks.el)
 
-  const rec: Live = { id: docId, view, titleEl, head, backlinks, dirty: false, muted: false, timer: undefined }
+  const rec: Live = {
+    id: docId,
+    view,
+    titleEl,
+    head,
+    backlinks,
+    meta: metaEl,
+    dirty: false,
+    muted: false,
+    timer: undefined,
+  }
   live.set(docId, rec)
 
   titleEl.addEventListener('input', () => {
     view.dispatch(view.state.tr.setDocAttribute('title', titleEl.value))
+  })
+
+  // 标题里按 ⏎ → 落到正文第一行（Notion 的规矩）。★ 标题是个 `input`、不归 PM 管，
+  //   PM 收不到它的 keydown —— 不自己接这一下就什么都不发生。
+  titleEl.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return
+    e.preventDefault()
+    const doc = view.state.doc
+    // 整篇第一个能落光标的文字位置；一个都没有（满篇分割线那种）就落在第一块前面。
+    const at = firstTextPos(doc, 0, doc.content.size) ?? 1
+    view.dispatch(view.state.tr.setSelection(Selection.near(doc.resolve(at), 1)).scrollIntoView())
+    view.focus()
   })
 
   return {
@@ -201,6 +265,7 @@ function dispose(rec: Live | undefined): void {
   rec.backlinks.destroy()
   rec.view.destroy()
   rec.titleEl.remove()
+  rec.meta.remove()
 }
 
 /** 判据（`diagnose.ts`）要看的那几样 —— 只暴露这些，`titleEl` / 定时器那些不外传。 */

@@ -6,7 +6,7 @@
  *                     写死一个值反而换主题时不跟着走。
  *   --sn-paper-alpha  0..100 的百分比，编辑器那边算成透明度。
  *
- * ★ 消费者只有一个：`editor-blocksuite/editor.css.ts` 里 `affine-editor-host` 那条。
+ * ★ 消费者只有一个：`editor-prosemirror/editor.css.ts` 里 `.sn-pane-body` 那条背景。
  */
 import type { Context } from 'cordis'
 import type { ThemeController } from '../../src/theme/tokens'

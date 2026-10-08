@@ -14,6 +14,8 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'main.empty': '还没有打开任何文档',
     'editor.openFailed': '打不开这篇文档',
     'doc.saved': '已保存',
+    // 顶栏那句「✓ 已保存于 14:32」（`shell-doc-header` 的保存指示）
+    'doc.savedAt': '已保存于 {time}',
     'theme.light': '浅色',
     'theme.dark': '深色',
     'common.cancel': '取消',
@@ -270,6 +272,11 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'doc.splitOff': '取消并排',
     'editor.paneEmpty': '点侧栏里的一篇，放到这一栏',
     'editor.paneClose': '关掉这一栏',
+    // 右侧大纲 + 标题下那行元信息
+    'editor.outline': '大纲',
+    'editor.outlineEmpty': '这篇还没有标题',
+    'editor.createdAt': '创建于 {time}',
+    'editor.words': '{count} 字',
     // 页面级的两个开关（D-0076），照 Notion ⋯ 菜单那两行
     'doc.smallText': '小字号',
     'doc.wide': '全宽',
@@ -491,6 +498,7 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'main.empty': 'No document open',
     'editor.openFailed': 'Could not open this document',
     'doc.saved': 'Saved',
+    'doc.savedAt': 'Saved at {time}',
     'theme.light': 'Light',
     'theme.dark': 'Dark',
     'common.cancel': 'Cancel',
@@ -727,6 +735,11 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'doc.splitOff': 'Exit split view',
     'editor.paneEmpty': 'Pick a page from the sidebar for this pane',
     'editor.paneClose': 'Close this pane',
+    // Outline panel + the metadata line under the title
+    'editor.outline': 'Outline',
+    'editor.outlineEmpty': 'No headings yet',
+    'editor.createdAt': 'Created {time}',
+    'editor.words': '{count} words',
     // Page-level toggles (D-0076)
     'doc.smallText': 'Small text',
     'doc.wide': 'Full width',

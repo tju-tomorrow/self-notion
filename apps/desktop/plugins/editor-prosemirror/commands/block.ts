@@ -36,6 +36,23 @@ export function prevSibling($pos: ResolvedPos, block: BlockRef): { node: PMNode;
   return { node: group.child(idx - 1), pos }
 }
 
+/**
+ * `[from, to)` 里**第一个能落光标的文字位置**（绝对 doc 位置）。
+ * 表格的第一格能落，分割线 / 图片那种 leaf 块不能 → 那些位置返回 null。
+ */
+export function firstTextPos(doc: PMNode, from: number, to: number): number | null {
+  let at: number | null = null
+  doc.nodesBetween(from, to, (node, pos) => {
+    if (at !== null) return false
+    if (node.isTextblock) {
+      at = pos + 1
+      return false
+    }
+    return true
+  })
+  return at
+}
+
 /** 块的子块（blockGroup 里的 blockContainer）。没有 children → 空数组。 */
 export function groupChildren(container: PMNode): PMNode[] {
   if (container.childCount < 2) return []

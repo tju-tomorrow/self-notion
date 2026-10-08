@@ -59,13 +59,19 @@ export const sep = style({ color: 'var(--affine-v2-text-tertiary)', fontSize: 12
 
 export const actions = style({ display: 'flex', alignItems: 'center', gap: 4 })
 
-/** 顶栏那句「已保存」—— 比说明文字还淡一档，不抢注意。 */
+/** 顶栏那句「已保存于 14:32」—— 比说明文字还淡一档，不抢注意。 */
 export const saved = style({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 4,
   marginRight: 6,
   fontSize: 12,
   color: 'var(--affine-v2-text-tertiary)',
   userSelect: 'none',
 })
+
+/** 那个勾单独上色 —— 整句绿会太吵，勾绿一下就够（照用户给的图）。 */
+export const savedCheck = style({ display: 'flex', color: '#2da44e' })
 
 export const iconButton = style({
   width: 28,

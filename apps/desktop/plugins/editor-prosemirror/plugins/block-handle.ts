@@ -21,6 +21,8 @@ import './block-handle.css'
 
 /** 左边给手柄留的那条槽，跟 `block-handle.css.ts` 里那个数必须一样。 */
 const GUTTER = 40
+/** 手柄自己那一格的高度 —— 同样跟 `block-handle.css.ts` 的 `height: 22` 绑在一起。 */
+const HANDLE_H = 22
 /** 每层缩进量 —— 跟 `editor.css.ts` 那条嵌套规则（`paddingLeft: 64` = 40 + 24）是**同一个数**，一起改。 */
 const INDENT = 24
 
@@ -94,20 +96,40 @@ class BlockHandle {
     this.dragBtn.addEventListener('dragend', this.onDragEnd)
     document.addEventListener('mousemove', this.onMouseMove, true)
     document.addEventListener('scroll', this.hide, true)
+    window.addEventListener('resize', this.onResize)
     // 挂在 document 的冒泡段：`dropCursor` 的监听在 `view.dom`，冒泡到这里时它已经画完了 ——
     // 我们要在它之后把线让开 / 摆正。挂 view.dom 上会反着来。
     document.addEventListener('dragover', this.onDragOver)
   }
 
-  /** 块被删掉之后手柄得自己消失（PM 不会通知我们）。 */
+  /**
+   * 每次状态变（打字 / 删块 / 改结构）都要过这里：
+   *  - 块没了 → 手柄自己消失（PM 不会通知我们）；
+   *  - 块还在 → **重新摆一次**。★ 打字会把块撑高 / 把那块 DOM 整个换掉（`# ` 一行变标题、
+   *    换行、插图），不重算手柄就飘在半空（用户：「写了以后位置有出入」）。
+   */
   update(view: EditorView): void {
     if (this.dom.hidden || !this.hover) return
-    if (!findBlock(view.state.doc, this.hover.id)) this.hide()
+    if (!findBlock(view.state.doc, this.hover.id)) return this.hide()
+    if (!this.hover.el.isConnected) {
+      // PM 换了元素，手里那个失联了 —— 按 id 找回来。
+      const el = this.elFor(this.hover.id)
+      if (!el) return this.hide()
+      this.hover = { id: this.hover.id, el }
+    }
+    this.place()
+  }
+
+  /** 按 id 找那块 DOM（块元素被 PM 换掉之后，`hover.el` 就不是它了）。 */
+  private elFor(id: string): HTMLElement | null {
+    const el = this.view.dom.querySelector(`.sn-block[data-id="${id}"]`)
+    return el instanceof HTMLElement ? el : null
   }
 
   destroy(): void {
     document.removeEventListener('mousemove', this.onMouseMove, true)
     document.removeEventListener('scroll', this.hide, true)
+    window.removeEventListener('resize', this.onResize)
     document.removeEventListener('dragover', this.onDragOver)
     this.clearGhost()
     this.hideLine()
@@ -145,8 +167,15 @@ class BlockHandle {
     // 手柄站在**版心左侧的留白**里（`left = 块左缘 - GUTTER`）—— 不占正文的宽度，
     // 正文的文字和标题一样从版心左缘开始。窗口极窄时它会被 4px 兜住、贴到窗口左边（还能用）。
     this.dom.style.left = `${Math.max(4, rect.left - GUTTER + 1)}px`
-    this.dom.style.top = `${Math.max(host.top + 1, rect.top + 1)}px`
+    // ★ 竖着对齐块里**第一行**文字的中线（Notion 就是这样）：普通段落行高 24，落点跟原来「块顶 +1」一样；
+    //   标题行高大得多，按块顶对齐手柄就飘到字的上面去了。
+    const line = parseFloat(getComputedStyle(hover.el).lineHeight)
+    const first = Number.isFinite(line) && line > 0 ? Math.min(line, rect.height) : Math.min(24, rect.height)
+    this.dom.style.top = `${Math.max(host.top + 1, rect.top + first / 2 - HANDLE_H / 2)}px`
   }
+
+  /** 窗口尺寸一变，块的左缘 / 高度跟着变 —— 重新摆（只在手柄正亮着的时候有用）。 */
+  private onResize = (): void => this.place()
 
   private hide = (): void => {
     this.hover = null

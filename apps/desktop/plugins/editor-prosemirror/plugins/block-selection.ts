@@ -9,7 +9,7 @@
  */
 import { Fragment, Slice } from 'prosemirror-model'
 import type { Node as PMNode, ResolvedPos } from 'prosemirror-model'
-import { NodeSelection, Selection } from 'prosemirror-state'
+import { NodeSelection, Plugin, Selection } from 'prosemirror-state'
 import type { EditorState } from 'prosemirror-state'
 import type { Mappable } from 'prosemirror-transform'
 import type { EditorView } from 'prosemirror-view'
@@ -111,6 +111,103 @@ export function selectBlockRange(view: EditorView, fromBlockId: string, toBlockI
   }
 
   view.dispatch(view.state.tr.setSelection(BlockSelection.create(doc, from, to)).scrollIntoView())
+}
+
+/**
+ * 按住多久才算「长按」→ 起手拖选。
+ *
+ * ★ 判据是**时间**不是位移（用户：「按道理应该长按拖拽……在我这里很容易触发」）：点一下的时候
+ *   手抖几个像素太常见了，拿位移当判据等于「点哪儿都能划出一串块」，还会顺手弹出评论浮条。
+ *   250 是手感值：短于它 = 那只是一次点击。
+ */
+const HOLD_MS = 250
+
+/** 指针纵坐标底下**最近**的那一块的 id。留白里横向没有意义，只按纵向距离取。 */
+function blockIdAt(host: HTMLElement, y: number): string | null {
+  let best: { id: string; d: number } | null = null
+  for (const el of host.querySelectorAll<HTMLElement>('.sn-block')) {
+    const id = el.getAttribute('data-id') ?? ''
+    if (id === '') continue
+    const r = el.getBoundingClientRect()
+    const d = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0
+    if (best === null || d < best.d) best = { id, d }
+  }
+  return best?.id ?? null
+}
+
+/**
+ * 从**空白处长按**再拖 → 划过的块一串选上（Notion 那个体验，用户 2026-10-08）。
+ * 短于 `HOLD_MS` 的一按一松什么都不做 —— 不然「点一下空白」就会划出一串块。
+ *
+ * ★ 监听挂在**栏正文那一层**（`.sn-pane-body`）而不是 `view.dom`：版心是居中窄栏，
+ *   它左边那条留白**根本不在 `.ProseMirror` 里** —— 挂 view.dom 上，用户圈的那块地方收不到事件。
+ * ★ 判据只有一条：落点**不在** `.sn-block` 里。块内（哪怕文字右边那片空）仍旧交回 PM 落光标，
+ *   那是 PM 的地盘，不抢。
+ */
+export function blankDragPlugin(): Plugin {
+  return new Plugin({
+    view(view) {
+      const host = view.dom.parentElement
+      if (host === null) return {}
+      /** 按下去时指到的那一块 —— 还没算数，长按够了才拿它当锚。 */
+      let armed: string | null = null
+      let hold = 0
+      let anchorId: string | null = null
+      let lastId: string | null = null
+
+      /** 长按够了 → 起手：先把这一块选上（看得见「起手了」，之后挪到哪扩到哪）。 */
+      const begin = (): void => {
+        hold = 0
+        if (armed === null || anchorId !== null) return
+        anchorId = armed
+        lastId = armed
+        selectBlockRange(view, armed)
+        view.focus()
+      }
+
+      const onMove = (e: MouseEvent): void => {
+        // 还没长按够时挪动**不算数** —— 那只是「点了一下，手抖了」。
+        if (anchorId === null) return
+        const id = blockIdAt(host, e.clientY)
+        if (id === null || id === lastId) return
+        lastId = id
+        selectBlockRange(view, anchorId, id)
+      }
+
+      const onUp = (): void => {
+        if (hold !== 0) clearTimeout(hold)
+        hold = 0
+        armed = null
+        anchorId = null
+        lastId = null
+        window.removeEventListener('mousemove', onMove)
+        window.removeEventListener('mouseup', onUp)
+      }
+
+      const onDown = (e: MouseEvent): void => {
+        if (e.button !== 0) return
+        const target = e.target
+        if (!(target instanceof Element)) return
+        if (target.closest('.sn-block') !== null) return
+        const id = blockIdAt(host, e.clientY)
+        if (id === null) return
+        // 压住浏览器那套原生拖选（不压的话拖到一半会连字带块一起花掉）。
+        e.preventDefault()
+        armed = id
+        hold = window.setTimeout(begin, HOLD_MS)
+        window.addEventListener('mousemove', onMove)
+        window.addEventListener('mouseup', onUp)
+      }
+
+      host.addEventListener('mousedown', onDown)
+      return {
+        destroy: () => {
+          host.removeEventListener('mousedown', onDown)
+          onUp()
+        },
+      }
+    },
+  })
 }
 
 /** 当前选中的块 id（顺序即文档顺序）。单块的 `NodeSelection` 也算 —— 两条路都当「选中了这一块」。 */

@@ -61,6 +61,10 @@ export function apply(ctx: Context) {
         saved: (docId) => ctx.emit(DOC_SAVED, { id: docId }),
         // 编辑器那层不认识 i18n，占位文案装载时写进去。
         untitled: ctx.i18n.t('doc.untitled'),
+        outline: ctx.i18n.t('editor.outline'),
+        outlineEmpty: ctx.i18n.t('editor.outlineEmpty'),
+        createdAt: ctx.i18n.t('editor.createdAt'),
+        words: ctx.i18n.t('editor.words'),
         // 评论插件那一侧（软依赖：它不在，高亮就点不动、按钮也没反应 —— 跟别处一个规矩）。
         comment: {
           open: (id) => ctx.get('comment')?.open(id),

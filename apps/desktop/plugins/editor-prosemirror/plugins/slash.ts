@@ -19,6 +19,7 @@ import { Decoration, DecorationSet } from 'prosemirror-view'
 import type { EditorView } from 'prosemirror-view'
 
 import { reportError } from '../../../src/kernel/errors'
+import { firstTextPos } from '../commands/block'
 import { allDocs, createDoc } from '../doc-meta'
 import { newSrc } from '../sync'
 import { emptyTableRows } from './table'
@@ -451,20 +452,6 @@ function firstContentPos(doc: PMNode, containerId: string): number | null {
   doc.descendants((node, pos) => {
     if (at !== null) return false
     if (node.type.name === 'blockContainer' && node.attrs.id === containerId) {
-      at = pos + 1
-      return false
-    }
-    return true
-  })
-  return at
-}
-
-/** 块里第一个能落光标的文字位置（绝对 doc 位置）——表格的第一格能，分割线不能（返回 null）。 */
-function firstTextPos(doc: PMNode, from: number, to: number): number | null {
-  let at: number | null = null
-  doc.nodesBetween(from, to, (node, pos) => {
-    if (at !== null) return false
-    if (node.isTextblock) {
       at = pos + 1
       return false
     }

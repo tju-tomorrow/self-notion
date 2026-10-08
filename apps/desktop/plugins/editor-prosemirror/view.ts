@@ -164,6 +164,8 @@ class PaneView {
   private readonly head: HTMLDivElement
   private readonly label: HTMLSpanElement
   private readonly body: HTMLDivElement
+  /** 栏右侧那一列 —— 大纲挂这儿。它在滚动区之外，所以那颗按钮不跟正文一起滚走。 */
+  private readonly side: HTMLDivElement
   private handle: EditorHandle | undefined
   /** 现在真的挂着哪一篇。空栏 / 还没挂完都是 null。 */
   private shown: string | null = null
@@ -193,7 +195,13 @@ class PaneView {
     this.head.append(this.label, close)
     this.body = document.createElement('div')
     this.body.className = 'sn-pane-body'
-    this.el.append(this.head, this.body)
+    this.side = document.createElement('div')
+    this.side.className = 'sn-pane-side'
+    // 正文与右侧那一列并排。★ 那一列**不在滚动区里** —— 大纲那颗按钮要常驻右上角。
+    const main = document.createElement('div')
+    main.className = 'sn-pane-main'
+    main.append(this.body, this.side)
+    this.el.append(this.head, main)
     // 点哪一栏哪一栏就是「当前」。
     this.el.addEventListener('pointerdown', () => this.host.onPanePointerDown(this.index))
   }
@@ -244,7 +252,7 @@ class PaneView {
     if (reload) editor.dropDoc(want)
 
     try {
-      const handle = await editor.mountEditor(this.body, want)
+      const handle = await editor.mountEditor(this.body, want, this.side)
       if (mine !== this.seq) {
         handle.unmount()
         return
@@ -267,6 +275,10 @@ class PaneView {
     this.handle = undefined
     this.shown = null
     this.body.replaceChildren()
+    // 大纲那一列由编辑器自己的插件摘（`view.destroy()` 会调它的 destroy），这里只兜一手 ——
+    // 顺带把「开着没过」也收掉：换一篇不该顶着一列空的 240px。
+    this.side.replaceChildren()
+    delete this.side.dataset.on
   }
 
   /** 这一栏走人（关栏 / 拔插件）—— 走的路上把最后一点改动落库。 */

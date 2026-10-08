@@ -10,6 +10,12 @@ import { globalStyle } from '@vanilla-extract/css'
  *  值照 Notion 的观感（内容约占窗口宽的 6 成，两边留白明显）。 */
 const PAGE_WIDTH = 700
 
+/**
+ * 版心宽度。★ 窗口（或分栏后的单栏）窄的时候**别等于整栏宽** —— 那样正文会顶到边上，
+ * 看起来「没有居中」。留出两侧各 24，窄屏也还是居中的样子（用户：「小界面的时候也尽量中吧」）。
+ */
+const COLUMN = `min(${PAGE_WIDTH}px, calc(100% - 48px))`
+
 /* ── 分栏（view.ts 的 class 名） ── */
 
 globalStyle('.sn-pane', {
@@ -58,13 +64,48 @@ globalStyle('.sn-pane-close', {
   lineHeight: 1,
 })
 
+// 正文与右侧那一列并排（`view.ts` 的骨架）。
+globalStyle('.sn-pane-main', {
+  display: 'flex',
+  flex: '1 1 auto',
+  minHeight: 0,
+  minWidth: 0,
+})
+
 // 编辑器（或「这一栏还空着」那句话）挂在这儿。
 // 顶部留白要给够：Notion 的标题离顶栏很深，贴着顶栏就显不出「一页」的样子。
 globalStyle('.sn-pane-body', {
   flex: '1 1 auto',
+  minWidth: 0,
   minHeight: 0,
   overflow: 'auto',
   padding: '60px 0 24px',
+})
+
+// ── 正文纸面：底色 + 磨砂（D-0074） ──
+// `--sn-paper` / `--sn-paper-alpha` 由 `appearance` 插件写在 `<html>` 上（`paper.ts`），这里只管**消费**。
+// ★ 换基座时漏了这一条 —— 设置页那两行（纸面颜色 / 磨砂）就成了拧不动的旋钮（2026-10-08 用户报的）。
+// ★ 暗色那档兜底跟外壳给 `main` 的同一个值（#1c1c1c，D-0056）；选择器带 `html` 是为了压过上面 `:root` 那条。
+globalStyle(':root', {
+  vars: { '--sn-paper-default': 'var(--affine-v2-layer-background-primary)' },
+})
+
+globalStyle('html[data-theme="dark"]', { vars: { '--sn-paper-default': '#1c1c1c' } })
+
+globalStyle('.sn-pane-body', {
+  // 两条都取不到（插件被停 / 没改过设置）就是主题自己那一档、完全不透。
+  background:
+    'color-mix(in srgb, var(--sn-paper, var(--sn-paper-default)) calc(var(--sn-paper-alpha, 100) * 1%), transparent)',
+})
+
+// 大纲那一列。★ 收起时宽度是 **0**、只剩右上角那颗按钮浮着（`outline.css.ts` 给的定位）——
+//   「常驻」和「不占地方」不冲突就靠这一条。
+globalStyle('.sn-pane-side', { position: 'relative', flex: '0 0 auto', width: 0 })
+
+globalStyle('.sn-pane-side[data-on="1"]', {
+  width: 240,
+  overflowY: 'auto',
+  borderLeft: '1px solid var(--sn-line, rgba(0, 0, 0, .08))',
 })
 
 globalStyle('.sn-pane-empty', {
@@ -102,8 +143,9 @@ globalStyle('.sn-pm-title', {
   display: 'block',
   boxSizing: 'border-box',
   width: '100%',
-  maxWidth: PAGE_WIDTH,
-  margin: '0 auto 16px',
+  maxWidth: COLUMN,
+  // 下面紧跟着那行元信息（创建时间 · 字数），所以这里的下边距收窄。
+  margin: '0 auto 6px',
   paddingTop: 0,
   paddingBottom: 0,
   border: 'none',
@@ -123,6 +165,42 @@ globalStyle(':is(.sn-pm-title, .sn-block)', { paddingLeft: 12, paddingRight: 12 
 // blockContainer 的 toDOM —— 每个块自己一条纵向留白。
 globalStyle('.sn-block', { paddingTop: 2, paddingBottom: 2 })
 
+/* ── 标题下那行：创建时间 · 字数（`page-meta.ts`） ── */
+
+// 版心跟标题同宽同内边距 —— 差一点，这行就跟标题的左缘对不齐（跟上面 `:is(.sn-pm-title, .sn-block)`
+// 是同一个道理：能写字的地方和标题必须从同一个左缘开始）。
+globalStyle('.sn-page-meta', {
+  position: 'relative',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  boxSizing: 'border-box',
+  maxWidth: COLUMN,
+  margin: '0 auto 26px',
+  padding: '0 12px',
+  fontSize: 12,
+  color: 'var(--sn-muted, #8a8a8a)',
+})
+
+// 元信息下面那条分隔线。★ 用 `::after` 不再建一个元素：它天生跟这一行同宽同版心，
+//   也少一个要记着摘的节点。
+globalStyle('.sn-page-meta::after', {
+  content: "''",
+  position: 'absolute',
+  left: 0,
+  right: 0,
+  bottom: -14,
+  height: 1,
+  background: 'var(--sn-line, rgba(0, 0, 0, .1))',
+})
+
+// 取不到创建时间（`doc:list` 还没回来）就整块收掉，不留一个空日历。
+globalStyle('.sn-page-meta [data-on="0"]', { display: 'none' })
+
+globalStyle(':is(.sn-meta-time, .sn-meta-words)', { display: 'flex', alignItems: 'center', gap: 4 })
+
+globalStyle('.sn-meta-sep', { opacity: 0.5 })
+
 // ★ 浏览器给 `p` / `h1-h3` / `blockquote` / `pre` 都带默认 margin（`h1` 是 1em ≈ 32px）——
 //   不清掉，块与块之间就凭空多出一大截。这是「两个块距离太大」的根因。
 globalStyle('.ProseMirror :is(p, h1, h2, h3, blockquote, pre, ul, ol)', { margin: 0 })
@@ -131,7 +209,7 @@ globalStyle('.ProseMirror :is(p, h1, h2, h3, blockquote, pre, ul, ol)', { margin
 // 字号 / 行高按 Notion 那套（正文 16 / 行高 1.5，标题 40）—— 不设的话正文会用浏览器的 16px 默认值，
 // 跟 40px 的标题一比就散架了。
 globalStyle('.ProseMirror', {
-  maxWidth: PAGE_WIDTH,
+  maxWidth: COLUMN,
   margin: '0 auto',
   fontSize: 16,
   lineHeight: 1.5,
@@ -146,7 +224,7 @@ globalStyle('.sn-block > .sn-group', { paddingLeft: 24 })
 
 /* ── 页头（封面 + 图标） ── */
 
-globalStyle('.sn-page-head', { maxWidth: PAGE_WIDTH, margin: '0 auto' })
+globalStyle('.sn-page-head', { maxWidth: COLUMN, margin: '0 auto' })
 
 globalStyle('.sn-cover', { position: 'relative', height: 180 })
 // 没封面时整块收掉 —— 不占地方，hover 才出「添加封面」。
@@ -180,7 +258,7 @@ globalStyle('.sn-page-icon[data-on="0"]', { display: 'none' })
 
 /* ── 反向链接（正文之后，现算） ── */
 
-globalStyle('.sn-backlinks', { maxWidth: PAGE_WIDTH, margin: '32px auto 0', padding: '0 12px' })
+globalStyle('.sn-backlinks', { maxWidth: COLUMN, margin: '32px auto 0', padding: '0 12px' })
 // 没人提到这一篇 → 整块收掉（别在每篇空文档底下挂一句「暂无」）。
 globalStyle('.sn-backlinks[data-on="0"]', { display: 'none' })
 

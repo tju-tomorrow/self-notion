@@ -30,6 +30,7 @@ import {
   DOCS_CHANGED,
   DOC_SAVED,
   OPEN_DOC,
+  SHOW_LIST,
   SPLIT_VIEW,
   type DocMeta,
   type DocSummary,
@@ -194,9 +195,22 @@ export function DocHeader({ ctx }: { ctx: Context }) {
   return (
     <header className={s.bar}>
       <nav className={s.crumbs}>
+        {/* 路径的第一段：文档树最上面是「全部文档」这一页。它**不是** DocMeta（没有 id，点了是
+            `SHOW_LIST` 不是 `OPEN_DOC`），所以不塞进 `trail`，单独画一段 —— 跟侧栏点导航行同一条路。 */}
+        <button
+          type="button"
+          className={s.crumb}
+          onClick={() => ctx.emit(SHOW_LIST, { group: 'all' })}
+        >
+          <span className={s.crumbIcon}>
+            <AllDocsIcon width={14} height={14} />
+          </span>
+          <span className={s.crumbLabel}>{ctx.i18n.t('sidebar.group.tree')}</span>
+        </button>
+        <span className={s.sep}>{'>'}</span>
         {trail.map((doc, i) => (
           <Fragment key={doc.id}>
-            {i > 0 && <span className={s.sep}>/</span>}
+            {i > 0 && <span className={s.sep}>{'>'}</span>}
             <button
               type="button"
               className={i === trail.length - 1 ? `${s.crumb} ${s.crumbOn}` : s.crumb}
@@ -218,7 +232,14 @@ export function DocHeader({ ctx }: { ctx: Context }) {
         {/* 动作区里最靠左的一格：别的东西（总结那颗按钮，D-0075）挂进来就落在这儿。
             空着时里面一个节点都没有，不占地方。 */}
         <SlotHost ctx={ctx} name="doc.header.actions" />
-        {savedAt !== null ? <span className={s.saved}>{ctx.i18n.t('doc.saved')}</span> : null}
+        {savedAt !== null ? (
+          <span className={s.saved}>
+            <span className={s.savedCheck}>
+              <DoneIcon width={14} height={14} />
+            </span>
+            {ctx.i18n.t('doc.savedAt', { time: clock(savedAt) })}
+          </span>
+        ) : null}
         <Hint text={ctx.i18n.t(here?.isFavorite ? 'doc.unfavorite' : 'doc.favorite')}>
           <button
             type="button"
@@ -265,6 +286,13 @@ export function DocHeader({ ctx }: { ctx: Context }) {
       </div>
     </header>
   )
+}
+
+/** `14:32` —— 「已保存于 …」里的那个时刻（就一个时刻，不值得引时间库）。 */
+function clock(ms: number): string {
+  const d = new Date(ms)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
 /** 面包屑：从当前篇往上走到根，再倒过来。防环 —— 父级数据坏了也不会转死。 */
