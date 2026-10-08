@@ -113,7 +113,10 @@ pub fn run() {
 ///
 /// `label` = 调 `boot:ready` 的那个窗口（多开出来的窗口也得自己露出来，不能只认 `main`）。
 pub fn reveal(app: &tauri::AppHandle, label: Option<&str>) -> Result<(), String> {
-    let w = app.get_webview_window(label.unwrap_or("main")).ok_or("窗口不见了")?;
+    let want = label.unwrap_or("main");
+    // ★ 报错要带上是**哪个** label 没找到 —— 日志里那句干巴巴的「窗口不见了」查不出是哪条路
+    //   （`errors.log` 里它已经攒了几十条，全是同一个谜）。
+    let w = app.get_webview_window(want).ok_or(format!("窗口不见了：{want}"))?;
     w.show().map_err(|e| e.to_string())?;
     let _ = w.set_focus();
     Ok(())

@@ -122,7 +122,6 @@ export function WebAiPanel({ ctx }: { ctx: Context }) {
     /** 上一次摆到哪儿了。 */
     let last: Box | null = null
     let raf = 0
-    let timer = 0
     /** 最近一次「挪了」的时刻 —— 刚挪过才逐帧跟（见下）。 */
     let movedAt = 0
 
@@ -188,9 +187,9 @@ export function WebAiPanel({ ctx }: { ctx: Context }) {
      *   （用户截图那次：网页版 AI 压在「内置助手」上面）。窗口 resize 那条同样不够 ——
      *   它只覆盖窗口变大变小，覆盖不了内部布局改宽度。
      *
-     * ★ **不为「盯着」而常驻**：这个面板是常驻的（D-0074），一个逐帧的循环会一直占着主线程 ——
-     *   静止时一个 rAF 都不占，谁报信才起一段逐帧跟。三条报信的路：
-     *   自己的尺寸（`ResizeObserver`）、窗口尺寸、以及 250ms 兜底（只防没人报信的位移）。
+     * ★ **不逐帧常驻**：这个面板是常驻的（D-0074），逐帧的循环会一直占着主线程 ——
+     *   静止时只剩一条 250ms 的心跳（`beat`：量一次矩形，没变就一个 IPC 都不发），
+     *   谁报信（`ResizeObserver` / 窗口尺寸）才起一段逐帧追。
      */
     const look = (): void => {
       const box = measure()
@@ -200,34 +199,35 @@ export function WebAiPanel({ ctx }: { ctx: Context }) {
       void push(box)
     }
 
-    /** 逐帧跟一段，静止 500ms 就收工。 */
+    /** 逐帧追一段，静止就停 —— 心跳那条一直兜着。 */
     const chase = (): void => {
       raf = 0
       if (dead) return
       watch.frame(16)
       look()
       if (performance.now() - movedAt < 500) raf = requestAnimationFrame(chase)
-      else timer = window.setTimeout(poll, 250)
     }
 
-    /** 静止时的兜底节奏。 */
-    const poll = (): void => {
-      timer = 0
+    /** 有人报信（尺寸 / 窗口变了）→ 起一段逐帧追。rAF 不响也不打紧，心跳还在。 */
+    const kick = (): void => {
+      if (dead || raf !== 0) return
+      raf = requestAnimationFrame(chase)
+    }
+
+    /**
+     * ★ **心跳**：一个永不自停的 250ms 定时器；rAF 只当「刚挪过」时的加速。
+     *
+     * 原来两条路是**串**起来的（逐帧追完才转定时器）：页面一旦被 WebKit 判成不可见 / 被遮住，
+     * rAF 直接不响，那一串就断在这儿 —— 定时器从来没被排上，**子 webview 从此再没人摆**，
+     * 钉在上一处不走。日志里那一串「主线程迟到 750ms、摆位 0 次」就是它：定时器被节流到
+     * 1Hz（不是主线程真被占住），而用户看到的就是「打开 webai 以后 webview 卡在那里」。
+     */
+    const beat = window.setInterval(() => {
       if (dead) return
       watch.frame(250)
       look()
-      if (performance.now() - movedAt < 500) raf = requestAnimationFrame(chase)
-      else timer = window.setTimeout(poll, 250)
-    }
-
-    const kick = (): void => {
-      if (dead || raf !== 0) return
-      if (timer !== 0) {
-        clearTimeout(timer)
-        timer = 0
-      }
-      raf = requestAnimationFrame(chase)
-    }
+      if (performance.now() - movedAt < 500) kick()
+    }, 250)
 
     const ro = new ResizeObserver(kick)
     ro.observe(el)
@@ -257,14 +257,21 @@ export function WebAiPanel({ ctx }: { ctx: Context }) {
     return () => {
       dead = true
       if (raf !== 0) cancelAnimationFrame(raf)
-      if (timer !== 0) clearTimeout(timer)
+      clearInterval(beat)
       ro.disconnect()
       window.removeEventListener('resize', kick)
       // 面板没了就把子 webview 收起来（**只是 hide，不销毁** —— 登录和当前对话都留着）。
       // 关面板那条路自己会调，这里是兜底：哪条路径漏了 hide，原生 view 就会留在屏幕上没人管。
       const now = getWebAiState()
       if (!now.open || now.docId === null) {
-        void ctx.rpc.call('aiweb:hide').catch((e) => reportError('webai', e))
+        // ★ 必须接在摆位链**末尾**：飞在半路的那一发 `show` 会比 hide 晚落地，落地就把刚收起来的
+        //   原生 view 又摆回来了 —— 而且从那一刻起再没人收它。两个都收：聊天 hide、
+        //   朗读挪回窗口外（挪回去不掐声音）。
+        chain = chain.then(async () => {
+          await ctx.rpc.call('aiweb:hide')
+          await ctx.rpc.call('aiweb:voice-hide')
+        })
+        void chain.catch((e) => reportError('webai', e))
       }
     }
   }, [ctx, st.open, st.docId, st.site, st.mode])

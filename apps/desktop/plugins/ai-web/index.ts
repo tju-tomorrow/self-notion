@@ -16,6 +16,7 @@ import { createElement } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import type { Context } from 'cordis'
 import { CLOSE_ALL, OPEN_DOC, SHOW_LIST, type OpenDocEvent } from '../../src/kernel/contract'
+import { reportError } from '../../src/kernel/errors'
 import { ask, enterDoc, fallbackToClipboard, leaveDoc, sentText } from './actions'
 import { setWebAiState } from './state'
 import { deliverVoice } from './voice'
@@ -43,6 +44,13 @@ function parse(payload: string): InjectResult | null {
 }
 
 export function apply(ctx: Context) {
+  // ★ 开机先收一次：页面**重载**（dev 的 HMR、将来崩溃恢复）会丢掉面板的状态 ——
+  //   `open` 回到 false、组件不再渲染，可原生子 webview 归 Rust 管、**不会跟着没**：
+  //   它就留在屏幕上没人收（用户：「打开 webai 以后 webview 那个依旧卡在那里」）。
+  //   开机这一刻面板一定是关着的，所以收干净是**无条件正确**的。
+  void ctx.rpc.call('aiweb:hide').catch((e) => reportError('aiweb', e))
+  void ctx.rpc.call('aiweb:voice-hide').catch((e) => reportError('aiweb', e))
+
   ctx.on(OPEN_DOC, ({ id }: OpenDocEvent) => enterDoc(id))
   ctx.on(CLOSE_ALL, () => leaveDoc(ctx))
   ctx.on(SHOW_LIST, () => leaveDoc(ctx))
