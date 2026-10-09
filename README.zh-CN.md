@@ -15,6 +15,8 @@
 > 架构主线参考 **DeepSeek Harness（DSH）的「一切皆插件」**，内核直接用它的内核 Cordis。见第四节。
 > 定位与取舍见下文第二节，架构总览见第四节。
 
+<img src="images/main-page.jpg" width="880" alt="主窗口：左边文档树与文档列表，顶上是标签条">
+
 ---
 
 ## 一、有哪些功能
@@ -40,6 +42,8 @@
 - **网页版 AI 侧栏**：把 chat.deepseek.com / chatgpt.com 装进右侧一列（原生子 webview，登录常驻），选中正文一键填进它的输入框
 - **MCP**：`self-notion --mcp` 独立进程只读直连库，外部 agent 能 grep 你的笔记
 
+<img src="images/how-to-use.jpg" width="880" alt="打开一篇文档，左右两列 AI：左边网页版 AI，右边内置助手">
+
 **评论 / 版本**
 - 评论：页面 / 块 / 行内三种锚点，回复、解决、删除
 - 版本历史：顶栏时间线面板；打点在 AI 写入前 / 文档关闭 / 每 10 分钟
@@ -48,6 +52,8 @@
 - **图片粘贴零等待**：字节直写 SQLite，按 sha256 去重，本地零额外目录
 - **GitHub 单向推 Markdown 备份**（默认关，能在网页上读、能 diff）
 - **Notion 导入**：HTML 导出 zip → 每篇成文档，文件夹层级 → 父子层级，图片进库
+
+<img src="images/github-backup.jpg" width="880" alt="设置 → GitHub 备份：开关、仓库、分支、访问令牌、上次备份时间">
 
 **外观 / 外壳**
 - 无边框 + 毛玻璃窗口、深浅色、**正文纸面**（底色 + 磨砂）、三级字体（全局 / 文章 / 代码）
@@ -120,6 +126,8 @@ meta          键值（含全部 UI 状态）
 - **AI 不能决定自己不可撤销** —— 「写之前先快照」这个顺序由 **Rust 强制**，不交给模型自觉
 - **撤销的单位是「回合」不是「文档」** —— 一次回答改了 3 篇 = 同一个 `group_id`，一次全撤
 - **只用快照，不用 `Y.UndoManager`** —— 后者的栈在内存里，关掉文档就没了
+
+<img src="images/ai-config.jpg" width="880" alt="设置 → AI：endpoint、model，以及一个只告诉你「已经存过」的 API key 输入框">
 
 三种写动作只有 `create` / `append` / `replace`（按块 id）。**不做整篇覆盖**（丢块元数据），**不能删除**。
 
@@ -293,6 +301,7 @@ pnpm logs                   # 尾随 errors.log
 ```
 self-notion/
 ├── app.png                 产品图标（1254² 源图，`pnpm tauri icon app.png` 铺全套）
+├── images/                 README 里用的截图
 ├── apps/desktop/
 │   ├── plugins/            ★ 目录即插件，一个目录一个功能
 │   ├── src/kernel/         契约 contract.ts + Cordis 装载器 + 槽位 + 错误出口

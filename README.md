@@ -17,6 +17,8 @@ them (plugins, AI, the retrieval surface for agents) is grown here.
 > The architecture follows **DeepSeek Harness (DSH)'s "everything is a plugin"**, and uses DSH's
 > own kernel, Cordis. See section 4.
 
+<img src="images/main-page.jpg" width="880" alt="Main window: doc tree and library on the left, tab strip on top">
+
 ---
 
 ## 1. What it does
@@ -49,6 +51,8 @@ them (plugins, AI, the retrieval surface for agents) is grown here.
 - **MCP**: `self-notion --mcp` is a separate read-only process wired straight to the DB, so external
   agents can grep your notes
 
+<img src="images/how-to-use.jpg" width="880" alt="A document open with two AI columns: web AI on the left, the built-in assistant on the right">
+
 **Comments / versions**
 - Comments: page / block / inline anchors, replies, resolve, delete
 - Version history: timeline panel in the header; checkpoints before AI writes, on doc close, every 10 min
@@ -57,6 +61,8 @@ them (plugins, AI, the retrieval surface for agents) is grown here.
 - **Zero-wait image paste**: bytes go straight into SQLite, deduped by sha256, no extra local directory
 - **One-way Markdown backup to GitHub** (off by default; readable and diffable on the web)
 - **Notion import**: HTML export zip → one doc per page, folder hierarchy → parent/child, images into the blob store
+
+<img src="images/github-backup.jpg" width="880" alt="Settings → GitHub backup: enable, repository, branch, access token, last backup">
 
 **Look & shell**
 - Frameless window with vibrancy, light/dark, **paper texture** for the body, three-level fonts
@@ -135,6 +141,8 @@ It's exposed as **MCP tools** (`self-notion --mcp`, a separate read-only process
 - **The AI doesn't get to decide it's irreversible** — "snapshot before write" is enforced by **Rust**, not left to the model's discretion
 - **The unit of undo is the turn, not the document** — one answer that touched 3 docs shares a `group_id` and reverts together
 - **Snapshots only, no `Y.UndoManager`** — the latter's stack lives in memory and dies with the document
+
+<img src="images/ai-config.jpg" width="880" alt="Settings → AI: endpoint, model, and an API key field that only shows whether one is saved">
 
 Writes come in three shapes: `create` / `append` / `replace` (by block id). **No whole-document
 overwrite** (it would drop block metadata), and **no delete**.
@@ -327,6 +335,7 @@ top-right corner, so you never need DevTools:
 ```
 self-notion/
 ├── app.png                 product icon (1254² source; `pnpm tauri icon app.png` generates the set)
+├── images/                 screenshots used by the READMEs
 ├── apps/desktop/
 │   ├── plugins/            ★ a directory is a plugin, one feature per directory
 │   ├── src/kernel/         contract.ts + Cordis loader + slots + the single error sink
