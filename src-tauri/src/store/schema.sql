@@ -6,6 +6,7 @@
 -- 依据：D-0020（Rust 直连 SQLite 存正文）· D-0023（FTS5）· D-0027（blob 进库）
 --       · D-0026（备份推 Markdown）· D-0040（doc_text 投影）· D-0043（doc_version）
 --       · D-0131（正文 = PM doc JSON，砍掉 Yjs）
+--       · D-0181…D-0189（知识库：策展人 / 图谱 / 语义层，见 docs/kb.md）
 
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -129,3 +130,109 @@ CREATE TABLE IF NOT EXISTS comment (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS comment_doc ON comment(doc_id, created_at);
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ── 知识库（D-0181…D-0189）：策展人 + 图谱 + 语义层 ─────────────────────────
+--
+-- ★ 检索层不动 —— 虚拟目录 / grep / doc_fts 一个字都不改。下面这些表只给它
+--   **多几个目录**和**多几条工具**（D-0188）。语义层同理：按 D-0040 的立场只做
+--   「一个目录 + 一个工具」，不是新地基（D-0184）。
+-- ★ 加新表**不占 SCHEMA_VERSION**（store/mod.rs 的规矩）。但要进 `reset()` 的 DROP 清单。
+-- ══════════════════════════════════════════════════════════════════════════
+
+-- 受控词表。自动打标签不收敛到词表必然标签爆炸（机器学习 / ML / machine-learning 三份）。
+CREATE TABLE IF NOT EXISTS tag (
+  name       TEXT PRIMARY KEY,
+  aliases    TEXT NOT NULL DEFAULT '[]',      -- JSON 数组
+  desc       TEXT NOT NULL DEFAULT '',
+  origin     TEXT NOT NULL,                   -- 'user' | 'llm'
+  created_at INTEGER NOT NULL
+);
+
+-- AI 分的类。name 是**全路径**（`技术/数据库/SQLite`），层级隐式在路径里，不另存 parent。
+-- ★ 只喂 `/by-topic/` 投影，**不碰 documents.parent_id**（D-0183）。
+CREATE TABLE IF NOT EXISTS topic (
+  name TEXT PRIMARY KEY,
+  desc TEXT NOT NULL DEFAULT '',
+  at   INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS doc_topic (
+  doc_id TEXT NOT NULL,
+  topic  TEXT NOT NULL,
+  weight REAL NOT NULL DEFAULT 1,
+  at     INTEGER NOT NULL,
+  PRIMARY KEY (doc_id, topic)
+);
+CREATE INDEX IF NOT EXISTS doc_topic_topic ON doc_topic(topic);
+
+-- 策展人的幂等闸：hash = 正文 md 的 sha256。没变就不重跑（D-0181 的拉模式调度靠它）。
+CREATE TABLE IF NOT EXISTS curator_run (
+  doc_id TEXT PRIMARY KEY,
+  hash   TEXT NOT NULL,
+  status TEXT NOT NULL,                       -- 'ok' | 'error'
+  note   TEXT NOT NULL DEFAULT '',            -- 出错原因 / 上次产出几条
+  at     INTEGER NOT NULL
+);
+
+-- 建议收件箱。★ 高置信的直接落库、**不进来**（D-0185：判据是规则，不是 LLM 自报的 confidence）。
+CREATE TABLE IF NOT EXISTS proposal (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  doc_id     TEXT NOT NULL,
+  kind       TEXT NOT NULL,                   -- 'tag'|'topic'|'link'|'entity'|'merge'
+  payload    TEXT NOT NULL,                   -- JSON，形状随 kind
+  confidence REAL NOT NULL DEFAULT 0,
+  reason     TEXT NOT NULL DEFAULT '',
+  origin     TEXT NOT NULL,                   -- 'llm' | 'rule'
+  state      TEXT NOT NULL DEFAULT 'pending', -- 'pending' | 'accepted' | 'rejected'
+  at         INTEGER NOT NULL,
+  done_at    INTEGER
+);
+CREATE INDEX IF NOT EXISTS proposal_state ON proposal(state, at DESC);
+CREATE INDEX IF NOT EXISTS proposal_doc ON proposal(doc_id, state);
+
+-- 实体（归一后）。填 D-0075 续 留的口子 —— 那边写着「实体只存不索引」。
+CREATE TABLE IF NOT EXISTS entity (
+  id   TEXT PRIMARY KEY,                      -- sha256(规范化名) 前 32 hex
+  name TEXT NOT NULL,                         -- 显示名：第一次见到的那个写法
+  kind TEXT NOT NULL DEFAULT '',              -- 'person'|'org'|'place'|'work'|'event'|'concept'|''
+  desc TEXT NOT NULL DEFAULT '',
+  at   INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS entity_mention (
+  entity_id TEXT NOT NULL,
+  doc_id    TEXT NOT NULL,
+  at        INTEGER NOT NULL,
+  PRIMARY KEY (entity_id, doc_id)
+);
+CREATE INDEX IF NOT EXISTS entity_mention_doc ON entity_mention(doc_id);
+
+-- 派生边。★ **只装派生的**（related / co_occur）—— 用户画的边在 doc_link 里，
+--    不复制过来，免得两份真相。查图时 union 两张表（D-0186）。
+CREATE TABLE IF NOT EXISTS graph_edge (
+  src_kind TEXT NOT NULL,                     -- 'doc'|'entity'|'topic'|'tag'
+  src_id   TEXT NOT NULL,
+  dst_kind TEXT NOT NULL,
+  dst_id   TEXT NOT NULL,
+  kind     TEXT NOT NULL,                     -- 'related' | 'co_occur'
+  weight   REAL NOT NULL DEFAULT 1,
+  reason   TEXT NOT NULL DEFAULT '',
+  origin   TEXT NOT NULL,                     -- 'llm' | 'computed'
+  at       INTEGER NOT NULL,
+  PRIMARY KEY (src_kind, src_id, dst_kind, dst_id, kind)
+);
+CREATE INDEX IF NOT EXISTS graph_edge_src ON graph_edge(src_kind, src_id, kind);
+CREATE INDEX IF NOT EXISTS graph_edge_dst ON graph_edge(dst_kind, dst_id, kind);
+
+-- 向量。只对 doc_summary 那一两句 + 标签/主题名做 —— 几千条暴力算余弦是毫秒级，
+-- 不上向量库（D-0184）。model / dim 不匹配 = 用户换了 embedding 模型 → 全量重算。
+CREATE TABLE IF NOT EXISTS vec (
+  owner_kind TEXT NOT NULL,                   -- 'doc'|'tag'|'topic'|'entity'
+  owner_id   TEXT NOT NULL,
+  model      TEXT NOT NULL,
+  dim        INTEGER NOT NULL,
+  vec        BLOB NOT NULL,                   -- f32 小端拼接
+  hash       TEXT NOT NULL,                   -- 被向量化那段文字的 sha256
+  at         INTEGER NOT NULL,
+  PRIMARY KEY (owner_kind, owner_id)
+);

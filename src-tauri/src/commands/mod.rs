@@ -81,7 +81,7 @@ pub fn api(
     //   `Window` 的 CommandArg 从不失败（`Ok(command.message.webview().window())`），
     //   label 取到的还是同一个窗口。
     window: tauri::Window,
-    db: tauri::State<'_, Db>,
+    db: tauri::State<'_, std::sync::Arc<Db>>,
     req: Request,
 ) -> ApiResult<Value> {
     // `window`：命令得知道是**哪个窗口**在调（露窗 / 新窗口 / 事件回执都按 label 走）。
@@ -381,23 +381,24 @@ pub fn dispatch(
         }),
 
         // ── 虚拟文档目录（D-0040）───────────────────────────────────────────────
-        // 纯读、纯本地，跟 doc:* 一样走 `call`（拿库锁）。
-        "vfs:list" => call(db, |c| {
+        // ★ 这四条**不走 `call`**：`vfs::*` 自己管库锁（语义那路要在锁外发 HTTP），
+        //   外面再套一层 `db.with` 就是拿两次锁 —— 当场死锁。直接调、自己序列化。
+        "vfs:list" => {
             let a: vfs::ListArgs = parse(args)?;
-            vfs::list(c, &a.path)
-        }),
-        "vfs:grep" => call(db, |c| {
+            to_value(vfs::list(db, &a.path)?)
+        }
+        "vfs:grep" => {
             let a: vfs::GrepArgs = parse(args)?;
-            vfs::grep(c, &a.pattern, a.ignore_case)
-        }),
-        "vfs:read" => call(db, |c| {
+            to_value(vfs::grep(db, &a.pattern, a.ignore_case)?)
+        }
+        "vfs:read" => {
             let a: vfs::ReadArgs = parse(args)?;
-            vfs::read(c, &a.path, a.offset, a.limit)
-        }),
-        "vfs:stat" => call(db, |c| {
+            to_value(vfs::read(db, &a.path, a.offset, a.limit)?)
+        }
+        "vfs:stat" => {
             let a: vfs::StatArgs = parse(args)?;
-            vfs::stat(c, &a.path)
-        }),
+            to_value(vfs::stat(db, &a.path)?)
+        }
 
         // ── 外部 Markdown 文件（D-0137，全文见 docs/external-md.md）─────────────
         // 双击一个 .md → 直接编辑那个文件，文件是唯一真相源，正文不落库。
@@ -438,6 +439,195 @@ pub fn dispatch(
         "backup:repos" => crate::backup::repos(db, args),
         "backup:createRepo" => crate::backup::create_repo(db, args),
 
+        // ── 知识库（D-0181…D-0189，设计见 docs/kb.md）────────────────────────────
+        // 纯读 / 纯本地的那批走 `call`（拿库锁）。
+        "kb:status" => call(db, |c| {
+            let curator_on = store::settings_get(c, "kb.curator")?.as_deref() != Some("false");
+            let embed_model = store::settings_get(c, "kb.embedModel")?.unwrap_or_default();
+            Ok(serde_json::json!({
+                "curatorOn": curator_on,
+                "semanticOn": !embed_model.trim().is_empty(),
+                "embedModel": embed_model,
+                "docs": docs::list(c, false)?.len(),
+                "tags": store::kb::tag_list(c)?.len(),
+                "topics": store::kb::topic_list(c)?.len(),
+                "entities": store::kb::entity_list(c, KB_COUNT_CAP)?.len(),
+                "pending": store::kb::proposal_list(c, Some("pending"), KB_COUNT_CAP)?.len(),
+                "stale": store::kb::run_stale(c, KB_COUNT_CAP)?.len(),
+            }))
+        }),
+        "kb:proposals" => call(db, |c| {
+            let a: KbProposals = parse(args)?;
+            let limit = a.limit.unwrap_or(50).clamp(1, 500) as usize;
+            // 默认 pending —— 跟 `kb_proposals` 工具一致；要看已处理的得显式传 state。
+            let state = a.state.unwrap_or_else(|| "pending".to_string());
+            let mut out = Vec::new();
+            for p in store::kb::proposal_list(c, Some(&state), limit)? {
+                out.push(serde_json::json!({
+                    "id": p.id,
+                    "docId": p.doc_id,
+                    "docTitle": doc_title(c, &p.doc_id),
+                    "kind": p.kind,
+                    "payload": p.payload,
+                    "confidence": p.confidence,
+                    "reason": p.reason,
+                    "origin": p.origin,
+                    "state": p.state,
+                    "at": p.at,
+                    "doneAt": p.done_at,
+                }));
+            }
+            Ok(out)
+        }),
+        "kb:proposal" => {
+            let a: KbProposalSet = parse(args)?;
+            if a.accept {
+                // 采纳 = 真落库（见 `curator::accept`）—— 以前只改状态，库里什么都不变。
+                crate::kb::curator::accept(db, a.id)?;
+                // 实体/边变了，共现边跟着重算（收 &Connection，得在 with 里）。
+                db.with(|c| crate::kb::graph::recompute_cooccur(c, COOCCUR_MIN_SHARED))?;
+            } else {
+                crate::kb::curator::reject(db, a.id)?;
+            }
+            Ok(serde_json::json!({ "ok": true }))
+        }
+        "kb:tags" => call(db, |c| {
+            let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+            for d in docs::list(c, false)? {
+                for t in d.tags {
+                    *counts.entry(t).or_insert(0) += 1;
+                }
+            }
+            let mut out = Vec::new();
+            for t in store::kb::tag_list(c)? {
+                let count = counts.get(&t.name).copied().unwrap_or(0);
+                out.push(serde_json::json!({
+                    "name": t.name,
+                    "aliases": t.aliases,
+                    "desc": t.desc,
+                    "origin": t.origin,
+                    "count": count,
+                }));
+            }
+            Ok(out)
+        }),
+        "kb:tag:merge" => call(db, |c| {
+            let a: KbTagMerge = parse(args)?;
+            store::kb::tag_merge(c, &a.from, &a.into)?;
+            Ok(serde_json::json!({ "ok": true }))
+        }),
+        "kb:topics" => call(db, |c| {
+            let mut out = Vec::new();
+            for t in store::kb::topic_list(c)? {
+                let count = store::kb::docs_by_topic(c, &t.name)?.len();
+                out.push(serde_json::json!({ "name": t.name, "desc": t.desc, "count": count }));
+            }
+            Ok(out)
+        }),
+        "kb:entities" => call(db, |c| {
+            let mut out = Vec::new();
+            for e in store::kb::entity_list(c, KB_COUNT_CAP)? {
+                out.push(serde_json::json!({
+                    "id": e.id,
+                    "name": e.name,
+                    "kind": e.kind,
+                    "desc": e.desc,
+                    "at": e.at,
+                    "docs": Vec::<String>::new(),
+                }));
+            }
+            Ok(out)
+        }),
+        "kb:entity" => call(db, |c| {
+            let a: KbEntityGet = parse(args)?;
+            match crate::kb::graph::entity_detail(c, &a.name)? {
+                Some(d) => Ok(serde_json::json!({
+                    "id": d.entity.id,
+                    "name": d.entity.name,
+                    "kind": d.entity.kind,
+                    "desc": d.entity.desc,
+                    "at": d.entity.at,
+                    "docs": d.docs,
+                })),
+                None => Ok(Value::Null),
+            }
+        }),
+        "kb:graph" => call(db, |c| {
+            let a: KbGraphArgs = parse(args)?;
+            let depth = a.depth.unwrap_or(1).clamp(1, 3);
+            let limit = a.limit.unwrap_or(60).clamp(1, 500) as usize;
+            let seeds = vec![("doc".to_string(), a.seed)];
+            crate::kb::graph::subgraph(c, &seeds, depth, limit)
+        }),
+        "kb:tools" => call(db, |_c| Ok(crate::kb::tools::catalog_writable())),
+
+        // ★ 这四条**故意不走 `call`**：都可能在网络那头停几秒（策展一轮是几次模型往返、
+        //   语义那一路要先 embed 一次），攥着库锁会把整个应用卡住 —— 照 `ai:summarize` 的先例。
+        "kb:curate" => {
+            let a: KbCurate = parse(args)?;
+            // `Outcome` 自己分开了「直接落库」和「进收件箱」两个计数 —— 不用再去查表取差。
+            let out = match a.doc_id.as_deref() {
+                Some(id) => crate::kb::curator::run_one(db, id)?,
+                None => crate::kb::curator::run_all(db, CURATE_ROUND)?,
+            };
+            // 后处理：实体变了重算共现边 → 新总结向量化 → 提标签合并建议。
+            // 三步各自拿锁 / 发网络（**别串在同一个 with 里，Mutex 不可重入**），
+            // 且全部 best-effort —— 出错只记日志，不能让整条命令失败。
+            if let Err(e) = db.with(|c| crate::kb::graph::recompute_cooccur(c, COOCCUR_MIN_SHARED)) {
+                crate::log::record("kb", &format!("共现边重算跳过：{}", e.message));
+            }
+            // 没配 embedding 时 refresh 会 Err —— 吞掉（那本来就不是错误）。
+            if let Err(e) = crate::kb::embed::refresh(db, "doc", 0) {
+                crate::log::record("kb", &format!("向量刷新跳过：{}", e.message));
+            }
+            if let Err(e) = crate::kb::curator::suggest_merges(db, crate::kb::curator::MERGE_THRESHOLD) {
+                crate::log::record("kb", &format!("合并建议跳过：{}", e.message));
+            }
+            to_value(out)
+        }
+        "kb:related" => {
+            let a: KbRelatedArgs = parse(args)?;
+            let limit = a.limit.unwrap_or(15).clamp(1, 500) as usize;
+            let edges = crate::kb::graph::related(db, &a.id, limit)?;
+            let out = db.with(|c| {
+                let mut out = Vec::with_capacity(edges.len());
+                for e in &edges {
+                    // `related` 出来的边都是 doc→doc，另一端就是要显示的那一篇。
+                    let other = if e.src_id == a.id { e.dst_id.clone() } else { e.src_id.clone() };
+                    out.push(serde_json::json!({
+                        "id": other,
+                        "title": doc_title(c, &other),
+                        "kind": e.kind,
+                        "weight": e.weight,
+                        "reason": e.reason,
+                    }));
+                }
+                Ok(out)
+            })?;
+            Ok(serde_json::json!(out))
+        }
+        "kb:semantic" => {
+            let a: KbSemanticArgs = parse(args)?;
+            let limit = a.limit.unwrap_or(10).clamp(1, 500) as usize;
+            let hits = crate::kb::embed::search(db, &a.query, limit)?;
+            let out = db.with(|c| {
+                let mut out = Vec::with_capacity(hits.len());
+                for h in &hits {
+                    out.push(serde_json::json!({
+                        "docId": h.owner_id,
+                        "title": doc_title(c, &h.owner_id),
+                        "score": h.score,
+                    }));
+                }
+                Ok(out)
+            })?;
+            Ok(serde_json::json!(out))
+        }
+        "kb:call" => {
+            let a: KbCallArgs = parse(args)?;
+            crate::kb::tools::call(db, &a.name, &a.args).map(Value::String)
+        }
+
         other => Err(ApiError::new("unknown_method", other)),
     }
 }
@@ -455,6 +645,11 @@ fn parse<T: serde::de::DeserializeOwned>(args: Value) -> ApiResult<T> {
     serde_json::from_value(args).map_err(|e| ApiError::new("bad_args", e.to_string()))
 }
 
+/// 结果已经拿到手里（函数自己管锁）时用它序列化 —— 别套 `call`，那会再拿一次锁（死锁）。
+fn to_value<T: Serialize>(v: T) -> ApiResult<Value> {
+    serde_json::to_value(v).map_err(|e| ApiError::new("encode", e.to_string()))
+}
+
 /// `aiweb:*` 统一收口：要窗口句柄、统统一元错误码、一律回 `null`。
 /// `win` = 调用方的窗口 label（面板是**每个窗口一份**，见 `aiweb.rs`）。
 fn aiweb_call(
@@ -470,6 +665,21 @@ fn aiweb_call(
 fn user_origin() -> String {
     "user".into()
 }
+
+/// 计数类的上限：`proposal_list` / `entity_list` / `run_stale` 都带 `LIMIT`，
+/// 要给「全部」得递一个足够大的数（不拿 `usize::MAX` 去溢）。
+const KB_COUNT_CAP: usize = 100_000;
+/// 手动跑一轮策展最多几篇 —— 别一次把用户的 endpoint 打爆（跟 tick 的 `BATCH` 一个道理）。
+const CURATE_ROUND: usize = 10;
+/// 共现边：两篇共享 ≥ 这么多个实体才连一条边（共享一个多半是噪声）。
+pub(crate) const COOCCUR_MIN_SHARED: usize = 2;
+
+/// 一篇的标题（`kb:related` / `kb:semantic` / `kb:proposals` 要显示「哪一篇」）。
+/// 查不到就当 id —— 边可能指向一篇已删的文档，不该因此整条命令报错。
+fn doc_title(conn: &rusqlite::Connection, id: &str) -> String {
+    docs::get(conn, id).map(|d| d.title).unwrap_or_else(|_| id.to_string())
+}
+
 
 /* ─────────────────── 入参形状（TS 侧的对应类型在 contract.ts，见文件头） ─────────────────── */
 
@@ -688,4 +898,67 @@ struct CommentUpdate {
 struct CommentResolve {
     id: String,
     resolved: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KbCurate {
+    /// 给了就只跑这一篇；不给跑一轮。
+    doc_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KbProposals {
+    state: Option<String>,
+    limit: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KbProposalSet {
+    id: i64,
+    accept: bool,
+}
+
+#[derive(Deserialize)]
+struct KbTagMerge {
+    from: Vec<String>,
+    into: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KbEntityGet {
+    name: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KbRelatedArgs {
+    id: String,
+    limit: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KbGraphArgs {
+    seed: String,
+    depth: Option<u32>,
+    limit: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KbSemanticArgs {
+    query: String,
+    limit: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KbCallArgs {
+    name: String,
+    #[serde(default)]
+    args: Value,
 }

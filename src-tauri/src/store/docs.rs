@@ -124,6 +124,11 @@ pub fn set_tags(conn: &Connection, id: &str, tags: &[String]) -> ApiResult<DocMe
     if n == 0 {
         return Err(not_found("doc"));
     }
+    // 词表跟着长（D-0185）—— 用户手打的标签也要进受控词表。
+    // 失败不拦住「打标签」本身，记一笔就走。
+    if let Err(e) = super::kb::sync_vocab_from_docs(conn) {
+        crate::log::record("kb", &format!("同步标签词表失败：{}", e.message));
+    }
     get(conn, id)
 }
 
@@ -438,6 +443,46 @@ pub fn search(
     include_trashed: bool,
 ) -> ApiResult<Vec<Hit>> {
     let m = fts5_match(q);
+    search_with_match(conn, &m, limit, include_trashed)
+}
+
+/// 拿一段**自由文字**当宽松查询：切词后 **OR** 起来找。
+///
+/// ★ 为什么需要它：`search` 走 `fts5_match`，词之间是**空格 = 隐式 AND**。
+///   拿整条标题去 AND，等于要求候选笔记同时包含标题里的**每一个**字 ——
+///   两篇相关的笔记几乎不可能做到，于是「候选邻居」永远是空的。
+///   策展人的 `links` 推断就建在那张候选表上，整条路等于死的（实测：三篇全「（没有）」）。
+/// ★ 单字中文丢掉：`的` / `是` 会命中全库，留着等于没筛。
+pub fn search_any(
+    conn: &Connection,
+    text: &str,
+    limit: i64,
+    include_trashed: bool,
+) -> ApiResult<Vec<Hit>> {
+    let mut terms: Vec<String> = Vec::new();
+    for t in cjk_space(text).split_whitespace() {
+        if t.chars().count() < 2 {
+            continue;
+        }
+        let t = t.replace('"', "");
+        if !terms.iter().any(|x| x == &t) {
+            terms.push(t);
+        }
+    }
+    if terms.is_empty() {
+        return Ok(Vec::new());
+    }
+    let m = terms.iter().map(|t| format!("\"{t}\"")).collect::<Vec<_>>().join(" OR ");
+    search_with_match(conn, &m, limit, include_trashed)
+}
+
+/// `search` / `search_any` 共用的下半段 —— MATCH 表达式已经拼好了。
+fn search_with_match(
+    conn: &Connection,
+    m: &str,
+    limit: i64,
+    include_trashed: bool,
+) -> ApiResult<Vec<Hit>> {
     if m.is_empty() {
         return Ok(Vec::new());
     }
@@ -462,7 +507,7 @@ pub fn search(
                 title: r.get(1)?,
                 parent_id: r.get(2)?,
                 updated_at: r.get(3)?,
-                body: r.get(4)?,
+                body: unspace(&r.get::<_, String>(4)?),
             })
         })
         .map_err(db_err)?
@@ -537,6 +582,58 @@ fn cjk_space(s: &str) -> String {
         } else {
             out.push(c);
         }
+    }
+    out
+}
+
+/// `cjk_space` 的逆：把逐字加进去的空格收回来。
+///
+/// ★ 为什么需要它：`doc_fts` 里存的是 `cjk_space(md)`，而 `snippet()` 读的就是**索引里那份** ——
+///   不收回来，搜出来的摘要就是「不 阻 塞 写 。」这种，中文全被拆散。
+///   判据是「这个空格紧挨着 CJK 字符」= `cjk_space` 插的（它只在 CJK 两侧插空格）。
+///   代价：原文里两个汉字之间本来就有的空格会被吃掉（罕见，可接受）。
+fn unspace(s: &str) -> String {
+    let cs: Vec<char> = s.chars().collect();
+    // ★ 命中标记是**夹在字之间**的（`[标记]数[标记] [空格] [标记]据[标记]`），
+    //   看邻居时必须跳过它，否则看到的永远是标记、空格一个都收不回来。
+    //   ⚠️ **只跳标记**：把标点也跳过去的话，「个 token」里那个真实的空格会被误吃。
+    let skip = |c: char| c == HIT_OPEN || c == HIT_CLOSE;
+    // 「该不该收」的判据比 `is_cjk` 宽一档：中日韩标点也算。
+    // `cjk_space` 只切汉字，但 FTS5 的 `snippet()` 会在 token 之间补空格，
+    // 于是 `token，检索` 出来是 `token ， 检索` —— 那两个空格只有把标点算进来才收得掉。
+    // 真实文本里不会有人在全角标点旁边写空格，所以这个放宽是安全的。
+    let cjkish = |c: char| {
+        let u = c as u32;
+        is_cjk(c)
+            || (0x3000..=0x303F).contains(&u) // CJK 标点（、。〈〉…）
+            || (0xFF00..=0xFFEF).contains(&u) // 全角形式（，！？：）
+            || (0x2010..=0x2027).contains(&u) // 引号 / 破折号 / 省略号
+    };
+    let neighbor = |from: usize, forward: bool| -> char {
+        let mut i = from;
+        loop {
+            if forward {
+                i += 1;
+                if i >= cs.len() {
+                    return '\0';
+                }
+            } else {
+                if i == 0 {
+                    return '\0';
+                }
+                i -= 1;
+            }
+            if !skip(cs[i]) {
+                return cs[i];
+            }
+        }
+    };
+    let mut out = String::with_capacity(s.len());
+    for (i, &c) in cs.iter().enumerate() {
+        if c == ' ' && (cjkish(neighbor(i, false)) || cjkish(neighbor(i, true))) {
+            continue;
+        }
+        out.push(c);
     }
     out
 }

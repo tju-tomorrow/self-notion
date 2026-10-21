@@ -34,6 +34,8 @@ import {
   FileIconMdIcon,
   FolderIcon,
   HistoryIcon,
+  InboxIcon,
+  MindmapNodeIcon,
   PageIcon,
   PinIcon,
   PlusIcon,
@@ -156,7 +158,7 @@ export function Sidebar({ ctx }: { ctx: Context }) {
   const [group, setGroup] = useState<Group>(() => readGroup(ctx))
   /** 主区停在「文档列表」还是「虚拟目录」（D-0094）/「外部文件」（D-0137）。后两个不属于
    *  四个分组 —— 它们是各自的页面，所以单独记，点了分组行就回来。 */
-  const [page, setPage] = useState<'list' | 'vfs' | 'files'>('list')
+  const [page, setPage] = useState<'list' | 'vfs' | 'files' | 'inbox' | 'graph'>('list')
   // 展开集合按 id 记（不看层级）：重建树之后还认得出原来展开的是谁。
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(
     () => new Set(readLocal<string[]>('sn.sidebar.expanded', [])),
@@ -639,6 +641,40 @@ export function Sidebar({ ctx }: { ctx: Context }) {
           </button>
         )}
 
+        {/* 知识库两项（D-0189，破例改本文件）。跟上面两行同一个软依赖形状：`kb` 服务
+            不在（`plugins/kb/` 被卸了）就整行不画 —— 主区那一页由它们自己画。 */}
+        {ctx.get('kb') !== undefined && (
+          <button
+            type="button"
+            className={`${s.navItem} ${page === 'inbox' ? s.navItemOn : ''}`}
+            onClick={() => {
+              setPage('inbox')
+              ctx.emit(SHOW_LIST, { group: 'inbox' })
+            }}
+          >
+            <span className={s.navIcon}>
+              <InboxIcon width={ICON} height={ICON} />
+            </span>
+            <span className={s.navLabel}>{ctx.i18n.t('kb.inbox.nav')}</span>
+          </button>
+        )}
+
+        {ctx.get('kb') !== undefined && (
+          <button
+            type="button"
+            className={`${s.navItem} ${page === 'graph' ? s.navItemOn : ''}`}
+            onClick={() => {
+              setPage('graph')
+              ctx.emit(SHOW_LIST, { group: 'graph' })
+            }}
+          >
+            <span className={s.navIcon}>
+              <MindmapNodeIcon width={ICON} height={ICON} />
+            </span>
+            <span className={s.navLabel}>{ctx.i18n.t('kb.graph.nav')}</span>
+          </button>
+        )}
+
         {/* 「设置」这一项走**命令**，不是直接去开别人的面板 —— 契约里没有设置窗口，
             shell-settings 自己注册了 `settings.open`（⌘K 面板也是这么找到它的）。
             命令不在（那个插件被卸了）就整行不画，不留一个点了没反应的入口。 */}
@@ -662,6 +698,16 @@ export function Sidebar({ ctx }: { ctx: Context }) {
               title={ctx.i18n.t('sidebar.section.organize')}
               collapsed={collapsedSections.organize}
               onToggle={() => toggleSection('organize')}
+              action={
+                <button
+                  type="button"
+                  className={s.sectionAdd}
+                  title={ctx.i18n.t('sidebar.new')}
+                  onClick={() => void create()}
+                >
+                  <PlusIcon width={16} height={16} />
+                </button>
+              }
             >
               {tree.length ? (
                 tree.map((node) => renderRow(node, 0, true))

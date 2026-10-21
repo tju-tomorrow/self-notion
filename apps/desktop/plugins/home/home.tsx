@@ -210,6 +210,10 @@ function useWindow(items: readonly Item[]) {
   }
 }
 
+/** 这些分组下主区归别人 —— 首页必须让开。
+ *  ★ 加新页面就往这儿加一项，别再往下面那个条件表达式里塞（漏一个就是两页叠在一起）。 */
+const OTHER_PAGES: readonly ListGroup[] = ['vfs', 'bugs', 'files', 'inbox', 'graph']
+
 /**
  * `main.home` 这一格的守门人。
  *
@@ -218,7 +222,7 @@ function useWindow(items: readonly Item[]) {
  */
 export function HomePage({ ctx }: { ctx: Context }) {
   const active = useSyncExternalStore(subscribeGroup, currentGroup, currentGroup)
-  return active === 'vfs' || active === 'bugs' || active === 'files' ? null : <Home ctx={ctx} />
+  return OTHER_PAGES.includes(active) ? null : <Home ctx={ctx} />
 }
 
 export function Home({ ctx }: { ctx: Context }) {

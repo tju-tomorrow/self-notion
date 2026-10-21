@@ -104,19 +104,17 @@ fn call_tool(db: &Db, params: &Value) -> Result<Value, (i64, String)> {
 
     let text: ApiResult<String> = match name {
         "vfs_list" => tool(&args, |a: vfs::ListArgs| {
-            db.with(|c| vfs::list(c, &a.path)).and_then(|v| json_text(&v))
+            vfs::list(db, &a.path).and_then(|v| json_text(&v))
         }),
         "vfs_grep" => tool(&args, |a: vfs::GrepArgs| {
-            db.with(|c| vfs::grep(c, &a.pattern, a.ignore_case)).and_then(|v| json_text(&v))
+            vfs::grep(db, &a.pattern, a.ignore_case).and_then(|v| json_text(&v))
         }),
         // read 回正文本身，不套 JSON —— 模型要的是 `cat` 的样子
-        "vfs_read" => tool(&args, |a: vfs::ReadArgs| {
-            db.with(|c| vfs::read(c, &a.path, a.offset, a.limit))
-        }),
+        "vfs_read" => tool(&args, |a: vfs::ReadArgs| vfs::read(db, &a.path, a.offset, a.limit)),
         "vfs_stat" => tool(&args, |a: vfs::StatArgs| -> ApiResult<String> {
             let p = a.path.clone();
             // 路径不存在在这儿是一次失败（stat 在文件系统里也是 ENOENT），不静默回 null
-            let e = db.with(|c| vfs::stat(c, &a.path))?.ok_or_else(|| ApiError::new("not_found", p))?;
+            let e = vfs::stat(db, &a.path)?.ok_or_else(|| ApiError::new("not_found", p))?;
             json_text(&e)
         }),
         "doc_list" => tool(&args, |a: DocListArgs| {
@@ -126,6 +124,9 @@ fn call_tool(db: &Db, params: &Value) -> Result<Value, (i64, String)> {
         "doc_text" => tool(&args, |a: DocTextArgs| {
             db.with(|c| docs::get(c, &a.id).and_then(|_| docs::text(c, &a.id)))
         }),
+        // kb_* 落到知识库工具面的唯一实现（D-0187）。★ 走 `call_readonly`，**不是** `call` ——
+        // 分派是按名字走的，「清单里没列」拦不住客户端自己编一个 `kb_accept` 发过来（实测过）。
+        n if n.starts_with("kb_") => crate::kb::tools::call_readonly(db, n, &args),
         other => return Err((-32602, format!("unknown tool: {other}"))),
     };
 
@@ -135,10 +136,12 @@ fn call_tool(db: &Db, params: &Value) -> Result<Value, (i64, String)> {
     })
 }
 
-/// 六条工具。**这就是只读边界本身**（D-0084 第 3 条）：没有写工具，不是"默认关"。
+/// 工具清单：老的六条（本文件字面量）+ 知识库那 9 条只读（`kb::tools::catalog()`，D-0187）。
+/// **这就是只读边界本身**（D-0084 第 3 条）：没有写工具，不是"默认关" —— 所以并的是
+/// `catalog()`，**不是** `catalog_writable()`。
 /// `inputSchema` 的形状对着 `vfs/mod.rs` 的入参结构（那边是 camelCase）。
 fn tools() -> Value {
-    json!([
+    let mut list = json!([
         {
             "name": "vfs_list",
             "description": "列一个虚拟目录的直接子项（目录在前，其次按名字）。",
@@ -208,7 +211,15 @@ fn tools() -> Value {
                 "required": ["id"]
             }
         }
-    ])
+    ]);
+    // 知识库那 9 条只读工具并进来。★ 用 catalog() 不是 catalog_writable() ——
+    // 写工具不进 MCP，只读边界就是这份清单里没有写工具（D-0084 第 3 条）。
+    if let Some(arr) = list.as_array_mut() {
+        if let Some(kb) = crate::kb::tools::catalog().as_array() {
+            arr.extend(kb.iter().cloned());
+        }
+    }
+    list
 }
 
 /* ─────────────────────────── 小工具 ─────────────────────────── */

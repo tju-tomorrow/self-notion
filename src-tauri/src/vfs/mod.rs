@@ -19,8 +19,9 @@
 //! 按 CONVENTIONS 第十节不许自己加。要真正则，先让 D-0040 那条「新增依赖待批」过审。
 //!
 //! ★ **全部投影都接上了，没有欠账**：`/tree/` `/by-date/` `/recent/` `/favorites/` `/outline/`
-//! `/trash/` `/search/<q>/`（动态，见下面 `search_matches`）+ 这一轮补的 `/by-tag/`（D-0086）
-//! 和 `/links/`（D-0085）。
+//! `/trash/` `/search/<q>/`（动态，见下面 `search_matches`）+ `/by-tag/`（D-0086）
+//! 和 `/links/`（D-0085）+ 知识库这一轮补的 `/search/semantic/` `/search/bm25/`
+//! `/graph/neighbors/` `/by-topic/` `/entity/` `/proposals.md`（D-0181~D-0189，见 `docs/kb.md` §4）。
 //!
 //! ⚠️ 这里原来写的是「没投影的目录：`/by-tag/`（schema 里没有标签表）、`/links/`（没有链接表）」。
 //! 那两个这一轮补完了 —— **但补的时候一度被改写成「只剩 `/search/` 没做」，那是错的**：
@@ -28,11 +29,22 @@
 //! 不是欠账。写注释时别只看这一行，往下翻一屏。
 
 use crate::commands::{ApiError, ApiResult};
+use crate::kb::embed;
+use crate::store::kb as kbstore;
 use crate::store::links::{self, Edge};
-use crate::store::{db_err, now_ms};
+use crate::store::{db_err, docs, now_ms, summary, Db};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+/// 各种清单类文件的上限 —— 别把整库塞进一个文件里。
+const SEARCH_LIMIT: usize = 100;
+const NEIGHBOR_LIMIT: usize = 50;
+const ENTITY_LIMIT: usize = 500;
+const PROPOSAL_LIMIT: usize = 200;
+
+/// 语义层不可用时，那个目录里唯一的一项 —— 名字固定，内容是一句话（不是空目录）。
+const SEMANTIC_NOTICE: &str = "_unavailable.md";
 
 /* ─────────────────────────── 线上形状（照 contract.ts） ─────────────────────────── */
 
@@ -90,9 +102,10 @@ pub struct ReadArgs {
 /* ─────────────────────────── 四条命令 ─────────────────────────── */
 
 /// 列一个目录的直接子项（目录在前，其次按名字）。
-pub fn list(conn: &Connection, path: &str) -> ApiResult<Vec<Entry>> {
-    let w = World::build(conn)?;
+pub fn list(db: &Db, path: &str) -> ApiResult<Vec<Entry>> {
     let p = normalize(path);
+    // World 先建好、**把锁放掉**再算 —— 语义那层要发 HTTP，不能攥着库锁。
+    let w = db.with(World::build)?;
     match lookup(&w, &p) {
         Lookup::Dir => {
             let mut items: Vec<(String, Option<FileRef>)> = Vec::new();
@@ -108,13 +121,18 @@ pub fn list(conn: &Connection, path: &str) -> ApiResult<Vec<Entry>> {
             }
             // 目录（None）在前，其次按名字
             items.sort_by(|a, b| a.1.is_some().cmp(&b.1.is_some()).then_with(|| a.0.cmp(&b.0)));
-            Ok(items
-                .into_iter()
-                .map(|(path, r)| {
-                    let size = r.and_then(|r| file_size(&w, r));
-                    Entry { path, kind: if r.is_some() { "file" } else { "dir" }, size }
-                })
-                .collect())
+            // 大小得现算（Index / 清单类文件的长度），要 conn
+            db.with(|c| {
+                let mut out = Vec::with_capacity(items.len());
+                for (path, r) in items {
+                    let size = match r {
+                        Some(r) => file_size(c, &w, r)?,
+                        None => None,
+                    };
+                    out.push(Entry { path, kind: if r.is_some() { "file" } else { "dir" }, size });
+                }
+                Ok(out)
+            })
         }
         // `/search/<q>/` 的一次列举 = 先 grep 的结果，长得像目录（docs/vfs.md 第三节）
         Lookup::SearchDir(q) => {
@@ -123,7 +141,8 @@ pub fn list(conn: &Connection, path: &str) -> ApiResult<Vec<Entry>> {
             }
             // 查询词进路径段，得转义 —— 里面的 `/` 会把这一层切成两层（D-0101）
             let prefix = format!("/search/{}", enc(&q));
-            Ok(search_matches(&w, &all_texts(conn)?, &q)
+            let texts = db.with(all_texts)?;
+            Ok(search_matches(&w, &texts, &q)
                 .into_iter()
                 .map(|(i, name)| Entry {
                     path: format!("{prefix}/{name}"),
@@ -132,21 +151,36 @@ pub fn list(conn: &Connection, path: &str) -> ApiResult<Vec<Entry>> {
                 })
                 .collect())
         }
-        Lookup::File(_) | Lookup::SearchFile(_, _) => {
+        Lookup::SemanticDir(q) => semantic_entries(db, &w, &q),
+        Lookup::Bm25Dir(q) => bm25_entries(db, &w, &q),
+        Lookup::File(_)
+        | Lookup::SearchFile(_, _)
+        | Lookup::SemanticFile(_, _)
+        | Lookup::Bm25File(_, _) => {
             Err(ApiError::new("bad_args", format!("{p} 是文件，不是目录")))
         }
         Lookup::None => Err(ApiError::new("not_found", p)),
     }
 }
 
-pub fn stat(conn: &Connection, path: &str) -> ApiResult<Option<Entry>> {
-    let w = World::build(conn)?;
+pub fn stat(db: &Db, path: &str) -> ApiResult<Option<Entry>> {
     let p = normalize(path);
+    let w = db.with(World::build)?;
     Ok(match lookup(&w, &p) {
-        Lookup::Dir | Lookup::SearchDir(_) => Some(Entry { path: p, kind: "dir", size: None }),
-        Lookup::File(r) => Some(Entry { path: p, kind: "file", size: file_size(&w, r) }),
+        Lookup::Dir | Lookup::SearchDir(_) | Lookup::SemanticDir(_) | Lookup::Bm25Dir(_) => {
+            Some(Entry { path: p, kind: "dir", size: None })
+        }
+        Lookup::File(r) => Some(Entry { path: p, kind: "file", size: db.with(|c| file_size(c, &w, r))? }),
         Lookup::SearchFile(q, name) => {
-            let text = search_file_content(conn, &w, &q, &name)?;
+            let text = db.with(|c| search_file_content(c, &w, &q, &name))?;
+            Some(Entry { path: p, kind: "file", size: Some(text.len() as u64) })
+        }
+        Lookup::SemanticFile(q, name) => {
+            let text = semantic_file(db, &w, &q, &name)?;
+            Some(Entry { path: p, kind: "file", size: Some(text.len() as u64) })
+        }
+        Lookup::Bm25File(q, name) => {
+            let text = bm25_file(db, &w, &q, &name)?;
             Some(Entry { path: p, kind: "file", size: Some(text.len() as u64) })
         }
         Lookup::None => None,
@@ -155,17 +189,19 @@ pub fn stat(conn: &Connection, path: &str) -> ApiResult<Option<Entry>> {
 
 /// 读一个文件的正文。目录 → `bad_args`；路径不存在 → `not_found`（**响亮地失败**）。
 pub fn read(
-    conn: &Connection,
+    db: &Db,
     path: &str,
     offset: Option<usize>,
     limit: Option<usize>,
 ) -> ApiResult<String> {
-    let w = World::build(conn)?;
     let p = normalize(path);
+    let w = db.with(World::build)?;
     let text = match lookup(&w, &p) {
-        Lookup::File(r) => content(conn, &w, r)?,
-        Lookup::SearchFile(q, name) => search_file_content(conn, &w, &q, &name)?,
-        Lookup::Dir | Lookup::SearchDir(_) => {
+        Lookup::File(r) => db.with(|c| content(c, &w, r))?,
+        Lookup::SearchFile(q, name) => db.with(|c| search_file_content(c, &w, &q, &name))?,
+        Lookup::SemanticFile(q, name) => semantic_file(db, &w, &q, &name)?,
+        Lookup::Bm25File(q, name) => bm25_file(db, &w, &q, &name)?,
+        Lookup::Dir | Lookup::SearchDir(_) | Lookup::SemanticDir(_) | Lookup::Bm25Dir(_) => {
             return Err(ApiError::new("bad_args", format!("{p} 是目录，不是文件")))
         }
         Lookup::None => return Err(ApiError::new("not_found", p)),
@@ -175,14 +211,14 @@ pub fn read(
 
 /// 全扫所有**未删除**文档的投影正文，逐行找**字面子串**（不是正则，见模块头）。
 /// 返回的 `path` 是该文档在 `/tree/` 下的规范路径（一篇文档只报一次路径）。
-pub fn grep(conn: &Connection, pattern: &str, ignore_case: bool) -> ApiResult<Vec<Hit>> {
+pub fn grep(db: &Db, pattern: &str, ignore_case: bool) -> ApiResult<Vec<Hit>> {
     if pattern.is_empty() {
         // 空模式会匹配每一行 —— 信任边界上响亮报错，不静默吐整库（CONVENTIONS 第十节）
         return Err(ApiError::new("bad_args", "vfs:grep 的模式不能为空"));
     }
-    let w = World::build(conn)?;
+    let w = db.with(World::build)?;
     // 全扫是 grep 的本分 —— 正文只在这一条和 `/search/` 上才全量拉。
-    let texts = all_texts(conn)?;
+    let texts = db.with(all_texts)?;
     let needle = if ignore_case { pattern.to_lowercase() } else { pattern.to_string() };
     let mut out = Vec::new();
     for (i, d) in w.docs.iter().enumerate() {
@@ -232,8 +268,14 @@ enum FileRef {
     LinkTo(usize),
     /// `/links/from/<文档>.md` —— 它指向谁
     LinkFrom(usize),
+    /// `/graph/neighbors/<文档>.md` —— 一篇的邻居清单，**不是正文**（D-0186）
+    GraphNeighbors(usize),
+    /// `/entity/<实体名>.md` —— 提到它的笔记清单，**不是正文**；下标进 `World::entities`
+    Entity(usize),
     Index,
     Agents,
+    /// `/proposals.md` —— 待确认的建议清单（一个文件，不是目录）
+    Proposals,
 }
 
 /// 路径查出来的东西。
@@ -244,6 +286,14 @@ enum Lookup {
     SearchDir(String),
     /// `/search/<q>/<name>.md`
     SearchFile(String, String),
+    /// `/search/semantic/<q>`（动态，q 可能为空）
+    SemanticDir(String),
+    /// `/search/semantic/<q>/<name>.md`
+    SemanticFile(String, String),
+    /// `/search/bm25/<q>`
+    Bm25Dir(String),
+    /// `/search/bm25/<q>/<name>.md`
+    Bm25File(String, String),
     None,
 }
 
@@ -261,6 +311,8 @@ struct World {
     in_links: HashMap<String, Vec<Edge>>,
     /// id → 它指向谁（`/links/from/`）
     out_links: HashMap<String, Vec<Edge>>,
+    /// `/entity/`：(实体名, entity id)。`FileRef::Entity(i)` 的下标。
+    entities: Vec<(String, String)>,
 }
 
 impl World {
@@ -314,6 +366,7 @@ impl World {
             dirs: BTreeSet::new(),
             in_links: HashMap::new(),
             out_links: HashMap::new(),
+            entities: Vec::new(),
         };
         for d in [
             "/",
@@ -324,15 +377,22 @@ impl World {
             "/outline",
             "/trash",
             "/search",
+            "/search/semantic",
+            "/search/bm25",
             "/links",
             "/links/to",
             "/links/from",
             "/by-tag",
+            "/by-topic",
+            "/graph",
+            "/graph/neighbors",
+            "/entity",
         ] {
             w.dirs.insert(d.to_string());
         }
         w.files.insert("/index.md".into(), FileRef::Index);
         w.files.insert("/AGENTS.md".into(), FileRef::Agents);
+        w.files.insert("/proposals.md".into(), FileRef::Proposals);
 
         w.build_tree();
         w.build_outline();
@@ -342,6 +402,10 @@ impl World {
         w.build_by_date();
         w.build_links(conn)?;
         w.build_by_tag();
+        w.build_graph_neighbors();
+        // 知识库那几张表可能还没被建出来（MCP 只读打开旧库，不跑 schema.sql）——
+        // 那两个投影建不起来就当空着，别把整棵树拖崩。
+        w.build_kb(conn);
         Ok(w)
     }
 
@@ -458,6 +522,74 @@ impl World {
         }
     }
 
+    /// `/graph/neighbors/<文档>.md`：每篇一个文件，装的是邻居清单（邻居现查现拼，见 `neighbors_md`）。
+    fn build_graph_neighbors(&mut self) {
+        let idx = self.live_indices(|_| true);
+        let names = self.names_of(&idx);
+        for (&i, name) in idx.iter().zip(names) {
+            self.files.insert(format!("/graph/neighbors/{name}"), FileRef::GraphNeighbors(i));
+        }
+    }
+
+    /// 知识库那几张表不在就降级成空 —— 只读打开的旧库（MCP）会这样，不能把整棵树拖崩。
+    fn build_kb(&mut self, conn: &Connection) {
+        if let Err(e) = self.build_by_topic(conn) {
+            crate::log::record("vfs", &format!("/by-topic 投影建不起来：{}", e.message));
+        }
+        if let Err(e) = self.build_entity(conn) {
+            crate::log::record("vfs", &format!("/entity 投影建不起来：{}", e.message));
+        }
+    }
+
+    /// `/by-topic/<主题路径>/<文档>.md`：AI 归的类（D-0183），**不碰 parent_id**。
+    /// 主题名是全路径，逐层建目录；每层列的是**该主题（含子主题）**下的文档。
+    fn build_by_topic(&mut self, conn: &Connection) -> ApiResult<()> {
+        // 每个主题的全部前缀：技术/数据库/SQLite → 技术、技术/数据库、技术/数据库/SQLite
+        let mut paths: BTreeSet<String> = BTreeSet::new();
+        for t in kbstore::topic_list(conn)? {
+            let mut acc = String::new();
+            for seg in t.name.split('/').filter(|s| !s.is_empty()) {
+                if !acc.is_empty() {
+                    acc.push('/');
+                }
+                acc.push_str(seg);
+                paths.insert(acc.clone());
+            }
+        }
+        let mut dirs = Vec::new();
+        let mut files = Vec::new();
+        for path in paths {
+            dirs.push(format!("/by-topic/{path}"));
+            let idx: Vec<usize> = kbstore::docs_by_topic(conn, &path)?
+                .iter()
+                .filter_map(|id| self.by_id.get(id).copied())
+                .filter(|&i| self.docs[i].deleted_at.is_none())
+                .collect();
+            let names = self.names_of(&idx);
+            for (&i, name) in idx.iter().zip(names) {
+                files.push((format!("/by-topic/{path}/{name}"), FileRef::Doc(i)));
+            }
+        }
+        for d in dirs {
+            self.dirs.insert(d);
+        }
+        for (p, r) in files {
+            self.files.insert(p, r);
+        }
+        Ok(())
+    }
+
+    /// `/entity/<实体名>.md`：每张脸一个文件，装的是提到它的笔记清单（D-0186）。
+    fn build_entity(&mut self, conn: &Connection) -> ApiResult<()> {
+        let list = kbstore::entity_list(conn, ENTITY_LIMIT)?;
+        let names = dedup(list.iter().map(|e| (file_name(&e.name), e.id.as_str())).collect());
+        for (e, name) in list.iter().zip(names) {
+            self.entities.push((e.name.clone(), e.id.clone()));
+            self.files.insert(format!("/entity/{name}"), FileRef::Entity(self.entities.len() - 1));
+        }
+        Ok(())
+    }
+
     /// 一批文档 → 它们在同一个目录下的文件名（重名的带 id 后缀，见 `dedup`）。
     fn names_of(&self, idx: &[usize]) -> Vec<String> {
         dedup(idx.iter().map(|&i| (file_name(&self.docs[i].title), self.docs[i].id.as_str())).collect())
@@ -521,8 +653,11 @@ fn content(conn: &Connection, w: &World, r: FileRef) -> ApiResult<String> {
         FileRef::Outline(i) => headings(&text_of(conn, &w.docs[i].id)?),
         FileRef::LinkTo(i) => link_list_md(w, i, true),
         FileRef::LinkFrom(i) => link_list_md(w, i, false),
-        FileRef::Index => index_md(w),
+        FileRef::GraphNeighbors(i) => neighbors_md(conn, w, i)?,
+        FileRef::Entity(i) => entity_md(conn, w, i)?,
+        FileRef::Index => index_md(conn, w)?,
         FileRef::Agents => agents_md(),
+        FileRef::Proposals => proposals_md(conn)?,
     })
 }
 
@@ -551,9 +686,106 @@ fn link_list_md(w: &World, i: usize, incoming: bool) -> String {
     s
 }
 
+/// `/graph/neighbors/X.md` —— **清单，不是正文**（照 /links/to/ 那个套路，D-0186）。
+fn neighbors_md(conn: &Connection, w: &World, i: usize) -> ApiResult<String> {
+    let doc_id = w.docs[i].id.clone();
+    let edges = kbstore::doc_neighbors(conn, &doc_id, NEIGHBOR_LIMIT)?;
+    // ★ 按「另一端」去重：`d1→d6` 和 `d6→d1` 是两条边，但对这一篇来说是**同一个邻居** ——
+    //   不去重清单里就会出现两遍（实测过）。
+    let mut seen: std::collections::HashSet<(&str, &str)> = std::collections::HashSet::new();
+    let mut s = format!("# 邻居 · {}\n\n", w.docs[i].title);
+    let mut rows: Vec<(String, String, &kbstore::Edge)> = Vec::new();
+    for e in &edges {
+        if seen.insert(other_end(&doc_id, e)) {
+            let (label, path) = edge_other(w, &doc_id, e);
+            rows.push((label, path, e));
+        }
+    }
+    if rows.is_empty() {
+        s.push_str("（没有）\n");
+        return Ok(s);
+    }
+    s.push_str(&format!("共 {} 条（显式链接 + 派生边）。\n\n", rows.len()));
+    for (label, path, e) in &rows {
+        s.push_str(&format!("- {label}  —— {path}  ({}, {:.2})\n", e.kind, e.weight));
+    }
+    Ok(s)
+}
+
+/// 一条边里「不是这一篇」的那一端 → `(kind, id)`。
+fn other_end<'a>(doc_id: &str, e: &'a kbstore::Edge) -> (&'a str, &'a str) {
+    if e.src_kind == "doc" && e.src_id == doc_id {
+        (e.dst_kind.as_str(), e.dst_id.as_str())
+    } else {
+        (e.src_kind.as_str(), e.src_id.as_str())
+    }
+}
+
+/// 一条边里「不是这一篇」的那一端 → (给人看的标签, 能直接 read 的路径)。
+fn edge_other(w: &World, doc_id: &str, e: &kbstore::Edge) -> (String, String) {
+    let (kind, oid) = other_end(doc_id, e);
+    if kind == "doc" {
+        return doc_label(w, oid);
+    }
+    // 实体端：名字在 World::entities 里按 id 反查，拿不到就退回 id
+    let name = w.entities.iter().find(|(_, id)| id == oid).map(|(n, _)| n.clone());
+    let label = name.clone().unwrap_or_else(|| oid.to_string());
+    let seg = name.map(|n| stem(&n)).unwrap_or_else(|| oid.to_string());
+    (label, format!("/entity/{seg}.md"))
+}
+
+/// `/entity/X.md` —— **清单，不是正文**：提到这个实体的笔记（D-0186）。
+fn entity_md(conn: &Connection, w: &World, i: usize) -> ApiResult<String> {
+    let (name, id) = &w.entities[i];
+    let ids = kbstore::entity_mention_docs(conn, id)?;
+    let mut s = format!("# 提到「{name}」的笔记\n\n");
+    if ids.is_empty() {
+        s.push_str("（没有）\n");
+        return Ok(s);
+    }
+    s.push_str(&format!("共 {} 篇。\n\n", ids.len()));
+    for did in &ids {
+        let (title, path) = doc_label(w, did);
+        s.push_str(&format!("- {title}  —— {path}\n"));
+    }
+    Ok(s)
+}
+
+/// `/proposals.md` —— 待确认的整理建议清单（D-0181）。
+fn proposals_md(conn: &Connection) -> ApiResult<String> {
+    let list = kbstore::proposal_list(conn, Some("pending"), PROPOSAL_LIMIT)?;
+    let mut s = String::from("# 待确认的整理建议\n\n");
+    if list.is_empty() {
+        s.push_str("（没有）\n");
+        return Ok(s);
+    }
+    s.push_str(&format!("共 {} 条。\n\n", list.len()));
+    for p in &list {
+        s.push_str(&format!(
+            "- #{id} [{kind}] {reason}（{conf:.2}）\n  {payload}\n",
+            id = p.id,
+            kind = p.kind,
+            reason = p.reason,
+            conf = p.confidence,
+            payload = p.payload,
+        ));
+    }
+    Ok(s)
+}
+
+/// 一个 doc_id → (标题, `/tree/` 下的路径)。查不到就退回 id。
+fn doc_label(w: &World, id: &str) -> (String, String) {
+    match w.by_id.get(id) {
+        Some(&j) => {
+            (w.docs[j].title.clone(), w.tree_path[j].clone().unwrap_or_else(|| id.to_string()))
+        }
+        None => (id.to_string(), id.to_string()),
+    }
+}
+
 /// 一个文件的字节数。`None` = **不知道**（不是 0）。
-fn file_size(w: &World, r: FileRef) -> Option<u64> {
-    match r {
+fn file_size(conn: &Connection, w: &World, r: FileRef) -> ApiResult<Option<u64>> {
+    Ok(match r {
         // 正文长度 SQL 里已经量好了，不用把正文读进来
         FileRef::Doc(i) => Some(w.docs[i].md_len),
         // `/outline/` 的长度得读了正文才能数标题行 —— 为一行大小把正文拉进来不值当，报「不知道」
@@ -561,9 +793,12 @@ fn file_size(w: &World, r: FileRef) -> Option<u64> {
         // 下面几种都是现算的清单，算一遍很便宜
         FileRef::LinkTo(i) => Some(link_list_md(w, i, true).len() as u64),
         FileRef::LinkFrom(i) => Some(link_list_md(w, i, false).len() as u64),
-        FileRef::Index => Some(index_md(w).len() as u64),
+        FileRef::GraphNeighbors(i) => Some(neighbors_md(conn, w, i)?.len() as u64),
+        FileRef::Entity(i) => Some(entity_md(conn, w, i)?.len() as u64),
+        FileRef::Index => Some(index_md(conn, w)?.len() as u64),
         FileRef::Agents => Some(agents_md().len() as u64),
-    }
+        FileRef::Proposals => Some(proposals_md(conn)?.len() as u64),
+    })
 }
 
 /// 一篇文档的投影正文。**没投影过就回空串** —— 「还没投影」和「真的是空的」
@@ -597,7 +832,7 @@ fn headings(md: &str) -> String {
 }
 
 /// `/index.md` —— agent 进来的第一站（docs/vfs.md 第七节）。**给地图比给数据重要。**
-fn index_md(w: &World) -> String {
+fn index_md(conn: &Connection, w: &World) -> ApiResult<String> {
     let now = now_ms();
     let live = w.live_indices(|_| true);
 
@@ -616,6 +851,18 @@ fn index_md(w: &World) -> String {
         ));
     }
 
+    // 主题段（D-0183）：主题 + 每个下面的篇数。表不在（只读打开的旧库）就当没有。
+    s.push_str("\n## 主题\n");
+    match kbstore::topic_list(conn) {
+        Ok(topics) if !topics.is_empty() => {
+            for t in &topics {
+                let n = kbstore::docs_by_topic(conn, &t.name).map(|v| v.len()).unwrap_or(0);
+                s.push_str(&format!("- {}（{n}）\n", t.name));
+            }
+        }
+        _ => s.push_str("（暂无）\n"),
+    }
+
     // 标签统计（D-0086）：目录承诺了 `/by-tag/`，这一段就得有真数据
     let mut tags: BTreeMap<String, usize> = BTreeMap::new();
     for &i in &live {
@@ -632,17 +879,25 @@ fn index_md(w: &World) -> String {
         s.push('\n');
     }
 
+    // 最近改动：每篇一行摘要（`doc_summary.line`）；没有总结的只显示标题，不留空占位
     s.push_str("\n## 最近改动\n");
     let mut recent = live;
     recent.sort_by_key(|&i| std::cmp::Reverse(w.docs[i].updated_at));
     for &i in recent.iter().take(20) {
         if let Some(p) = &w.tree_path[i] {
-            s.push_str(&format!("- {p}  ({})\n", human_age(now - w.docs[i].updated_at)));
+            let age = human_age(now - w.docs[i].updated_at);
+            let line = summary::get(conn, &w.docs[i].id)?
+                .map(|x| x.line)
+                .filter(|l| !l.trim().is_empty());
+            match line {
+                Some(l) => s.push_str(&format!("- {p} — {l}  ({age})\n")),
+                None => s.push_str(&format!("- {p}  ({age})\n")),
+            }
         }
     }
 
     s.push_str("\n## 这个目录怎么用\n见 /AGENTS.md\n");
-    s
+    Ok(s)
 }
 
 /// `/AGENTS.md` —— 说明书。**约定比内容重要**：告诉 agent 这棵树的语法。
@@ -656,19 +911,28 @@ fn agents_md() -> String {
 - /recent/          按最近打开，文件名前缀是**位次**（跟着打开顺序变，别当身份）
 - /favorites/       收藏
 - /by-tag/<标签>/    按平标签（D-0086）
+- /by-topic/<主题路径>/  AI 归的类（D-0183），主题名是全路径，逐层进；每层列的是该主题（含子主题）下的文档
 - /links/to/<文档>.md   反链：谁指向它 —— 找上下文最快的一条路
 - /links/from/<文档>.md 出链：它指向谁
+- /graph/neighbors/<文档>.md  这一篇的邻居清单（显式链接 + 派生边）
+- /entity/<实体名>.md  提到这个实体的笔记清单
 - /outline/         只有标题行（目录页）
 - /trash/           回收站
-- /search/<q>/      动态查询：一次查询 = 一次目录列举
+- /proposals.md     待确认的整理建议清单（一个文件，不是目录）
+- /search/<q>/      动态查询：一次查询 = 一次目录列举（标题 / 正文包含 q）
+- /search/bm25/<q>/ FTS5 排序的结果
+- /search/semantic/<q>/ 语义检索；**没配 embedding 时目录里只有一句话**，不是空、也不报错
 
 建议：先读 /index.md 看全局 → grep 定位 → read 拿正文；要上下文就去 /links/to/。
 
 ⚠️ **路径是派生的**：改名 / 移动 / 换排序都会改路径，重名的还带 `~id` 后缀。
 要记住一篇文档，就记 `/tree/` 下的规范路径（grep 返回的也是它），不要记 /recent/ 那种排序视图。
 
-⚠️ **同名不同类**：`/links/to/X.md` 和 `/links/from/X.md` 装的**不是 X 的正文**，是链接清单。
-其余目录下 `X.md` 才是那篇的正文。路径名像不代表内容同类。
+⚠️ **同名不同类**：下面这些 `X.md` 装的**不是 X 的正文**，是清单 —— 路径名像不代表内容同类：
+- `/links/to/X.md` `/links/from/X.md` 链接清单
+- `/graph/neighbors/X.md` X 的邻居清单
+- `/entity/X.md` 提到实体 X 的笔记清单
+其余目录下 `X.md` 才是那篇的正文。
 "
     .to_string()
 }
@@ -704,6 +968,97 @@ fn search_file_content(conn: &Connection, w: &World, q: &str, name: &str) -> Api
         }
     }
     Err(ApiError::new("not_found", format!("/search/{}/{name}", enc(q))))
+}
+
+/// 一批 doc_id（按相关性排好的）→ 一个搜索目录下的文件清单。
+fn entries_from_ids(w: &World, dir: &str, q: &str, ids: Vec<String>) -> Vec<Entry> {
+    let idx: Vec<usize> = ids
+        .iter()
+        .filter_map(|id| w.by_id.get(id).copied())
+        .filter(|&i| w.docs[i].deleted_at.is_none())
+        .collect();
+    let names = w.names_of(&idx);
+    let prefix = format!("{dir}/{}", enc(q));
+    idx.into_iter()
+        .zip(names)
+        .map(|(i, name)| Entry {
+            path: format!("{prefix}/{name}"),
+            kind: "file",
+            size: Some(w.docs[i].md_len),
+        })
+        .collect()
+}
+
+/// `/search/bm25/<q>/`：FTS5 排序结果，复用 `store::docs::search`。
+fn bm25_entries(db: &Db, w: &World, q: &str) -> ApiResult<Vec<Entry>> {
+    if q.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(entries_from_ids(w, "/search/bm25", q, search_ids(db, q)?))
+}
+
+/// `/search/semantic/<q>/`：语义检索结果。**没配 embedding 就给一句明确的话**（不是空、不报错）。
+fn semantic_entries(db: &Db, w: &World, q: &str) -> ApiResult<Vec<Entry>> {
+    if q.is_empty() {
+        return Ok(Vec::new());
+    }
+    match embed::search(db, q, SEARCH_LIMIT) {
+        Ok(hits) => Ok(entries_from_ids(w, "/search/semantic", q, hits.into_iter().map(|h| h.owner_id).collect())),
+        Err(e) => Ok(vec![notice_entry(q, &e.message)]),
+    }
+}
+
+fn bm25_file(db: &Db, w: &World, q: &str, name: &str) -> ApiResult<String> {
+    match resolve_hit(w, name, search_ids(db, q)?) {
+        Some(i) => db.with(|c| text_of(c, &w.docs[i].id)),
+        None => Err(ApiError::new("not_found", format!("/search/bm25/{}/{name}", enc(q)))),
+    }
+}
+
+fn semantic_file(db: &Db, w: &World, q: &str, name: &str) -> ApiResult<String> {
+    let ids: Vec<String> = match embed::search(db, q, SEARCH_LIMIT) {
+        Ok(hits) => hits.into_iter().map(|h| h.owner_id).collect(),
+        Err(e) => {
+            // 不可用时那个目录里只有这一项
+            if name == SEMANTIC_NOTICE {
+                return Ok(e.message);
+            }
+            return Err(ApiError::new("not_found", format!("/search/semantic/{}/{name}", enc(q))));
+        }
+    };
+    match resolve_hit(w, name, ids) {
+        Some(i) => db.with(|c| text_of(c, &w.docs[i].id)),
+        None => Err(ApiError::new("not_found", format!("/search/semantic/{}/{name}", enc(q)))),
+    }
+}
+
+/// bm25 的命中 doc_id（按相关性）。
+fn search_ids(db: &Db, q: &str) -> ApiResult<Vec<String>> {
+    Ok(db
+        .with(|c| docs::search(c, q, SEARCH_LIMIT as i64, false))?
+        .into_iter()
+        .map(|h| h.id)
+        .collect())
+}
+
+/// 一个搜索目录里，文件名 → 文档下标（重名走 `names_of` 同一套后缀规则）。
+fn resolve_hit(w: &World, name: &str, ids: Vec<String>) -> Option<usize> {
+    let idx: Vec<usize> = ids
+        .iter()
+        .filter_map(|id| w.by_id.get(id).copied())
+        .filter(|&i| w.docs[i].deleted_at.is_none())
+        .collect();
+    let names = w.names_of(&idx);
+    idx.iter().copied().zip(names).find(|(_, n)| n == name).map(|(i, _)| i)
+}
+
+/// 语义不可用时目录里唯一的那一项。
+fn notice_entry(q: &str, msg: &str) -> Entry {
+    Entry {
+        path: format!("/search/semantic/{}/{}", enc(q), SEMANTIC_NOTICE),
+        kind: "file",
+        size: Some(msg.len() as u64),
+    }
 }
 
 /* ─────────────────────────── 路径 ─────────────────────────── */
@@ -766,6 +1121,13 @@ fn parent_of(p: &str) -> Option<&str> {
 }
 
 fn lookup(w: &World, path: &str) -> Lookup {
+    // 语义 / bm25 要**先于** `/search/` 判断 —— 否则 "semantic" 会被当成一个查询词
+    if let Some(l) = search_sub(path, "/search/semantic", true) {
+        return l;
+    }
+    if let Some(l) = search_sub(path, "/search/bm25", false) {
+        return l;
+    }
     // /search 是动态的：先于静态表判断
     if path == "/search" {
         return Lookup::SearchDir(String::new());
@@ -786,6 +1148,35 @@ fn lookup(w: &World, path: &str) -> Lookup {
         return Lookup::File(*r);
     }
     Lookup::None
+}
+
+/// `/search/semantic/...` 和 `/search/bm25/...` 的路径解析。`None` = 不是这一支。
+fn search_sub(path: &str, base: &str, semantic: bool) -> Option<Lookup> {
+    if path == base {
+        return Some(if semantic {
+            Lookup::SemanticDir(String::new())
+        } else {
+            Lookup::Bm25Dir(String::new())
+        });
+    }
+    let rest = path.strip_prefix(base)?.strip_prefix('/')?;
+    Some(match rest.split_once('/') {
+        None => {
+            if semantic {
+                Lookup::SemanticDir(dec(rest))
+            } else {
+                Lookup::Bm25Dir(dec(rest))
+            }
+        }
+        Some((q, name)) if !name.is_empty() && !name.contains('/') => {
+            if semantic {
+                Lookup::SemanticFile(dec(q), name.to_string())
+            } else {
+                Lookup::Bm25File(dec(q), name.to_string())
+            }
+        }
+        _ => Lookup::None,
+    })
 }
 
 /// `read` 的 offset/limit：**按行**（offset 0 起数，limit 是行数）。都不给 = 全文。

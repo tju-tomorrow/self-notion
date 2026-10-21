@@ -4,12 +4,14 @@
 //! 换基座后旧库是 Yjs 形状，文档数据不要了（D-0130），不写增量迁移 SQL。
 //!
 //! 模块分工：`docs` 文档元数据 + 内容 + 全文索引 · `version` 版本点 · `links` 链接图谱（D-0085）
-//! · `blob` 图片 · `comment` 评论 · `summary` 每篇的 AI 总结（D-0075）。
+//! · `blob` 图片 · `comment` 评论 · `summary` 每篇的 AI 总结（D-0075）
+//! · `kb` 知识库的表（标签词表 / 主题 / 建议 / 实体 / 派生边 / 向量，D-0181…D-0189）。
 //! `meta` 表（键值）就留在这里 —— 它和 `migrate` 是同一张表，分出去没意义。
 
 pub mod blob;
 pub mod comment;
 pub mod docs;
+pub mod kb;
 pub mod links;
 pub mod summary;
 pub mod sync;
@@ -46,7 +48,16 @@ fn reset(conn: &Connection) -> Result<(), rusqlite::Error> {
          DROP TABLE IF EXISTS doc_link;
          DROP TABLE IF EXISTS blob;
          DROP TABLE IF EXISTS comment;
-         DROP TABLE IF EXISTS sync;",
+         DROP TABLE IF EXISTS sync;
+         DROP TABLE IF EXISTS tag;
+         DROP TABLE IF EXISTS topic;
+         DROP TABLE IF EXISTS doc_topic;
+         DROP TABLE IF EXISTS curator_run;
+         DROP TABLE IF EXISTS proposal;
+         DROP TABLE IF EXISTS entity;
+         DROP TABLE IF EXISTS entity_mention;
+         DROP TABLE IF EXISTS graph_edge;
+         DROP TABLE IF EXISTS vec;",
     )?;
     conn.execute_batch(include_str!("schema.sql"))
 }

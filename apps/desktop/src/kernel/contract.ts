@@ -125,6 +125,33 @@ export interface EditorService {
   revealComment(id: string): void
   /** 把库里评论的"解决没有"推给渲染层 —— 高亮只给未解决的。评论列表一变就推一次。 */
   setCommentStates(states: readonly CommentState[]): void
+  /**
+   * 评论卡片往哪儿摆（D-0172）。编辑器拥有正文的几何，评论插件不认识它 —— 所以**它算、这边读**。
+   *
+   * ★ 为什么是编辑器算：`mode` 取决于正文那一栏有多宽，而"栏"是编辑器自己的排版；
+   *   正文右侧那条留白也是编辑器让出来的（`padding-right`）。两边各算一遍就会漂。
+   * ★ `ids` 为空 = 评论层关着 → 编辑器把留白收回去（`mode: 'off'`）。没开文档 → null。
+   */
+  commentLayout(ids: readonly string[]): CommentLayout | null
+  /**
+   * 浮卡挂点：正文滚动区里的一个零尺寸层。
+   *
+   * ★ 它在**滚动区里面**，所以卡片跟着内容一起滚 —— 不用每帧跟着 `scroll` 重算，
+   *   也不会和正文错开一帧（那是把卡片放在外面用 JS 追的做法必然的毛病）。
+   * ★ 每次 `teardown`（换文档）都会被 `replaceChildren` 清掉，所以**每次都重新拿**，别缓存。
+   */
+  commentLayer(): HTMLElement | null
+}
+
+/** 评论卡片往哪儿摆。 */
+export interface CommentLayout {
+  /** `off` = 评论层关着，什么都不用画，正文的留白也收回去。 */
+  mode: 'float' | 'dock' | 'off'
+  /** 每条评论**第一个锚点**在正文内容坐标系里的 Y（px）—— 卡片就摆在这个高度上。
+   *  页面级 / 块级 / 锚点已经不在正文里 → 没这个键。 */
+  tops: Record<string, number>
+  /** 正文内容的总高（px）—— 页面级那张卡贴在末尾用。 */
+  contentHeight: number
 }
 
 /** 文字选区 + 它在屏幕上的位置 + 原文（`quote` 已截断）。 */
@@ -285,11 +312,22 @@ export const CLOSE_ALL = 'ui:closeAll'
 export const SHOW_LIST = 'ui:showList'
 
 /** `vfs` = 虚拟目录那一页（D-0094）· `bugs` = bug 现场那一页（D-0126）·
- *  `files` = 外部文件那一页（D-0137）。这三个**不是文档列表**，由各自的插件自己画；
- *  这里只是为了让它仨蹭同一条「主区该显示哪一页」的路 —— 首页靠这个值**让开**
+ *  `files` = 外部文件那一页（D-0137）· `inbox` = 整理建议收件箱 · `graph` = 知识图谱。
+ *  这五个**不是文档列表**，由各自的插件自己画；
+ *  这里只是为了让它几个蹭同一条「主区该显示哪一页」的路 —— 首页靠这个值**让开**
  *  （`plugins/home/home.tsx`，不让就两页叠在一起）。
  *  `pinned` = 置顶那一页（D-0123），是普通的文档列表（跟 `favorite` 同一类）。 */
-export type ListGroup = 'all' | 'recent' | 'favorite' | 'pinned' | 'trash' | 'vfs' | 'bugs' | 'files'
+export type ListGroup =
+  | 'all'
+  | 'recent'
+  | 'favorite'
+  | 'pinned'
+  | 'trash'
+  | 'vfs'
+  | 'bugs'
+  | 'files'
+  | 'inbox'
+  | 'graph'
 
 export interface ShowListEvent {
   group: ListGroup
@@ -306,6 +344,13 @@ export const DOC_SAVED = 'ui:docSaved'
 export interface DocSavedEvent {
   id: string
 }
+
+/** 正文的几何变了（打字 / 换行 / 窗口或分栏改尺寸 / 换了文档）→ 评论卡片重摆一次。
+ *
+ *  ★ 事件而不是让评论插件自己去听 `scroll` / `ResizeObserver`：滚动区是**编辑器**的，
+ *    它才知道什么时候该重量。载荷为空 —— 评论插件自己知道要摆哪些 id，收到就再问一次
+ *    `commentLayout`。 */
+export const COMMENT_LAYOUT = 'ui:commentLayout'
 
 /* ───────── 外部 Markdown 文件（D-0137 ~ D-0142，全文见 docs/external-md.md） ─────────
  *
@@ -455,6 +500,165 @@ export interface AiStatus {
   hasKey: boolean
   /** `baseUrl` 是明文 http://（本地模型允许，公网会提示） */
   insecure: boolean
+}
+
+/* ─────────────────── 知识库（D-0181…D-0189，全文见 docs/kb.md） ─────────────────── */
+
+/** `kb:tags` 的一行。形状 = Rust `store::kb::Tag` + 现算的 `count`。
+ *  **受控词表** —— 自动打标签只在这张表里选，不然必然标签爆炸。 */
+export interface KbTag {
+  name: string
+  /** 同义词。合并标签时并进来。 */
+  aliases: string[]
+  desc: string
+  /** `'user'` | `'llm'` */
+  origin: string
+  /** 带这个标签的篇数（现算）。 */
+  count: number
+}
+
+/** `kb:topics` 的一行。`name` 是**全路径**（`技术/数据库/SQLite`），层级在路径里。
+ *  ★ 主题是 AI 归的类，**不是** `documents.parent_id` 那棵树。 */
+export interface KbTopic {
+  name: string
+  desc: string
+  /** 这个主题（含子主题）下的篇数。 */
+  count: number
+}
+
+/** `kb:proposals` 的一行。形状 = Rust `store::kb::Proposal`。
+ *  高置信的建议**不会**出现在这儿 —— 它们由策展人直接落库了（D-0185）。 */
+export interface KbProposal {
+  id: number
+  docId: string
+  /** 文档标题，现查的（列表里要显示「哪一篇」）。 */
+  docTitle: string
+  /** `'tag'` | `'topic'` | `'link'` | `'entity'` | `'merge'` */
+  kind: string
+  /** 形状随 kind：tag → `{tag}`；topic → `{topic}`；link → `{toId,toTitle,relation}`；
+   *  entity → `{name,kind}`；merge → `{from:string[],into:string}`。 */
+  payload: Record<string, unknown>
+  confidence: number
+  reason: string
+  /** `'llm'` | `'rule'` */
+  origin: string
+  /** `'pending'` | `'accepted'` | `'rejected'` */
+  state: string
+  at: number
+  doneAt: number | null
+}
+
+/** `kb:entities` / `kb:entity` 的一行。形状 = Rust `store::kb::Entity`。 */
+export interface KbEntity {
+  id: string
+  name: string
+  /** `'person'` | `'org'` | `'place'` | `'work'` | `'event'` | `'concept'` | `''` */
+  kind: string
+  desc: string
+  at: number
+  /** 提到它的文档 id（`kb:entity` 才有，列表里是空的）。 */
+  docs: string[]
+}
+
+/** 图上一条边。形状 = Rust `store::kb::Edge`。
+ *  ★ 只包含**派生**的边（`related` / `co_occur`）—— 用户画的边在 `doc_link` 里，
+ *  查图时 Rust 侧 union 两张表，前端只看这一个形状。 */
+export interface KbEdge {
+  /** `'doc'` | `'entity'` | `'topic'` | `'tag'` */
+  srcKind: string
+  srcId: string
+  dstKind: string
+  dstId: string
+  /** `'mention'` | `'subpage'` | `'related'` | `'co_occur'` | `'tagged'` | `'topic'` */
+  kind: string
+  weight: number
+  reason: string
+  /** `'user'` | `'llm'` | `'computed'` */
+  origin: string
+  at: number
+}
+
+/** 图上一个节点。形状 = Rust `store::kb::Node`。 */
+export interface KbNode {
+  /** `'doc'` | `'entity'` | `'topic'` | `'tag'` */
+  kind: string
+  id: string
+  /** 给人看的：文档标题 / 实体名 / 主题名。 */
+  label: string
+  /** 度数之类。 */
+  extra: Record<string, unknown>
+}
+
+/** `kb:graph` 的返回。形状 = Rust `store::kb::Subgraph`。 */
+export interface KbSubgraph {
+  nodes: KbNode[]
+  edges: KbEdge[]
+}
+
+/** `kb:related` 的一行：一篇相关笔记 + 为什么相关。 */
+export interface KbRelated {
+  id: string
+  title: string
+  /** 边类型（同上 `KbEdge.kind`）。 */
+  kind: string
+  weight: number
+  reason: string
+}
+
+/** `kb:semantic` 的一行。`score` = **原始余弦**（-1..1，越大越像，**可以为负**）。
+ *  别当 0..1 用 —— 要显示成百分比就先 `(1+score)/2`。 */
+export interface KbVecHit {
+  docId: string
+  title: string
+  score: number
+}
+
+/** `kb:status` —— 设置页和收件箱头部用。 */
+export interface KbStatus {
+  /** 策展人开着没有（`meta.kb.curator`）。 */
+  curatorOn: boolean
+  /** 语义层可用没有（配了 embedding 模型）。 */
+  semanticOn: boolean
+  /** 当前 embedding 模型名。 */
+  embedModel: string
+  docs: number
+  tags: number
+  topics: number
+  entities: number
+  /** 待确认的建议数。 */
+  pending: number
+  /** 还没整理过的篇数。 */
+  stale: number
+}
+
+/** `kb:curate` 的返回。 */
+export interface KbCurateResult {
+  /** 跑了几篇。 */
+  ran: number
+  /** 产出了几条建议。 */
+  proposals: number
+  /** 直接落库了几条（高置信那一批）。 */
+  applied: number
+}
+
+/** `ctx.get('kb')` —— 知识库服务面（U8 提供；收件箱 / 图谱 / 侧栏软依赖读，D-0189）。
+ *
+ *  ★ 只是 `kb:*` RPC 的一层薄包装：别的插件经它拿数据，**不 import `plugins/kb/` 的任何文件**。 */
+export interface KbService {
+  status(): Promise<KbStatus>
+  /** 不给 id 就跑一轮（限流，最多 10 篇）。 */
+  curate(docId?: string): Promise<KbCurateResult>
+  /** `state` 缺省 = `'pending'`。 */
+  proposals(state?: string): Promise<KbProposal[]>
+  decide(id: number, accept: boolean): Promise<void>
+  tags(): Promise<KbTag[]>
+  topics(): Promise<KbTopic[]>
+  entities(): Promise<KbEntity[]>
+  /** 查不到回 null。 */
+  entity(name: string): Promise<KbEntity | null>
+  related(id: string, limit?: number): Promise<KbRelated[]>
+  graph(seed: string, depth?: number, limit?: number): Promise<KbSubgraph>
+  semantic(q: string, limit?: number): Promise<KbVecHit[]>
 }
 
 /** `version:list` 的一行。形状 = Rust `store::version::VersionMeta`。
@@ -693,6 +897,7 @@ declare module 'cordis' {
     [SHOW_LIST]: (payload: ShowListEvent) => void
     [DOCS_CHANGED]: () => void
     [DOC_SAVED]: (payload: DocSavedEvent) => void
+    [COMMENT_LAYOUT]: () => void
     [FILE_OPENED]: (payload: FileOpenedEvent) => void
   }
 }
@@ -720,5 +925,6 @@ declare module 'cordis' {
     mascot?: MascotService
     tools?: ToolsService
     ai?: AiService
+    kb?: KbService
   }
 }

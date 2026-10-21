@@ -107,5 +107,9 @@ export function filterGroup(docs: readonly DocMeta[], group: ListGroup): DocMeta
     // 外部文件那一页同理，归 plugin-external-files 画（D-0137）。
     case 'files':
       return []
+    // 整理建议 / 知识图谱同理，归 plugin-kb-inbox / plugin-kb-graph 画。
+    case 'inbox':
+    case 'graph':
+      return []
   }
 }

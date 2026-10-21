@@ -15,6 +15,7 @@ mod commands;
 mod disk;
 #[cfg(target_os = "macos")]
 mod dock;
+mod kb;
 mod log;
 pub mod mcp;
 mod mem;
@@ -99,8 +100,18 @@ pub fn run() {
             // Dock 图标的右键菜单（`dock.rs`）：要主线程 + Tauri 的 delegate 已挂上。
             #[cfg(target_os = "macos")]
             crate::dock::install(app.handle());
-            // 磁盘上只有一个 self-notion.db（外加 blob / 索引，都在同一库里）
-            app.manage(store::Db::open(&dir.join("self-notion.db"))?);
+            // 磁盘上只有一个 self-notion.db（外加 blob / 索引，都在同一库里）。
+            // ★ 包 `Arc` 是为了给策展人的后台线程一个能带走的共享句柄 —— **只有这一条连接**。
+            //   之前 state 一条、策展人再开一条，两把锁互不串行，并发写会撞 SQLITE_BUSY。
+            let db = std::sync::Arc::new(store::Db::open(&dir.join("self-notion.db"))?);
+            // 老库里已有的标签补进受控词表（之后由 `docs::set_tags` 接着长）。
+            // 失败要留痕 —— 这层静默失效的话，词表永远空，而「词表空」的症状
+            // 是「AI 拿不到标签」，离这里十万八千里，不记下来查不到。
+            if let Err(e) = db.with(store::kb::sync_vocab_from_docs) {
+                log::record("kb", &format!("启动同步标签词表失败：{}", e.message));
+            }
+            crate::kb::curator::spawn(db.clone());
+            app.manage(db);
             // 兜底（见 `reveal`）：前端要是压根没起来，窗口也得出来 ——
             // 那里面至少有个错误框，比「窗口一直不出现」好查得多。
             let handle = app.handle().clone();
