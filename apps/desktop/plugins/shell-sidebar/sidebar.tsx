@@ -552,8 +552,10 @@ export function Sidebar({ ctx }: { ctx: Context }) {
   const trashSelected = group === 'trash'
 
   return (
-    <>
-      {/* 不滚的那截：搜索 / 四个导航项。
+    /* 整条侧栏（导航 + 页面树）共用一条滚动条 —— 导航行比页面树还长的时候，
+       只让下面那截滚等于把页面树挤进一条窄缝里。 */
+    <div className={s.scroll}>
+      {/* 搜索 / 导航项。
           顶部原来有行品牌标识（`S self-notion`）—— 撤了（D-0070）：单人本地应用，
           它既不切工作区也不显示账号，就一行字占着最显眼的位置。 */}
       <div className={s.head}>
@@ -694,9 +696,9 @@ export function Sidebar({ ctx }: { ctx: Context }) {
         )}
       </div>
 
-      {/* 可滚的那截。「全部文档」下是 AFFiNE 那四段：收藏 / 文件夹 / 标签 / 合集；
+      {/* 「全部文档」下是 AFFiNE 那四段：收藏 / 文件夹 / 标签 / 合集；
           最近 / 收藏 / 置顶 还是各自的派生列表；**回收站不列**（主区那一页已经有完整列表）。 */}
-      <div className={s.scroll}>
+      <div className={s.tree}>
         {error !== null && <p className={s.error}>{error}</p>}
         {group === 'tree' ? (
           <>
@@ -749,6 +751,6 @@ export function Sidebar({ ctx }: { ctx: Context }) {
       {menu && (
         <DocMenu ctx={ctx} menu={menu} docs={docs} onClose={closeMenu} onRename={beginRename} />
       )}
-    </>
+    </div>
   )
 }

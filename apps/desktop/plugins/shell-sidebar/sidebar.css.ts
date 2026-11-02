@@ -2,14 +2,14 @@
  * 侧栏样式。数值抄 AFFiNE 的 `app-sidebar/**` 与 `navigation-panel/tree/node.css.ts`。
  * ★ 写 `var(--affine-v2-*)` 大小写照抄 —— 写错一个字母整条声明作废。
  */
-import { style } from '@vanilla-extract/css'
+import { globalStyle, style } from '@vanilla-extract/css'
 
-/** 顶上不滚的那截（工作区行 + 搜索行 + 导航行）—— AFFiNE 的 `SidebarContainer`。 */
+/** 搜索行 + 导航行。横向 6px + 外层滚动区的 8px = 原来的 14px。 */
 export const head = style({
   display: 'flex',
   flexDirection: 'column',
   gap: 2,
-  padding: '10px 14px 4px',
+  padding: '10px 6px 4px',
   flex: '0 0 auto',
 })
 
@@ -95,9 +95,11 @@ export const navItemOn = style({
       borderRadius: 1,
       background: 'var(--affine-primary-color)',
     },
-    '& > span:first-child': { color: 'var(--affine-primary-color)' },
   },
 })
+
+// 图标 span 自带颜色，选中态要盖过去；VE 不收 `& > span` 这种后代选择器，只能走 globalStyle。
+globalStyle(`${navItemOn} > span:first-child`, { color: 'var(--affine-primary-color)' })
 
 /** 图标统一 20px，颜色比文字淡一档（AFFiNE 的 `icon/primary`）。 */
 export const navIcon = style({
@@ -110,12 +112,19 @@ export const navIcon = style({
 
 export const navLabel = style({ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })
 
-/** 树那截要滚，头那截不滚 —— AFFiNE 的 `SidebarScrollableContainer`。 */
+/** 整条侧栏的滚动区（导航 + 页面树共用一条滚动条）。 */
 export const scroll = style({
   flex: 1,
   minHeight: 0,
   overflowY: 'auto',
   padding: '0 8px 8px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+})
+
+/** 页面树那一段。滚动已经提到外层，这里只管纵向排列。 */
+export const tree = style({
   display: 'flex',
   flexDirection: 'column',
   gap: 2,
