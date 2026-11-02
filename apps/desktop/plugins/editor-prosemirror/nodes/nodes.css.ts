@@ -23,8 +23,8 @@ globalStyle('.sn-todo-box', {
   flex: '0 0 16px',
   width: 16,
   height: 16,
-  // 跟正文第一行对齐：16 的方框对 20 的行高差 2px。
-  marginTop: 2,
+  // 跟正文第一行对齐：16 的方框对 27 的行高（16px × 1.7）差 5.5px。
+  marginTop: 5.5,
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',

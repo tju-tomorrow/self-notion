@@ -7,10 +7,10 @@
 import { globalStyle } from '@vanilla-extract/css'
 
 /** 版心宽度 —— 旧版那套居中窄栏是 BlockSuite 的 page 容器给的，换基座后要自己实现。
- *  值照 Notion 的观感（内容约占窗口宽的 6 成，两边留白明显）。
- *  ★ 720 / 100% 由 `shell-doc-header/fonts.ts` 写在 `<html>` 上（⋯ 菜单的「全宽」）——
- *    这里写死 700 的话那个开关就成了死旋钮。 */
-const PAGE_WIDTH = 'var(--sn-editor-width, 700px)'
+ *  值照 Notion 的观感再收窄一档（640px ≈ 40 个汉字一行，跟「20–35 字」的阅读舒适区间更近）。
+ *  ★ 640 / 100% 由 `shell-doc-header/fonts.ts` 写在 `<html>` 上（⋯ 菜单的「全宽」）——
+ *    这里写死 640 的话那个开关就成了死旋钮。 */
+const PAGE_WIDTH = 'var(--sn-editor-width, 640px)'
 
 /**
  * 版心宽度。★ 窗口（或分栏后的单栏）窄的时候**别等于整栏宽** —— 那样正文会顶到边上，
@@ -235,17 +235,37 @@ globalStyle('.sn-meta-sep', { opacity: 0.5 })
 
 // ★ 浏览器给 `p` / `h1-h3` / `blockquote` / `pre` 都带默认 margin（`h1` 是 1em ≈ 32px）——
 //   不清掉，块与块之间就凭空多出一大截。这是「两个块距离太大」的根因。
+//   纵向节奏改由下面那几条显式给（段落 14px、标题上 28 下 8 上下浮动）。
 globalStyle('.ProseMirror :is(p, h1, h2, h3, blockquote, pre, ul, ol)', { margin: 0 })
 
+// 段与段：每侧 5 + `.sn-block` 自身的 2 = 14px。视觉分块靠它，不是靠行距。
+globalStyle('.sn-block > p', { margin: '5px 0' })
+
+// 标题：字号 / 行高 / 上下留白都显式给 —— 浏览器默认的 h1-h3 只有粗细和字号，
+// margin 又被上面清成 0，标题会直接贴在上一段屁股上。
+const HEADINGS = [
+  { tag: 'h1', size: 1.875, top: 1, bottom: 0.4 },
+  { tag: 'h2', size: 1.5, top: 1.2, bottom: 0.4 },
+  { tag: 'h3', size: 1.25, top: 1.4, bottom: 0.5 },
+] as const
+for (const h of HEADINGS) {
+  globalStyle(`.ProseMirror ${h.tag}`, {
+    fontSize: `${h.size}em`,
+    fontWeight: 600,
+    lineHeight: 1.3,
+    margin: `${h.top}em 0 ${h.bottom}em`,
+  })
+}
+
 // 版心：居中的窄栏。ProseMirror 自己在根上放 `.ProseMirror`；框线由外面那圈负责，这儿别再加一个。
-// 字号 / 行高按 Notion 那套（正文 16 / 行高 1.5，标题 40）—— 不设的话正文会用浏览器的 16px 默认值，
-// 跟 40px 的标题一比就散架了。
+// 字号 / 行高按 Notion 那套再放松一档（正文 16 / 行高 1.7，标题 40）—— 1.5 是 WCAG 的下限，
+// 长文里偏挤；ADHD 阅读更吃「行与行分得开」。
 globalStyle('.ProseMirror', {
   maxWidth: COLUMN,
   margin: '0 auto',
   fontFamily: DOC_FONT,
   fontSize: 'calc(16px * var(--sn-font-scale, 1))',
-  lineHeight: 1.5,
+  lineHeight: 1.7,
   outline: 'none',
 })
 

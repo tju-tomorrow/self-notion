@@ -7,7 +7,7 @@
  *   --sn-font-doc                文章默认
  *   --sn-font-over               这一篇（= 单篇覆盖，没设就是文章默认）
  *   --affine-font-code-family    代码块；顺带把 mono 那个也指过去
- *   --sn-editor-width            版心宽度（720 / 全宽），`editor.ts` 那个 inline 的 `var()` 读它
+ *   --sn-editor-width            版心宽度（640 / 全宽），`editor.ts` 那个 inline 的 `var()` 读它
  *
  * 顺带carry两个**单篇**的页面开关（D-0076）——它们和字体一样是「这一篇长什么样」，
  * 而且都要写 `<html>`、都要跟着当前文档走，放一个模块里最省：
@@ -85,7 +85,7 @@ export function createFonts(ctx: Context): Fonts {
     const small = docId !== null && ctx.settings.get<boolean>(docSmallKey(docId)) === true
     root.style.setProperty('--sn-font-scale', String(base * (small ? SMALL_TEXT_RATIO : 1)))
 
-    // 全宽（D-0076）：`editor.ts` 那个 inline 写的是 `var(--sn-editor-width, 720px)`，读的就是这儿。
+    // 全宽（D-0076）：`editor.ts` 那个 inline 写的是 `var(--sn-editor-width, 640px)`，读的就是这儿。
     const wide = docId !== null && ctx.settings.get<boolean>(docWideKey(docId)) === true
     root.style.setProperty('--sn-editor-width', wide ? EDITOR_WIDTH_WIDE : EDITOR_WIDTH_DEFAULT)
     // 标题的占位文字（`editor.css.ts` 里那条 `content:` 读它）—— 界面语言跟着走。

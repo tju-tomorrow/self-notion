@@ -33,7 +33,7 @@ export const FONT_SCALE_KEY = 'ui.fontScale'
  * 和单篇字体住一个抽屉（⋯ 菜单），落地同样在 `fonts.ts` 的两个 `<html>` 变量上。
  *
  *   `doc.small.<id>`  小字号 —— 这一篇整体再缩一档（和全局字号**叠乘**）
- *   `doc.wide.<id>`   全宽   —— 版心从 720 铺满
+ *   `doc.wide.<id>`   全宽   —— 版心从 640 铺满
  *
  * 存布尔：`ctx.settings` 走 JSON（`plugin-settings` 的 `encode/decode`），布尔原样来回。
  */
@@ -43,8 +43,8 @@ export const docWideKey = (id: string) => `doc.wide.${id}`
 /** 小字号缩多少。Notion 那档是正文 16 → 14（0.875），照抄。 */
 export const SMALL_TEXT_RATIO = 0.875
 
-/** 版心宽度。默认 720；`editor.ts` 里那个 `var()` 的兜底必须和这里一致。 */
-export const EDITOR_WIDTH_DEFAULT = '720px'
+/** 版心宽度。默认 640（约 40 个汉字一行，长文更好追行）；`editor.ts` 里那个 `var()` 的兜底必须和这里一致。 */
+export const EDITOR_WIDTH_DEFAULT = '640px'
 export const EDITOR_WIDTH_WIDE = '100%'
 
 /** 每一步 ×1.1 / ÷1.1，夹在 0.8～2 之间（再小没法看，再大一行放不下几个字）。 */
