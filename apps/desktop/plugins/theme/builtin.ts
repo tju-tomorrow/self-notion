@@ -3,8 +3,8 @@
  *
  * 原版 `seeds: null` —— 一个变量都不写，就是今天这个样子（D-0145）。
  * 但它在界面上仍要能调色，所以另外给一份 `EDIT_BASE`：那两组值 = AFFiNE 深/浅两档的
- * 画布 / 卡片 / 强调色（实测从 `combined*CssVariables` 抄的），用户从原版起手调时
- * 起点就是原版的颜色，而不是凭空冒出一个紫的。
+ * 画布 / 卡片 / 强调色（实测从 `combined*CssVariables` 抄的，暗色画布那档换成了
+ * Notion 的 #191919，D-0171），用户从原版起手调时起点就是原版的颜色，而不是凭空冒出一个紫的。
  */
 import type { Seeds, Theme } from './types'
 
@@ -14,7 +14,7 @@ export const STARRY_ID = 'starry'
 
 export const EDIT_BASE: Readonly<Record<'dark' | 'light', Seeds>> = {
   dark: {
-    canvas: '#141414',
+    canvas: '#191919',
     sidebar: '#181818',
     surface: '#252525',
     accent: '#1c9ee4',

@@ -82,6 +82,19 @@ export const backspace: Command = (state, dispatch) => {
     return true
   }
 
-  if (name === 'paragraph') return mergeUp(state, dispatch, $pos, block)
+  if (name === 'paragraph') {
+    const prev = prevSibling($pos, block)
+    // 上一块是原子块（分割线 / 图片 / 媒体）→ 直接删掉它。交给 baseKeymap 会把它包成父块，
+    // 于是同一个 Backspace 只会「缩进去 / 退出来」来回跳，那块永远删不掉。
+    if (prev && prev.node.child(0).isAtom) {
+      if (dispatch) {
+        const tr = state.tr.delete(prev.pos, prev.pos + prev.node.nodeSize)
+        tr.setSelection(TextSelection.create(tr.doc, state.selection.from - prev.node.nodeSize))
+        dispatch(tr)
+      }
+      return true
+    }
+    return mergeUp(state, dispatch, $pos, block)
+  }
   return false
 }

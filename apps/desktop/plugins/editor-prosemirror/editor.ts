@@ -518,3 +518,5 @@ export const addCommentAnchor = (id: string, at: CommentTarget) => comments.addA
 export const removeCommentAnchor = (id: string) => comments.removeAnchor(id)
 export const revealCommentAnchor = (id: string) => comments.reveal(id)
 export const pushCommentStates = (list: readonly CommentState[]) => comments.setStates(list)
+export const commentCardLayout = (ids: readonly string[]) => comments.layout(ids)
+export const commentCardLayer = () => comments.layer()

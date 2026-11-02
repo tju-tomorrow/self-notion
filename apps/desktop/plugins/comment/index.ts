@@ -10,7 +10,7 @@ import type { Context } from 'cordis'
 import { CLOSE_ALL, OPEN_DOC, SHOW_LIST, type OpenDocEvent } from '../../src/kernel/contract'
 import { commentOnSelection, openPanel, setDoc } from './actions'
 import { CommentHeader } from './header'
-import { CommentPanel } from './panel'
+import { CommentLayer } from './layer'
 
 export const name = 'comment'
 
@@ -32,7 +32,7 @@ export function apply(ctx: Context) {
       // 这里只补一个 `kind` —— 建锚点、开面板那套跟以前一样，一个字没改。
       onSelection: (at) => void commentOnSelection(ctx, { kind: 'inline', ...at }),
     }),
-    ctx.slot.register('doc.aside', () => createElement(CommentPanel, { ctx })),
+    ctx.slot.register('doc.aside', () => createElement(CommentLayer, { ctx })),
     // ★ 入口在顶栗那一行的**最右端**（D-0070）—— 原来挂在 `doc.header` 里，
     //   而插件装载顺序先于 shell-doc-header，于是那颗图标落在了面包屑左边。
     ctx.slot.register('doc.header.right', () => createElement(CommentHeader, { ctx })),

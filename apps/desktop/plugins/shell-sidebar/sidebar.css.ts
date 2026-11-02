@@ -276,7 +276,9 @@ export const sectionActions = style({
   display: 'flex',
   gap: 8,
   opacity: 0,
-  selectors: { [`${sectionHeader}:hover &`]: { opacity: 1 } },
+  // 透明但还是能点 —— 不关掉的话，点标题行右端（想折叠）会静默新建一篇。
+  pointerEvents: 'none',
+  selectors: { [`${sectionHeader}:hover &`]: { opacity: 1, pointerEvents: 'auto' } },
 })
 
 export const sectionAdd = style({

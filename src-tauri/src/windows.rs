@@ -25,16 +25,32 @@ fn doc_hash(id: &str) -> String {
     format!("#doc={id}")
 }
 
-/// 开一个新窗口。`doc` 非空时它带着 `#doc=<id>` 起来，前端装载完直接开这篇。
-pub fn open(app: &AppHandle, doc: Option<&str>) -> Result<String, String> {
-    let mut cfg = app
-        .config()
+/// `tauri.conf.json` 里 `main` 那份窗口配置。
+fn main_config(app: &AppHandle) -> Result<tauri::utils::config::WindowConfig, String> {
+    app.config()
         .app
         .windows
         .iter()
         .find(|w| w.label == "main")
         .cloned()
-        .ok_or("tauri.conf.json 里没有 main 那份窗口配置")?;
+        .ok_or_else(|| "tauri.conf.json 里没有 main 那份窗口配置".into())
+}
+
+/// 建主窗口。**必须等 `setup` 里 `manage(Db)` 之后**再调 —— 配置里的窗口会先于 setup
+/// 建出来并开始加载，前端一调 IPC（`State` 注入）或拉 blob（URI 协议）就撞上还没 manage
+/// 的 `Db`，`state()` 直接 panic，进程 abort。
+pub fn create_main(app: &AppHandle) -> Result<(), String> {
+    let cfg = main_config(app)?;
+    WebviewWindowBuilder::from_config(app, &cfg)
+        .map_err(|e| e.to_string())?
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// 开一个新窗口。`doc` 非空时它带着 `#doc=<id>` 起来，前端装载完直接开这篇。
+pub fn open(app: &AppHandle, doc: Option<&str>) -> Result<String, String> {
+    let mut cfg = main_config(app)?;
     cfg.label = free_label(app);
     // 照旧藏到第一帧画完（`reveal` 去露）—— 不然会先闪一个空的毛玻璃窗。
     cfg.visible = false;

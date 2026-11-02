@@ -15,6 +15,7 @@
     "windows": [
       {
         "title": "self-notion",
+        "create": false,
         "width": 1280,
         "height": 860,
         "minWidth": 640,

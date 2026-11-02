@@ -11,6 +11,7 @@ import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import {
+  COMMENT_LAYOUT,
   DOC_SAVED,
   DOCS_CHANGED,
   OPEN_DOC,
@@ -77,6 +78,8 @@ export function apply(ctx: Context) {
         comment: {
           open: (id) => ctx.get('comment')?.open(id),
           selection: (at) => ctx.get('comment')?.onSelection(at),
+          // 正文几何变了 → 广播，评论插件重摆卡片（D-0172）。
+          layout: () => ctx.emit(COMMENT_LAYOUT),
         },
       })
       mod = editor
@@ -166,6 +169,8 @@ export function apply(ctx: Context) {
       removeCommentAnchor: (id: string) => mod?.removeCommentAnchor(id),
       revealComment: (id: string) => mod?.revealCommentAnchor(id),
       setCommentStates: (list: readonly CommentState[]) => mod?.pushCommentStates(list),
+      commentLayout: (ids: readonly string[]) => mod?.commentCardLayout(ids) ?? null,
+      commentLayer: () => mod?.commentCardLayer() ?? null,
 
       /** 内存监控（D-0088）。没装载过编辑器就是空表 —— 那是实话（这会儿确实没有文档在内存里）。 */
       stats: () => mod?.memoryStats() ?? [],

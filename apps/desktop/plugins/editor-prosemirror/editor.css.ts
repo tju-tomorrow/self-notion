@@ -85,12 +85,12 @@ globalStyle('.sn-pane-body', {
 // ── 正文纸面：底色 + 磨砂（D-0074） ──
 // `--sn-paper` / `--sn-paper-alpha` 由 `appearance` 插件写在 `<html>` 上（`paper.ts`），这里只管**消费**。
 // ★ 换基座时漏了这一条 —— 设置页那两行（纸面颜色 / 磨砂）就成了拧不动的旋钮（2026-10-08 用户报的）。
-// ★ 暗色那档兜底跟外壳给 `main` 的同一个值（#1c1c1c，D-0056）；选择器带 `html` 是为了压过上面 `:root` 那条。
+// ★ 暗色那档兜底跟外壳同一个值（Notion 画布色，D-0171）；选择器带 `html` 是为了压过上面 `:root` 那条。
 globalStyle(':root', {
   vars: { '--sn-paper-default': 'var(--affine-v2-layer-background-primary)' },
 })
 
-globalStyle('html[data-theme="dark"]', { vars: { '--sn-paper-default': '#1c1c1c' } })
+globalStyle('html[data-theme="dark"]', { vars: { '--sn-paper-default': '#191919' } })
 
 globalStyle('.sn-pane-body', {
   // 两条都取不到（插件被停 / 没改过设置）就是主题自己那一档、完全不透。

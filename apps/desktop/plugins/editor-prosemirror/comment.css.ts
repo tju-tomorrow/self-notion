@@ -17,3 +17,24 @@ globalStyle('.sn-comment-unresolved', {
 globalStyle('.sn-comment-active', {
   backgroundColor: 'var(--affine-v2-block-comment-highlightActive, #1e96eb4d)',
 })
+
+/* ── 卡片那一层（D-0172） ──
+ *
+ * 层是**正文滚动区里的一个零高元素**（`comment.ts` 的 `layerOf` 建、`prepend` 在正文前面）：
+ * 在流里 → 卡片跟着内容一起滚，不用追 `scroll`、也不会和正文错开一帧。
+ * ★ `margin-right` 是负的：正文那边加了等宽的 `padding-right`，层要伸进那条留白里，
+ *   卡片才能贴到栏的右缘（不伸的话 `right: 0` 落在版心右缘上、盖住字）。
+ * ★ 只在浮卡模式下才伸 —— 窄栏模式没有那条留白，伸出去就是横向溢出。 */
+globalStyle('.sn-pane-float', {
+  position: 'relative',
+  height: 0,
+  pointerEvents: 'none',
+  zIndex: 5,
+})
+
+/** 浮卡模式下正文让出右侧那条留白（`COMMENT_CARD_W + COMMENT_GAP` = 276）——
+ *  版心本来就是 `margin: 0 auto`，让完自己就居中在剩下的地方。
+ *  ★ 这个数在 `comment.ts` 的 `GUTTER` 里也有一份，改要一起改。 */
+globalStyle('.sn-pane-body.sn-comment-float', { paddingRight: 276 })
+
+globalStyle('.sn-comment-float > .sn-pane-float', { marginRight: '-276px' })

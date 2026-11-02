@@ -13,7 +13,7 @@ export const page = style({
   minHeight: 0,
   // 外壳的 `main` 是透的（正文纸面吃窗口磨砂）—— 这一页不是正文，自己补底色。
   background: 'var(--affine-v2-layer-background-primary)',
-  selectors: { '[data-theme="dark"] &': { background: '#1c1c1c' } },
+  selectors: { '[data-theme="dark"] &': { background: '#191919' } },
 })
 
 export const header = style({

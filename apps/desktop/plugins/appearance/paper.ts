@@ -59,7 +59,7 @@ export function paperHex(choice: string, scheme: 'light' | 'dark'): string | nul
 /** 取色器该显示哪个色 —— 跟随主题时给主题自己那一档。 */
 export function paperSwatchValue(ctx: Context, choice: string): string {
   const scheme = schemeNow(ctx)
-  return paperHex(choice, scheme) ?? (scheme === 'dark' ? '#1c1c1c' : '#ffffff')
+  return paperHex(choice, scheme) ?? (scheme === 'dark' ? '#191919' : '#ffffff')
 }
 
 export function createPaper(ctx: Context): () => void {

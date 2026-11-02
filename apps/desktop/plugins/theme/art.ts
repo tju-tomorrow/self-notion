@@ -67,7 +67,7 @@ const clamp = (n: number) => Math.min(BG_STRENGTH_MAX, Math.max(BG_STRENGTH_MIN,
  *   插图写上去会被裁在那一条里（D-0160 踩过）。
  */
 export const DECOR_CSS = `
-/* 画布底色：四个页面把暗色底写成了字面量 #1c1c1c，变量到不了（docs/theme.md §3.1）。
+/* 画布底色：五个页面把暗色底写成了字面量 #191919，变量到不了（docs/theme.md §3.1）。
    特异性本来够（html[data-sn-theme] main>div>div:first-child = 0,2,3 压过 [data-theme=dark] .hash = 0,2,0），
    加 !important 是防这个链条以后变长 —— 失配的样子是「整页还是黑的」，太难发现。
    ★ 走长写 background-color：背景图在另一条规则里，简写会把 background-image 一起重置掉。 */

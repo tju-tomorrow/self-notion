@@ -25,9 +25,9 @@ export const page = style({
   flex: 1,
   minHeight: 0,
   // 外壳的 `main` 现在透（正文纸面要吃窗口磨砂，D-0074）—— 首页不是正文，自己把底色补上，
-  // 否则整个列表会浮在壁纸上。值跟外壳原来给 `main` 的那一档一模一样。
+  // 否则整个列表会浮在壁纸上。值跟外壳那一档（Notion 画布色）一模一样。
   background: 'var(--affine-v2-layer-background-primary)',
-  selectors: { '[data-theme="dark"] &': { background: '#1c1c1c' } },
+  selectors: { '[data-theme="dark"] &': { background: '#191919' } },
 })
 
 /* ── 工具栏：导航标签 + 视图切换 / Display / New doc ── */

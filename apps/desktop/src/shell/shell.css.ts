@@ -200,14 +200,14 @@ export const view = style({
 /** 页面顶栏那一行。**壳出这一行**（高度 + 底线），插件往里面塞自己的按钮 ——
  *  所以插件不该再自带宽高底线（`shell-doc-header` 的 `.bar` 已经交出来了）。
  *  底色原本在 `main` 上，现在搬到这里：顶栏不算「纸面」，用户定的规则是正文才给出去（D-0074）。
- *  暗色比 AFFiNE 的 #141414 提一档，免得跟磨砂侧栏拉出硬边（D-0056）。 */
+ *  暗色用 Notion 的画布色 #191919（D-0171）。 */
 export const docHeader = style({
   flex: '0 0 44px',
   display: 'flex',
   alignItems: 'center',
   borderBottom: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
   background: 'var(--affine-v2-layer-background-primary)',
-  selectors: { '[data-theme="dark"] &': { background: '#1c1c1c' } },
+  selectors: { '[data-theme="dark"] &': { background: '#191919' } },
   // ★ 压在编辑器**上面**。编辑器里那些浮出来的东西（代码块那条工具条是
   //   floating-ui 算的位置）在块滚到顶上时会飘到编辑器框外、盖住这一行
   //   （用户：「有时候这个 plain text code 块飘上来了」「超出他应该活动的区域了」）。

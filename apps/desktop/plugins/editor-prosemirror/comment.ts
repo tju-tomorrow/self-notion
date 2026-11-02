@@ -13,6 +13,7 @@ import { Decoration, DecorationSet, type EditorView } from 'prosemirror-view'
 
 import type {
   BlockAnchorInfo,
+  CommentLayout,
   CommentState,
   CommentTarget,
   TextAnchorInfo,
@@ -29,6 +30,8 @@ export interface CommentApi {
   removeAnchor(id: string): void
   reveal(id: string): void
   setStates(states: readonly CommentState[]): void
+  layout(ids: readonly string[]): CommentLayout | null
+  layer(): HTMLElement | null
 }
 
 /**
@@ -40,6 +43,8 @@ export interface CommentHooks {
   open(id: string): void
   /** 工具条那颗「评论」点了 → 把量好的文字选区交出去（`TextAnchorInfo` 去掉 `rect` 的那几个字段）。 */
   selection(at: { blockId: string; index: number; length: number; quote: string }): void
+  /** 正文的几何变了（打字 / 换行 / 改尺寸 / 换文档）→ 卡片该重摆一次（D-0172）。 */
+  layout(): void
 }
 
 /** 原文截断 —— 库里那一列也是 200（`docs/comment.md` §四）。 */
@@ -244,6 +249,99 @@ function reveal(view: EditorView, id: string): void {
   }, FLASH_MS)
 }
 
+/* ────────────────────────── 卡片那一层的几何（D-0172） ────────────────────────── */
+
+/** 卡片那一栏的宽、它和正文之间的缝。评论插件的 CSS 里是同一组数（`--sn-comment-card` 那条）。 */
+export const COMMENT_CARD_W = 260
+const COMMENT_GAP = 16
+const GUTTER = COMMENT_CARD_W + COMMENT_GAP
+
+/** 够不够摆浮卡：版心 700 + 两侧最小边距 48 + 卡片那一栏。
+ *  ★ 前两个数在 `editor.css.ts` 的 `PAGE_WIDTH` / `COLUMN` 里 —— 那边改，这里跟着改。 */
+const FLOAT_MIN = 700 + 48 + GUTTER
+
+/** 卡片挂在正文滚动区里的那一层。**在滚动区里面**，所以卡片跟着内容滚，不用追 `scroll`。 */
+const LAYER_CLASS = 'sn-pane-float'
+/** 浮卡模式时给正文右侧让出留白 —— 版心 `margin: 0 auto` 于是自动居中在剩下的地方。 */
+const GUTTER_CLASS = 'sn-comment-float'
+
+/** 留白只该留在**当前那一栏**上。分栏 / 换文档之后别的栏可能还挂着上一次那个类 —— 一起收掉，
+ *  不然那一栏会白白窄 276px（而且没人会想到是评论干的）。 */
+function clearGutter(keep: HTMLElement | null): void {
+  for (const el of document.querySelectorAll<HTMLElement>(`.sn-pane-body.${GUTTER_CLASS}`)) {
+    if (el !== keep) el.classList.remove(GUTTER_CLASS)
+  }
+}
+
+function paneBodyOf(view: EditorView): HTMLElement | null {
+  const dom = view.dom as HTMLElement
+  return dom.closest<HTMLElement>('.sn-pane-body') ?? dom.parentElement
+}
+
+/** 懒建 + 幂等：换文档时 `teardown` 把整个滚动区清掉了，所以**每次都重新拿**，不许缓存。 */
+function layerOf(view: EditorView): HTMLElement | null {
+  const body = paneBodyOf(view)
+  if (!body) return null
+  const found = body.querySelector<HTMLElement>(`:scope > .${LAYER_CLASS}`)
+  if (found) return found
+  const el = document.createElement('div')
+  el.className = LAYER_CLASS
+  body.prepend(el)
+  return el
+}
+
+/**
+ * 卡片往哪儿摆。`ids` 是评论插件要摆的那些 —— 空的就等于「评论层关着」，留白一并收回。
+ *
+ * ★ Y 是拿**层的 rect** 减出来的，不是拿正文的 padding 算的：层在流里、padding 一改就漂，
+ *   量它自己最稳（`getBoundingClientRect` 一次，不逐条 `coordsAtPos` 之外没有额外开销）。
+ */
+function layoutOf(view: EditorView, ids: readonly string[]): CommentLayout | null {
+  const body = paneBodyOf(view)
+  const layer = layerOf(view)
+  if (!body || !layer) return null
+
+  // 用 border-box 宽：加了右侧留白之后 `clientWidth` 会缩，拿它判会自己把自己判回窄栏（来回抖）。
+  const wide = body.getBoundingClientRect().width >= FLOAT_MIN
+  const mode: CommentLayout['mode'] = ids.length === 0 ? 'off' : wide ? 'float' : 'dock'
+  body.classList.toggle(GUTTER_CLASS, mode === 'float')
+  clearGutter(mode === 'float' ? body : null)
+
+  const layerTop = layer.getBoundingClientRect().top
+  const tops: Record<string, number> = {}
+  if (mode === 'float') {
+    for (const id of ids) {
+      const pos = firstAnchor(view.state.doc, id)
+      if (pos < 0) continue
+      try {
+        tops[id] = Math.max(0, view.coordsAtPos(pos).top - layerTop)
+      } catch {
+        // 量不出来（视图正换）就当这条没锚点 —— 卡片退回列表末尾，别整层不画。
+      }
+    }
+  }
+  return {
+    mode,
+    tops,
+    contentHeight: Math.max(0, (view.dom as HTMLElement).getBoundingClientRect().bottom - layerTop),
+  }
+}
+
+/** 几何变了 → 通知评论插件。打字时一帧一次就够，别每敲一个字都量一遍。 */
+let layoutFrame: number | undefined
+
+function notifyLayout(): void {
+  if (layoutFrame !== undefined) return
+  layoutFrame = window.requestAnimationFrame(() => {
+    layoutFrame = undefined
+    try {
+      hooks?.layout()
+    } catch (err) {
+      reportError('comment', err)
+    }
+  })
+}
+
 /* ────────────────────────────── 高亮（decoration）────────────────────────────── */
 
 const commentPlugin = new Plugin({
@@ -272,8 +370,12 @@ const commentPlugin = new Plugin({
       return decos.length ? DecorationSet.create(state.doc, decos) : null
     },
   },
+  // 正文改了 → 锚点跟着动 → 卡片重摆。只认 doc 变了，选区和别的 meta 都不管。
+  update(view: EditorView, prev: EditorState) {
+    if (view.state.doc !== prev.doc) notifyLayout()
+  },
   // 点高亮 → 回传给评论插件。捕获阶段挂，视图销毁时插件自己会调 `destroy` 摘掉（PM 的 PluginView）。
-  view(view) {
+  view(view: EditorView) {
     const onClick = (event: MouseEvent) => {
       const target = event.target
       if (!(target instanceof Element)) return
@@ -281,7 +383,16 @@ const commentPlugin = new Plugin({
       if (id) hooks?.open(id)
     }
     view.dom.addEventListener('click', onClick, true)
-    return { destroy: () => view.dom.removeEventListener('click', onClick, true) }
+    // 窗口 / 分栏改尺寸会换掉「浮卡还是窄栏」那个判断，也会挪动所有锚点 —— 两边都要重量。
+    const body = paneBodyOf(view)
+    const ro = body ? new ResizeObserver(notifyLayout) : null
+    if (body && ro) ro.observe(body)
+    return {
+      destroy: () => {
+        view.dom.removeEventListener('click', onClick, true)
+        ro?.disconnect()
+      },
+    }
   },
 })
 
@@ -362,6 +473,24 @@ export function commentApi(currentView: () => EditorView | null, next?: CommentH
         repaintCurrent()
       } catch (err) {
         reportError('comment', err)
+      }
+    },
+    layout: (ids) => {
+      try {
+        const view = currentView()
+        return view ? layoutOf(view, ids) : null
+      } catch (err) {
+        reportError('comment', err)
+        return null
+      }
+    },
+    layer: () => {
+      try {
+        const view = currentView()
+        return view ? layerOf(view) : null
+      } catch (err) {
+        reportError('comment', err)
+        return null
       }
     },
   }

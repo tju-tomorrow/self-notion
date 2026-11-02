@@ -70,7 +70,11 @@ pub fn run() {
         // 名字对不上不是报错，是白图（D-0050）。
         .register_uri_scheme_protocol("self-notion", |ctx, request| {
             let id = blob_id_from(request.uri());
-            let db = ctx.app_handle().state::<store::Db>();
+            // 这是 webview 的响应式回调，panic 会 abort 整个进程 —— 取不到就降级。
+            let Some(db) = ctx.app_handle().try_state::<store::Db>() else {
+                log::record("blob", "库还没打开，先回 503");
+                return reply(StatusCode::SERVICE_UNAVAILABLE, "text/plain", Vec::new());
+            };
             // 取字节这件事只有 store::blob 一个出口（它和 blob:put 共用同一张表的知识）。
             let hit = db.with(|conn| store::blob::get(conn, id));
             match hit {
@@ -112,6 +116,8 @@ pub fn run() {
             }
             crate::kb::curator::spawn(db.clone());
             app.manage(db);
+            // 窗口在 `manage` 之后才建 —— 见 `windows::create_main`。
+            windows::create_main(app.handle()).map_err(std::io::Error::other)?;
             // 兜底（见 `reveal`）：前端要是压根没起来，窗口也得出来 ——
             // 那里面至少有个错误框，比「窗口一直不出现」好查得多。
             let handle = app.handle().clone();

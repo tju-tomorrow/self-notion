@@ -9,14 +9,16 @@ import type { Comment } from '../../src/kernel/contract'
 
 export interface CommentUiState {
   docId: string | null
-  /** 面板开着没有。关着的时候 `doc.aside` 那个组件返回 null，那一列宽度是 0。 */
+  /** 评论层开着没有。关着的时候 `doc.aside` 那个组件返回 null，那一列宽度是 0，
+   *  正文右侧的留白也收回去。 */
   open: boolean
   comments: Comment[]
   /** 要滚过去 + 闪一下的那条（`at` 换一下就重新触发，点同一条两次也管用）。 */
   spot: { id: string; at: number } | null
   /** 打开着回复框的是哪条。 */
   replyTo: string | null
-  resolvedOpen: boolean
+  /** 已解决的也画出来没有（D-0172）。默认不画 —— 正文旁边只留还没了结的事。 */
+  showResolved: boolean
   error: string
 }
 
@@ -26,7 +28,7 @@ const EMPTY: CommentUiState = {
   comments: [],
   spot: null,
   replyTo: null,
-  resolvedOpen: false,
+  showResolved: false,
   error: '',
 }
 
