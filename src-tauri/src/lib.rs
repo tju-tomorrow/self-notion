@@ -71,7 +71,8 @@ pub fn run() {
         .register_uri_scheme_protocol("self-notion", |ctx, request| {
             let id = blob_id_from(request.uri());
             // 这是 webview 的响应式回调，panic 会 abort 整个进程 —— 取不到就降级。
-            let Some(db) = ctx.app_handle().try_state::<store::Db>() else {
+            // manage 进去的是 `Arc<Db>`（见 setup），这里要的是同一个类型 —— 写 `Db` 只会永远取不到。
+            let Some(db) = ctx.app_handle().try_state::<std::sync::Arc<store::Db>>() else {
                 log::record("blob", "库还没打开，先回 503");
                 return reply(StatusCode::SERVICE_UNAVAILABLE, "text/plain", Vec::new());
             };
