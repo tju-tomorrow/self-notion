@@ -5,7 +5,7 @@
  *   编辑器 `ctx.editor.docFromMarkdown` 变成 PM doc JSON，最后 `doc:apply` 落库。这一层做四件事：
  *
  *   1. 解压（fflate）
- *   2. 按 zip 里的文件夹层级算出父子（`Parent abc.html` + 文件夹 `Parent abc/` 就是 Notion 的嵌套形状）
+ *   2. 按 zip 里的文件夹层级算出父子 —— 形状见 `paths.ts`（文件夹名不带 id）
  *   3. 图片进 `blob:put`，markdown 里写 `self-notion://blob/<id>`
  *   4. HTML → markdown（`parseNotionPage`，自己走 DOM —— 不给第三方 html→md 库）
  *
@@ -19,6 +19,10 @@ import { unzipSync } from 'fflate'
 
 import type { DocMeta, EditorService, RpcService } from '../../src/kernel/contract'
 import { reportError } from '../../src/kernel/errors'
+import { baseOf, dirOf, extOf, normalize, parentIndex, parentOf, titleOf } from './paths'
+
+/** 和编辑器 markdown 序列化同一个前缀（D-0128）；这里只负责吐出来，翻成子页面卡片是编辑器那侧的事。 */
+const DOC_PREFIX = 'self-notion://doc/'
 
 const IMAGE_EXT = new Set([
   'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif', 'heic', 'bmp', 'tif', 'tiff', 'ico',
@@ -49,19 +53,6 @@ function b64(bytes: Uint8Array): string {
   return btoa(raw)
 }
 
-function extOf(path: string): string {
-  const dot = path.lastIndexOf('.')
-  return dot === -1 ? '' : path.slice(dot + 1).toLowerCase()
-}
-
-function baseOf(path: string): string {
-  return path.slice(path.lastIndexOf('/') + 1)
-}
-
-function dirOf(path: string): string {
-  return path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
-}
-
 const junk = (path: string) =>
   path.startsWith('__MACOSX/') || path.includes('DS_Store') || path.endsWith('/')
 
@@ -85,38 +76,6 @@ function flatten(zip: Uint8Array, into: Map<string, Uint8Array>, depth = 0): voi
   }
 }
 
-/** 页面文件名就是标题。Notion 会在后面挂 32 位十六进制消歧义，界面上不该看见它。 */
-function titleOf(path: string): string {
-  const name = baseOf(path).replace(/\.html$/i, '').replace(/ [0-9a-f]{32}$/i, '')
-  try {
-    return decodeURIComponent(name)
-  } catch {
-    return name
-  }
-}
-
-/** 父子靠形状推：`A/B.html` 的父是 `A.html`。父页被删过的往上找一级。 */
-function parentOf(path: string, known: Set<string>): string | null {
-  let dir = dirOf(path)
-  while (dir) {
-    const candidate = `${dir}.html`
-    if (known.has(candidate)) return candidate
-    dir = dirOf(dir)
-  }
-  return null
-}
-
-/** 把 `a/../b.png`、`./b.png` 这种收敛成 zip 里那条路径。 */
-function normalize(path: string): string {
-  const parts: string[] = []
-  for (const seg of path.split('/')) {
-    if (seg === '' || seg === '.') continue
-    if (seg === '..') parts.pop()
-    else parts.push(seg)
-  }
-  return parts.join('/')
-}
-
 /* ─────────────────────────── HTML → markdown ─────────────────────────── */
 
 export interface ParsedPage {
@@ -131,12 +90,14 @@ export interface ParsedPage {
  * 一篇 Notion 页面 HTML → markdown。
  *
  * `resolve` 把图片的相对 `src` 翻成 `self-notion://blob/<id>`（翻不出来返回 null = 丢这一张）。
+ * `resolveDoc` 把 `link-to-page` 的 href 翻成已经建好的 docId。
  * 返回的 markdown 喂 `ctx.editor.docFromMarkdown` —— 只吐标准 markdown，节点名与 attrs 归编辑器那侧管。
  */
 export function parseNotionPage(
   html: string,
   pagePath: string,
   assetIds: Map<string, string>,
+  docIds: Map<string, string>,
 ): ParsedPage {
   const dom = new DOMParser().parseFromString(html, 'text/html')
   const article = dom.querySelector('article') ?? dom.body
@@ -158,7 +119,21 @@ export function parseNotionPage(
     return id ? `self-notion://blob/${id}` : null
   }
 
-  const { walk } = makeConverter(resolve)
+  // 页内链接是相对的导出路径（还带 %XX）；外链 / 锚点不归这条路管。
+  const resolveDoc = (href: string): string | null => {
+    if (!href || /^(#|[a-z][a-z0-9+.-]*:)/i.test(href)) return null
+    const raw = href.split('#')[0] ?? ''
+    const joined = normalize(dir ? `${dir}/${raw}` : raw)
+    let decoded = joined
+    try {
+      decoded = decodeURIComponent(joined)
+    } catch {
+      // 不是合法编码就按原样查
+    }
+    return docIds.get(joined) ?? docIds.get(decoded) ?? null
+  }
+
+  const { walk } = makeConverter(resolve, resolveDoc)
   const body = article.querySelector('.page-body') ?? article
   const out: string[] = []
   walk(body, out, 0)
@@ -167,7 +142,10 @@ export function parseNotionPage(
   return { title, markdown, images }
 }
 
-function makeConverter(resolve: (src: string) => string | null): {
+function makeConverter(
+  resolve: (src: string) => string | null,
+  resolveDoc: (href: string) => string | null,
+): {
   walk(parent: Element, out: string[], indent: number): void
 } {
   /** 行内：text / strong / em / code / s / a / img / br。认不出的一律掏子节点。 */
@@ -329,6 +307,16 @@ function makeConverter(resolve: (src: string) => string | null): {
         return
       case 'figure': {
         const cls = el.getAttribute('class') ?? ''
+        const a = el.querySelector('a[href]')
+        const href = a?.getAttribute('href') ?? ''
+        const text = inline(el).replace(/\s*\n\s*/g, ' ').trim()
+        // Notion 的子页面引用 → `self-notion://doc/<id>`，编辑器收到后落成子页面卡片
+        if (/(^|\s)link-to-page(\s|$)/.test(cls)) {
+          const id = href ? resolveDoc(href) : null
+          if (id) out.push(`${pad}[${(text || '子页面').replace(/[[\]]/g, '\\$&')}](${DOC_PREFIX}${id})`)
+          else if (text) out.push(pad + text)
+          return
+        }
         const media = /(^|\s)(image|img)(\s|$)/.test(cls)
         const embed = /(embed|video|bookmark|file|audio)/.test(cls)
         const img = el.querySelector('img')
@@ -337,9 +325,6 @@ function makeConverter(resolve: (src: string) => string | null): {
           return
         }
         // 书签 / 嵌入 / 附件：降成一行（有链接就写成链接，文字不丢）
-        const a = el.querySelector('a[href]')
-        const href = a?.getAttribute('href') ?? ''
-        const text = inline(el).replace(/\s*\n\s*/g, ' ').trim()
         if (/^https?:\/\//i.test(href) && text) out.push(`${pad}[${text}](${href})`)
         else if (text) out.push(pad + text)
         return
@@ -440,6 +425,7 @@ export async function importNotionZip(deps: ImportDeps, file: File): Promise<Sum
 
   // 父先子后：`doc:create` 要知道父级 id，父没建出来就只能落成顶层。
   const known = new Set(pageFiles.map(([path]) => path))
+  const index = parentIndex(known)
   const ordered = pageFiles
     .map(([path]) => path)
     .sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b))
@@ -447,7 +433,7 @@ export async function importNotionZip(deps: ImportDeps, file: File): Promise<Sum
   const ids = new Map<string, string>()
   let entryId: string | null = null
   for (const path of ordered) {
-    const parentPath = parentOf(path, known)
+    const parentPath = parentOf(path, known, index)
     const meta = await deps.rpc.call<DocMeta>('doc:create', {
       parentId: parentPath ? (ids.get(parentPath) ?? null) : null,
       title: titleOf(path),
@@ -470,7 +456,7 @@ export async function importNotionZip(deps: ImportDeps, file: File): Promise<Sum
     const id = ids.get(path)
     if (id) {
       try {
-        const parsed = parseNotionPage(decoder.decode(bytes), path, assetIds)
+        const parsed = parseNotionPage(decoder.decode(bytes), path, assetIds, ids)
         const title = parsed.title || titleOf(path)
         images += parsed.images
         if (parsed.markdown.trim()) {

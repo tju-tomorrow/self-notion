@@ -155,8 +155,22 @@ function pushImage(node: PMNode, out: PMNode[], range: SourceRange): void {
   if (alt) out.push(container(schema.nodes.paragraph.create(null, schema.text(alt)), [], range))
 }
 
+/** 整段只有一条 `self-notion://doc/<id>` 链接 = 子页面卡片的 markdown 形状（序列化和 Notion 导入都这么写）。 */
+function docLinkId(node: PMNode): string {
+  if (node.childCount !== 1) return ''
+  const only = node.firstChild
+  if (!only?.isText || !only.text) return ''
+  const href = only.marks.map((m) => String(m.attrs.href ?? '')).find((h) => h.startsWith(DOC_PREFIX))
+  return href ? href.slice(DOC_PREFIX.length) : ''
+}
+
 /** 段落：里面夹图片就拆成「段落 / 图片 / 段落」几个块（架构里 image 是块级原子，不能待在段落里）。 */
 function convertParagraph(node: PMNode, out: PMNode[], range: SourceRange): void {
+  const docId = docLinkId(node)
+  if (docId) {
+    out.push(container(schema.nodes.subpage.create({ docId }), [], range))
+    return
+  }
   const start = out.length
   let buf: PMNode[] = []
   const flush = (): void => {
