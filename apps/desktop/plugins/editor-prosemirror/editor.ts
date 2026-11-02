@@ -79,6 +79,8 @@ export interface Live {
   readonly backlinks: BacklinksView
   /** 标题下那行（创建时间 · 字数）—— 它不是 NodeView，得自己摘。 */
   readonly meta: HTMLElement
+  /** 挂在复用栏体上的监听（点空白落光标）—— 卸载时一起收。 */
+  readonly abort: AbortController
   dirty: boolean
   /** 重读（`reload`）期间落库闸门关上 —— 手里那份是**恢复前**的状态，落一次就把库盖回去。 */
   muted: boolean
@@ -266,6 +268,20 @@ export async function mountEditor(el: HTMLElement, docId: string, side?: HTMLEle
   // 采用的那一份得真的进 doc：落库送的是 `doc.attrs.title`，只改输入框的话下一次落库还是空串。
   if (adoptTitle) view.dispatch(view.state.tr.setDocAttribute('title', adoptTitle))
 
+  // 点标题 / 正文底下那片空白 → 光标落到文末（Notion 的习惯）：不用精确点中文字才能写。
+  // ★ `el` 是复用的栏体，监听必须能收 —— 不然换一篇就多挂一个。
+  const abort = new AbortController()
+  el.addEventListener(
+    'click',
+    (e) => {
+      const v = view
+      if (e.target !== el || !v) return
+      v.dispatch(v.state.tr.setSelection(Selection.atEnd(v.state.doc)).scrollIntoView())
+      v.focus()
+    },
+    { signal: abort.signal },
+  )
+
   // 正文之后：反向链接（谁提到了这一篇）。**现算**的，不进 doc。
   // ★ 文件模式不取（`link:backlinks` 是按库里的 docId 算的，外部文件不进图谱，D-0140）。
   const backlinks = file ? noopView() : renderBacklinks(docId)
@@ -278,6 +294,7 @@ export async function mountEditor(el: HTMLElement, docId: string, side?: HTMLEle
     head,
     backlinks,
     meta: metaEl,
+    abort,
     dirty: false,
     muted: false,
     timer: undefined,
@@ -327,6 +344,7 @@ export async function mountEditor(el: HTMLElement, docId: string, side?: HTMLEle
 function dispose(rec: Live | undefined): void {
   if (!rec) return
   live.delete(rec.id)
+  rec.abort.abort()
   if (rec.timer !== undefined) clearTimeout(rec.timer)
   rec.head.destroy()
   rec.backlinks.destroy()

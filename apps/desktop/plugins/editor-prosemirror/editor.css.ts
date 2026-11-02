@@ -7,14 +7,21 @@
 import { globalStyle } from '@vanilla-extract/css'
 
 /** 版心宽度 —— 旧版那套居中窄栏是 BlockSuite 的 page 容器给的，换基座后要自己实现。
- *  值照 Notion 的观感（内容约占窗口宽的 6 成，两边留白明显）。 */
-const PAGE_WIDTH = 700
+ *  值照 Notion 的观感（内容约占窗口宽的 6 成，两边留白明显）。
+ *  ★ 720 / 100% 由 `shell-doc-header/fonts.ts` 写在 `<html>` 上（⋯ 菜单的「全宽」）——
+ *    这里写死 700 的话那个开关就成了死旋钮。 */
+const PAGE_WIDTH = 'var(--sn-editor-width, 700px)'
 
 /**
  * 版心宽度。★ 窗口（或分栏后的单栏）窄的时候**别等于整栏宽** —— 那样正文会顶到边上，
  * 看起来「没有居中」。留出两侧各 24，窄屏也还是居中的样子（用户：「小界面的时候也尽量中吧」）。
  */
-const COLUMN = `min(${PAGE_WIDTH}px, calc(100% - 48px))`
+const COLUMN = `min(${PAGE_WIDTH}, calc(100% - 48px))`
+
+/** 文档字体：单篇覆盖 ?? 文档默认（两个值都由 `shell-doc-header/fonts.ts` 写在 `<html>` 上）。
+ *  兜底写成跟主题同一个字体栈 —— 那个插件被停掉时变量为空，整条声明会废掉。 */
+const DOC_FONT =
+  "var(--sn-font-over, 'Inter','PingFang SC','Hiragino Sans GB',system-ui,sans-serif)"
 
 /* ── 分栏（view.ts 的 class 名） ── */
 
@@ -152,15 +159,18 @@ globalStyle('.sn-pm-title', {
   outline: 'none',
   background: 'transparent',
   font: 'inherit',
-  fontSize: 40,
+  fontFamily: DOC_FONT,
+  // ⌘± / 设置页的字号缩放（`--sn-font-scale`）—— 40 是缩放前的基准。
+  fontSize: 'calc(40px * var(--sn-font-scale, 1))',
   fontWeight: 700,
   lineHeight: 1.2,
   color: 'inherit',
 })
 
-// ★ 标题和正文的**左右**内边距绑在同一条规则里 —— 这俩错开一点点，
-//   看起来就是「能写字的地方跟标题对不齐」。分开写迟早会有一边被覆盖掉。
-globalStyle(':is(.sn-pm-title, .sn-block)', { paddingLeft: 12, paddingRight: 12 })
+// ★ 标题和正文**都从版心左缘起**，不再留 12px 内缩 —— 那 12px 让第一个字的落点比
+//   元信息下面那条分隔线往右一截，空文档里看着光标「陷进去」了（用户 2026-11-02）。
+//   两边绑在同一条规则里：错开一点点，看起来就是「能写字的地方跟标题对不齐」。
+globalStyle(':is(.sn-pm-title, .sn-block)', { paddingLeft: 0, paddingRight: 0 })
 
 // blockContainer 的 toDOM —— 每个块自己一条纵向留白。
 globalStyle('.sn-block', { paddingTop: 2, paddingBottom: 2 })
@@ -200,7 +210,6 @@ globalStyle('.sn-page-meta', {
   boxSizing: 'border-box',
   maxWidth: COLUMN,
   margin: '0 auto 26px',
-  padding: '0 12px',
   fontSize: 12,
   color: 'var(--sn-muted, #8a8a8a)',
 })
@@ -234,7 +243,8 @@ globalStyle('.ProseMirror :is(p, h1, h2, h3, blockquote, pre, ul, ol)', { margin
 globalStyle('.ProseMirror', {
   maxWidth: COLUMN,
   margin: '0 auto',
-  fontSize: 16,
+  fontFamily: DOC_FONT,
+  fontSize: 'calc(16px * var(--sn-font-scale, 1))',
   lineHeight: 1.5,
   outline: 'none',
 })
@@ -282,12 +292,12 @@ globalStyle('.sn-cover[data-on="0"]:hover .sn-cover-add', { opacity: 1 })
 globalStyle('.sn-cover[data-on="0"] .sn-cover-del', { display: 'none' })
 globalStyle('.sn-cover[data-on="1"] .sn-cover-add', { display: 'none' })
 
-globalStyle('.sn-page-icon', { padding: '0 12px', fontSize: 48, lineHeight: 1 })
+globalStyle('.sn-page-icon', { fontSize: 48, lineHeight: 1 })
 globalStyle('.sn-page-icon[data-on="0"]', { display: 'none' })
 
 /* ── 反向链接（正文之后，现算） ── */
 
-globalStyle('.sn-backlinks', { maxWidth: COLUMN, margin: '32px auto 0', padding: '0 12px' })
+globalStyle('.sn-backlinks', { maxWidth: COLUMN, margin: '32px auto 0' })
 // 没人提到这一篇 → 整块收掉（别在每篇空文档底下挂一句「暂无」）。
 globalStyle('.sn-backlinks[data-on="0"]', { display: 'none' })
 

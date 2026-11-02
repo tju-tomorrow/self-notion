@@ -59,8 +59,9 @@ export const addPage = style({
   selectors: { '&:hover': { color: 'var(--affine-primary-color)' } },
 })
 
-/** AFFiNE 的 `MenuItem`：最小 30 高 / 圆角 4 / 图标 20，选中态再叠一层底色。 */
+/** AFFiNE 的 `MenuItem`：最小 30 高 / 圆角 4 / 图标 20。 */
 export const navItem = style({
+  position: 'relative',
   display: 'flex',
   alignItems: 'center',
   gap: 8,
@@ -78,10 +79,24 @@ export const navItem = style({
   selectors: { '&:hover': { background: 'var(--affine-v2-layer-background-hoverOverlay)' } },
 })
 
-/** 当前选中的那个分组。 */
+/** 当前停留的页面：左侧竖条 + 主色文字，**不铺底色** —— 底色留给「正在看的那篇文档」，
+ *  两种选中态长得一样时，视线分不清主区到底在哪。 */
 export const navItemOn = style({
-  background: 'var(--affine-v2-layer-background-hoverOverlay)',
+  color: 'var(--affine-primary-color)',
   fontWeight: 500,
+  selectors: {
+    '&::before': {
+      content: '""',
+      position: 'absolute',
+      left: 0,
+      top: 6,
+      bottom: 6,
+      width: 2,
+      borderRadius: 1,
+      background: 'var(--affine-primary-color)',
+    },
+    '& > span:first-child': { color: 'var(--affine-primary-color)' },
+  },
 })
 
 /** 图标统一 20px，颜色比文字淡一档（AFFiNE 的 `icon/primary`）。 */

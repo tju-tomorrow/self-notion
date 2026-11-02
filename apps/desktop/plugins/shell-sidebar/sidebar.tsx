@@ -254,6 +254,8 @@ export function Sidebar({ ctx }: { ctx: Context }) {
 
   const chooseGroup = (next: Group) => {
     setGroup(next)
+    // 主区要换页了 —— 文档行的高亮得撤，不然侧栏同时亮两处（导航行 + 那篇文档）。
+    setSelected(null)
     ctx.settings.set(GROUP_KEY, next)
   }
 
@@ -586,7 +588,7 @@ export function Sidebar({ ctx }: { ctx: Context }) {
             <button
               key={g}
               type="button"
-              className={`${s.navItem} ${g === group && page === 'list' ? s.navItemOn : ''}`}
+              className={`${s.navItem} ${g === group && page === 'list' && selected === null ? s.navItemOn : ''}`}
               onClick={() => {
                 chooseGroup(g)
                 setPage('list')
@@ -611,6 +613,7 @@ export function Sidebar({ ctx }: { ctx: Context }) {
             type="button"
             className={`${s.navItem} ${page === 'vfs' ? s.navItemOn : ''}`}
             onClick={() => {
+              setSelected(null)
               setPage('vfs')
               ctx.emit(SHOW_LIST, { group: 'vfs' })
             }}
@@ -630,6 +633,7 @@ export function Sidebar({ ctx }: { ctx: Context }) {
             type="button"
             className={`${s.navItem} ${page === 'files' ? s.navItemOn : ''}`}
             onClick={() => {
+              setSelected(null)
               setPage('files')
               ctx.get('files')?.open()
             }}
@@ -648,6 +652,7 @@ export function Sidebar({ ctx }: { ctx: Context }) {
             type="button"
             className={`${s.navItem} ${page === 'inbox' ? s.navItemOn : ''}`}
             onClick={() => {
+              setSelected(null)
               setPage('inbox')
               ctx.emit(SHOW_LIST, { group: 'inbox' })
             }}
@@ -664,6 +669,7 @@ export function Sidebar({ ctx }: { ctx: Context }) {
             type="button"
             className={`${s.navItem} ${page === 'graph' ? s.navItemOn : ''}`}
             onClick={() => {
+              setSelected(null)
               setPage('graph')
               ctx.emit(SHOW_LIST, { group: 'graph' })
             }}
