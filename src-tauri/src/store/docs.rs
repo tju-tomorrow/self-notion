@@ -524,7 +524,7 @@ pub fn summary(conn: &Connection, ids: &[String]) -> ApiResult<Vec<Summary>> {
     }
     // ponytail: 一次最多问 200 篇，首页也就画这么多行；多了用 IN 列表也不合适。
     let ids = &ids[..ids.len().min(200)];
-    let marks = std::iter::repeat("?").take(ids.len()).collect::<Vec<_>>().join(",");
+    let marks = std::iter::repeat_n("?", ids.len()).collect::<Vec<_>>().join(",");
     let mut stmt = conn
         .prepare(&format!("SELECT doc_id, md FROM doc_text WHERE doc_id IN ({marks})"))
         .map_err(db_err)?;
