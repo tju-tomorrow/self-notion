@@ -1,0 +1,6 @@
+# whisper.cpp 用了 std::filesystem（macOS 10.15+），而 Tauri 的默认部署目标是 10.13，
+# release 构建会在 C++ 那一侧报 '~path' is unavailable。这里强制抬到 11.0（Apple Silicon 的底线）。
+[env]
+MACOSX_DEPLOYMENT_TARGET = { value = "11.0", force = true }
+# CMake 自己的那层缓存也要同一个值，否则编译命令里会同时出现 11.0 和旧的 10.13，后者生效。
+CMAKE_OSX_DEPLOYMENT_TARGET = { value = "11.0", force = true }
