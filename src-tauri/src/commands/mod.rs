@@ -172,6 +172,13 @@ pub fn dispatch(
         }
         "aiweb:voice-hide" => aiweb_call(app, win, crate::aiweb::voice_hide),
 
+        // ── 语音输入（D-0190；实现在 `src/voice/`）────────────────────────────
+        "voice:status" => crate::voice::status(app, args),
+        "voice:download" => crate::voice::download_model(app, args),
+        "voice:start" => crate::voice::start(app, win, args),
+        "voice:stop" => crate::voice::stop(win, args),
+        "voice:cancel" => crate::voice::cancel(win, args),
+
         // ── 内存监控（D-0079；实现在 `src/mem.rs`）─────────────────────────────
         // 前两条不碰窗口，走 mem 自己的分派；`mem:tray` 要 AppHandle，得在这儿。
         "mem:snapshot" | "mem:render" => {

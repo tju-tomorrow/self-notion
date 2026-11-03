@@ -21,6 +21,7 @@ pub mod mcp;
 mod mem;
 mod store;
 mod vfs;
+mod voice;
 mod windows;
 
 pub fn run() {

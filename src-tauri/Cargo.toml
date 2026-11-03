@@ -2,7 +2,7 @@
 name = "self-notion"
 version = "0.2.0"
 edition = "2021"
-rust-version = "1.77.2"
+rust-version = "1.85"
 
 [lib]
 name = "self_notion_lib"
@@ -65,3 +65,9 @@ reqwest = { version = "0.13", default-features = false, features = ["blocking", 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSString"] }
+# ── 语音输入（D-0190）───────────────────────────────────────────────────────
+# 用户要的是「whisper 那样的本地小模型」且「非常精准」：只能本机推理，不能走云。
+# metal 在 Apple Silicon 上是数量级的差别；模型文件不进安装包，首次使用时下载。
+whisper-rs = { version = "0.16", default-features = false, features = ["metal"] }
+# 采集走系统 CoreAudio（cpal 在 macOS 上就是它），避免为了拿麦克风再引进一个音频框架。
+cpal = "0.18"

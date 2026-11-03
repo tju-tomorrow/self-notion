@@ -143,6 +143,10 @@ export function apply(ctx: Context) {
       /** 还没装载过 = 一篇都没打开过 → null。 */
       text: (id: string) => mod?.liveText(id) ?? null,
 
+      /** 语音草稿落正文（契约 `insertText`）：没装载 / 这篇没开着 → false。 */
+      insertText: (id: string, text: string, at?: 'caret' | 'end') =>
+        mod?.insertTextAt(id, text, at) ?? false,
+
       /**
        * 库里这篇的字节换过了（恢复历史版本，D-0043）→ 丢掉手里的活编辑器、用库里那份重建。
        * ★ 不能把新 JSON 塞进现有的 doc —— 那样选区和撤销历史会跟内容对不上（契约 `reload` 注释）。

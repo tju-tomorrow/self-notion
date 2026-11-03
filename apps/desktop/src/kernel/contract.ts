@@ -84,6 +84,15 @@ export interface EditorService {
    *   （`markDirty`），没有"现在就写"的口子 —— 别人想问它一句都问不了。
    */
   flush(id: string): Promise<void>
+  /**
+   * 往**活文档**里落一段文字（D-0190 语音输入）。
+   *
+   * `at` 省略 = 当前光标；`'end'` = 文末新起块。这篇没开着（没有活编辑器）→ `false`，
+   * 调用方自己决定怎么提示 —— 这里不做「先打开再写」的隐式动作。
+   *
+   * ★ 判断「有没有落过光标」归编辑器：它才知道这篇是不是刚打开、选区还在文首。
+   */
+  insertText(id: string, text: string, at?: 'caret' | 'end'): boolean
   /** 编辑器的 schema（ProseMirror `Schema` 对象，只读）。
    *
    *  ★ 2026-10-08 换基座（D-0129）：这条**取代**了原来的 `defineBlock` + `blocks()`。

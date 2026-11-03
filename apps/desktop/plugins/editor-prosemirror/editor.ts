@@ -87,6 +87,8 @@ export interface Live {
   timer: number | undefined
   /** 外部文件那条路的 side table（每块原文 + 打开时的快照）；库文档是 `null`（D-0142）。 */
   side: Map<string, SideEntry> | null
+  /** 用户在这篇里落过光标没有。语音「应用到最新位置」靠它区分「光标」和「文末」（D-0190）。 */
+  hadFocus: boolean
 }
 
 /** 文件模式下不建的那几个 UI（页头 / 反链）拿它顶位 —— 形状对就行，什么都不画。 */
@@ -299,8 +301,14 @@ export async function mountEditor(el: HTMLElement, docId: string, side?: HTMLEle
     muted: false,
     timer: undefined,
     side: parsed ? parsed.side : null,
+    hadFocus: false,
   }
   live.set(docId, rec)
+  // 只认「用户自己点进来 / 键进来」—— `view.focus()` 由程序调用的那几次也会冒泡，但那正说明
+  // 光标已经是用户要的位置，算落过光标没有坏处。
+  view.dom.addEventListener('focusin', () => {
+    rec.hadFocus = true
+  })
 
   // 文件模式不回写标题（只读，见上）—— 库文档才双向同步。
   if (!file) {
@@ -496,6 +504,50 @@ export function liveText(id: string): string | null {
   if (!rec) return null
   const doc = rec.view.state.doc
   return doc.textBetween(0, doc.content.size, '\n')
+}
+
+/** 契约 `insertText`（D-0190）：落一段语音草稿。 */
+export function insertTextAt(id: string, text: string, at: 'caret' | 'end' = 'caret'): boolean {
+  const rec = live.get(id)
+  if (!rec) return false
+  const clean = text.replace(/\r\n?/g, '\n').trim()
+  if (!clean) return false
+  const { view } = rec
+
+  if (at === 'caret' && rec.hadFocus) {
+    const { from, to } = view.state.selection
+    // 段落里塞 `\n` 会变成不可见的硬字符 —— 光标处只落一行，换段交给用户自己敲。
+    view.dispatch(view.state.tr.insertText(clean.replace(/\n+/g, ' '), from, to).scrollIntoView())
+    view.focus()
+    return true
+  }
+
+  // 文末那一段本来就是空的（新文档 / 刚敲完回车）—— 直接写进去，不再多造一个空行。
+  const end = Selection.atEnd(view.state.doc).from
+  const last = view.state.doc.resolve(end).parent
+  if (!clean.includes('\n') && last.isTextblock && last.content.size === 0) {
+    view.dispatch(view.state.tr.insertText(clean, end).scrollIntoView())
+    view.focus()
+    return true
+  }
+
+  const schema = view.state.schema
+  const blocks = clean
+    .split(/\n+/)
+    .filter((line) => line.trim() !== '')
+    .map((line) =>
+      schema.node(
+        'blockContainer',
+        { id: newBlockId() },
+        schema.node('paragraph', null, schema.text(line)),
+      ),
+    )
+  if (blocks.length === 0) return false
+  // 根 `blockGroup` 内容区的末尾（同 `tools/doc.ts::append`）。
+  view.dispatch(view.state.tr.insert(view.state.doc.content.size - 1, blocks))
+  view.dispatch(view.state.tr.setSelection(Selection.atEnd(view.state.doc)).scrollIntoView())
+  view.focus()
+  return true
 }
 
 /** 内存监控（D-0088 / 架构 §8）。`bytes` 的含义换了：从「Y.Doc 编码字节」变成「doc JSON 字节数」。 */

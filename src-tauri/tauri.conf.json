@@ -47,6 +47,9 @@
   "bundle": {
     "active": true,
     "targets": ["dmg"],
+    "macOS": {
+      "entitlements": "Entitlements.plist"
+    },
     "fileAssociations": [
       {
         "ext": ["md", "markdown"],
