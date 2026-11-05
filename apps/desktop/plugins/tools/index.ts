@@ -19,7 +19,12 @@
  *   参数）。模型看不见它：它不在上面那些 `parameters` 里，是调用方加的。
  */
 import type { Context } from 'cordis'
-import type { DocMeta, ToolSpec, ToolsService } from '../../src/kernel/contract'
+import type {
+  DocMeta,
+  DocWriteService,
+  ToolSpec,
+  ToolsService,
+} from '../../src/kernel/contract'
 
 export const name = 'plugin-tools'
 
@@ -42,6 +47,17 @@ export function apply(ctx: Context) {
     list: () => [...specs],
   }
   ctx.effect(() => ctx.provide('tools', tools))
+
+  // 外部 agent 的写入口（D-0191）：走同一条 markdown → 块 → doc:apply 的路。
+  const docWrite: DocWriteService = {
+    create: async (title, markdown, groupId) =>
+      (await write()).create(ctx, title, markdown, groupId),
+    append: async (id, markdown, groupId) =>
+      (await write()).append(ctx, id, markdown, groupId),
+    replaceAll: async (id, markdown, groupId, title) =>
+      (await write()).replaceAll(ctx, id, markdown, groupId, title),
+  }
+  ctx.effect(() => ctx.provide('doc-write', docWrite))
 
   const add = (spec: ToolSpec) => ctx.effect(() => tools.register(spec))
   add(listTool(ctx))

@@ -215,6 +215,29 @@ export async function replace(
 }
 
 /**
+ * 整篇替换（外部 agent 的 `notes_write replace`）。新块、旧块 id 不保留 —— 覆盖语义。
+ */
+export async function replaceAll(
+  ctx: Context,
+  id: string,
+  markdown: string,
+  groupId: string,
+  title?: string,
+): Promise<WriteResult> {
+  try {
+    const { doc, schema } = await loadDoc(ctx, id)
+    const name = title?.trim() || String(doc.attrs.title ?? '')
+    const blocks = blocksFrom(ctx, schema, markdown)
+    const next = makeDoc(schema, name, blocks)
+    const saved = await commit(ctx, id, next, groupId, labelOf(markdown, name))
+    return { id, title: saved, blocks: blocks.length }
+  } catch (err) {
+    reportError('tools', err)
+    throw err
+  }
+}
+
+/**
  * 按原文里的一句话找块。
  *
  * ★ 上下文里看不见块 id（`/tree/X.md` 装的是文字，不是带 id 的结构）—— 所以 `doc_replace`

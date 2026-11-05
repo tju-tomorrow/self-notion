@@ -8,6 +8,7 @@
 //! · `kb` 知识库的表（标签词表 / 主题 / 建议 / 实体 / 派生边 / 向量，D-0181…D-0189）。
 //! `meta` 表（键值）就留在这里 —— 它和 `migrate` 是同一张表，分出去没意义。
 
+pub mod agent;
 pub mod blob;
 pub mod comment;
 pub mod docs;
@@ -57,7 +58,8 @@ fn reset(conn: &Connection) -> Result<(), rusqlite::Error> {
          DROP TABLE IF EXISTS entity;
          DROP TABLE IF EXISTS entity_mention;
          DROP TABLE IF EXISTS graph_edge;
-         DROP TABLE IF EXISTS vec;",
+         DROP TABLE IF EXISTS vec;
+         DROP TABLE IF EXISTS agent_request;",
     )?;
     conn.execute_batch(include_str!("schema.sql"))
 }
@@ -90,6 +92,13 @@ impl Db {
     pub fn open_readonly(path: &Path) -> Result<Self, rusqlite::Error> {
         let conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA query_only = ON")?;
+        Ok(Db(Mutex::new(conn)))
+    }
+
+    /// 只给 MCP 的 `notes_write` 落请求用：不跑 schema、不跑迁移，只等 app 那边的锁。
+    pub fn open_readwrite(path: &Path) -> Result<Self, rusqlite::Error> {
+        let conn = Connection::open(path)?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
         Ok(Db(Mutex::new(conn)))
     }
 

@@ -71,8 +71,12 @@ pub fn cd(db: &Db, nav: &mut Nav, target: Option<&str>) -> ApiResult<String> {
         return cd_path(db, nav, &join(&nav.cwd, &raw), section.as_deref());
     }
 
-    if is_id(&raw) {
-        return open_id(db, nav, &raw, section.as_deref());
+    if is_id_prefix(&raw) {
+        match pick_doc(db, &raw)? {
+            Pick::One(id) => return open_id(db, nav, &id, section.as_deref()),
+            Pick::Many(list) => return Ok(candidates(&list, "找到多篇")),
+            Pick::None => {}
+        }
     }
 
     let joined = join(&nav.cwd, &raw);
@@ -151,6 +155,16 @@ pub fn read(db: &Db, nav: &Nav, args: &ReadArgs) -> ApiResult<String> {
     Ok(md)
 }
 
+/// 给写工具用：标题 / id / 路径 → 文档 id。
+pub fn resolve_id(db: &Db, q: &str) -> ApiResult<String> {
+    match resolve_read_target(db, q)? {
+        ReadTarget::Doc(id) => Ok(id),
+        ReadTarget::File(path) => {
+            Err(ApiError::new("bad_args", format!("{path} 不是文章正文")))
+        }
+    }
+}
+
 fn locate(db: &Db, nav: &Nav) -> ApiResult<String> {
     if let Some(id) = &nav.active_doc {
         let meta = db.with(|c| docs::get(c, id))?;
@@ -178,7 +192,7 @@ fn list_dir(db: &Db, nav: &Nav) -> ApiResult<String> {
         }
     }
     if total > LIST_LIMIT {
-        s.push_str(&format!("… 还有 {} 项；用 kb_search 缩小\n", total - LIST_LIMIT));
+        s.push_str(&format!("… 还有 {} 项；用 notes_find 缩小\n", total - LIST_LIMIT));
     }
     s.push_str("cd <标题> 打开一篇\n");
     Ok(clip(s, 1200))
@@ -227,11 +241,12 @@ fn render_doc(
     preview: bool,
 ) -> String {
     let mut s = format!(
-        "opened: {}\nid: {}\npath: {}\nupdated: {}\n",
+        "opened: {}\nid: {}\npath: {}\nupdated: {}\nupdatedAt: {}\n",
         meta.title,
         meta.id,
         if path.is_empty() { "(无路径)" } else { path },
-        vfs::ymd_str(meta.updated_at)
+        vfs::ymd_str(meta.updated_at),
+        meta.updated_at
     );
     if md.trim().is_empty() {
         s.push_str("\n（这篇还没有 Markdown 投影；在编辑器里打开一次就会补上）\n");
@@ -278,12 +293,19 @@ enum Pick {
 }
 
 fn pick_doc(db: &Db, q: &str) -> ApiResult<Pick> {
-    if is_id(q) {
-        return match db.with(|c| docs::get(c, q)) {
-            Ok(m) => Ok(Pick::One(m.id)),
-            Err(e) if e.code == "not_found" => Ok(Pick::None),
-            Err(e) => Err(e),
-        };
+    // 卡片上印的是 8 位短 id；它必须能直接打开。长的 32 位 id 也走这一支。
+    if is_id_prefix(q) {
+        let ql = q.to_lowercase();
+        let mut hits: Vec<docs::DocMeta> = db
+            .with(|c| docs::list(c, false))?
+            .into_iter()
+            .filter(|m| m.id.starts_with(&ql))
+            .collect();
+        match hits.len() {
+            1 => return Ok(Pick::One(hits.remove(0).id)),
+            n if n > 1 => return Ok(Pick::Many(hits.into_iter().take(CANDIDATES).collect())),
+            _ => {}
+        }
     }
 
     let list = db.with(|c| docs::list(c, false))?;
@@ -391,7 +413,7 @@ fn search_candidates(db: &Db, q: &str) -> ApiResult<String> {
     if hits.is_empty() {
         return Err(ApiError::new(
             "not_found",
-            format!("没找到「{q}」；试试 kb_search 或换个词"),
+            format!("没找到「{q}」；试试 notes_find 或换个词"),
         ));
     }
     let mut s = String::from("没找到精确匹配，候选（用 notes_cd(\"<id>\") 打开）：\n");
@@ -573,8 +595,8 @@ fn size_label(size: Option<u64>) -> String {
     }
 }
 
-fn is_id(s: &str) -> bool {
-    s.len() == 32 && s.chars().all(|c| c.is_ascii_hexdigit())
+fn is_id_prefix(s: &str) -> bool {
+    (8..=32).contains(&s.len()) && s.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 fn short_id(id: &str) -> &str {

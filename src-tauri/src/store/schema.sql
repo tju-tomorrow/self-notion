@@ -236,3 +236,18 @@ CREATE TABLE IF NOT EXISTS vec (
   at         INTEGER NOT NULL,
   PRIMARY KEY (owner_kind, owner_id)
 );
+
+-- ── 外部 agent 的写请求（D-0191）────────────────────────────────────────────
+-- MCP 只读进程不碰正文：它落一条请求，桌面端用编辑器解析器执行，再回写结果。
+-- 写操作要求桌面端开着；读不受影响。
+CREATE TABLE IF NOT EXISTS agent_request (
+  id      TEXT PRIMARY KEY,
+  action  TEXT NOT NULL,                      -- create/append/replace/rename/move/trash/restore/tag/undo
+  args    TEXT NOT NULL,                      -- JSON
+  state   TEXT NOT NULL DEFAULT 'pending',    -- 'pending' | 'done' | 'failed'
+  result  TEXT NOT NULL DEFAULT '',
+  error   TEXT NOT NULL DEFAULT '',
+  at      INTEGER NOT NULL,
+  done_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS agent_request_state ON agent_request(state, at);

@@ -15,7 +15,7 @@ use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::store::{self, blob, comment, docs, links, sync, version, Db};
+use crate::store::{self, agent, blob, comment, docs, links, sync, version, Db};
 use crate::vfs;
 
 /// 字节字段的线上形状：**base64 字符串**。
@@ -190,6 +190,13 @@ pub fn dispatch(
             crate::mem::set_tray(h, a.on).map_err(|e| ApiError::new("mem", e))?;
             Ok(Value::Null)
         }
+
+        // ── 外部 agent 写请求（D-0191）─────────────────────────────────────────
+        "agent:pending" => call(db, |c| agent::pending(c, 20)),
+        "agent:finish" => call(db, |c| {
+            let a: AgentFinish = parse(args)?;
+            agent::finish(c, &a.id, a.ok, &a.result, &a.error)
+        }),
 
         // ── 文档 ──────────────────────────────────────────────────────────────
         "doc:list" => call(db, |c| {
@@ -702,6 +709,17 @@ struct WindowNew {
 struct DocList {
     #[serde(default)]
     include_trashed: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentFinish {
+    id: String,
+    ok: bool,
+    #[serde(default)]
+    result: String,
+    #[serde(default)]
+    error: String,
 }
 
 #[derive(Deserialize)]

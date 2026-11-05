@@ -4,8 +4,9 @@
 //! 这儿没有 Tauri、没有 webview、没有一行前端代码，它自己**只读**打开 `self-notion.db`，
 //! 复用 `vfs::*` 和 `store::docs::*`（`docs/vfs.md` 第六节）。
 //!
-//! ★ **只读的硬边界是下面那份工具清单是字面量、里面没有写工具** —— 不是句柄那层：
-//! `Db::open_readonly` 在 WAL 下会退化成 `PRAGMA query_only`（见它自己的注释）。
+//! ★ **读路径只有只读句柄**（`Db::open_readonly`，WAL 下退化成 `PRAGMA query_only`）。
+//! 写工具 `notes_write`（D-0192）**不碰正文**：它只往 `agent_request` 落一条请求，
+//! 由桌面端的 `agent-bridge` 用编辑器解析器执行 —— 所以写要求 app 开着，读仍然离线。
 //!
 //! ★ **stdout 是协议流**：一行一条 JSON，多一个字都不行。日志一律 stderr。
 
@@ -18,6 +19,7 @@ use std::path::PathBuf;
 
 mod nav;
 mod notes;
+mod write;
 
 /// 客户端没报版本（或报了个我们不认识的）时的兜底 —— 我们只用得到 `tools` 那一块。
 const PROTOCOL: &str = "2024-11-05";
@@ -27,7 +29,7 @@ pub fn serve() {
     let path = db_path();
     let db = match Db::open_readonly(&path) {
         Ok(db) => db,
-        // 六条工具没有一条离得开库，开不了就是彻底不能用 —— 响亮地死，
+        // 这些工具没有一条离得开库，开不了就是彻底不能用 —— 响亮地死，
         // 客户端会把 stderr 显示给用户（这比"起来了但每次都报错"好查）。
         Err(e) => {
             crate::log::record("mcp", &format!("打开 {} 失败：{e}", path.display()));
@@ -84,7 +86,8 @@ fn handle(db: &Db, nav: &mut nav::Nav, msg: &Value) -> Option<String> {
             "instructions": "这是 self-notion 个人笔记库。notes_map() 看全局，\
                              notes_find(q) 定位，notes_cd(标题|id|目录) 打开，\
                              notes_read(section=…) 读，notes_related(id) 找关联。\
-                             不要一次读全库。",
+                             写用 notes_write（create/append/replace/rename/move/trash/restore/tag/undo）；\
+                             replace/trash 要 confirm。写需要桌面端开着。不要一次读全库。",
         })),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tools() })),
@@ -122,6 +125,7 @@ fn call_tool(db: &Db, nav: &mut nav::Nav, params: &Value) -> Result<Value, (i64,
         "notes_find" => tool(&args, |a: notes::FindArgs| notes::find(db, &a)),
         "notes_map" => tool(&args, |a: notes::MapArgs| notes::map(db, &a)),
         "notes_related" => tool(&args, |a: notes::RelatedArgs| notes::related(db, nav, &a)),
+        "notes_write" => tool(&args, |a: write::WriteArgs| write::write(db, &a)),
         // kb_* 落到知识库工具面的唯一实现（D-0187）。★ 走 `call_readonly`，**不是** `call` ——
         // 分派是按名字走的，「清单里没列」拦不住客户端自己编一个 `kb_accept` 发过来（实测过）。
         n if n.starts_with("kb_") => crate::kb::tools::call_readonly(db, n, &args),
@@ -134,8 +138,8 @@ fn call_tool(db: &Db, nav: &mut nav::Nav, params: &Value) -> Result<Value, (i64,
     })
 }
 
-/// 工具清单：5 条主工具 + 2 条逃生口（D-0191）。
-/// **这就是只读边界本身**（D-0084 第 3 条）：没有写工具，不是"默认关"。
+/// 工具清单：6 条主工具 + 2 条逃生口（D-0191/D-0192）。
+/// 读工具只读；唯一的写工具 `notes_write` 只落请求，正文由桌面端执行。
 fn tools() -> Value {
     json!([
         {
@@ -213,6 +217,31 @@ fn tools() -> Value {
                     "id": {"type": "string", "description": "文档 id；不传 = 当前文章"},
                     "limit": {"type": "integer", "description": "最多几条，默认 8"}
                 }
+            }
+        },
+        {
+            "name": "notes_write",
+            "description": "管理笔记：create/append/replace/rename/move/trash/restore/tag/undo。写操作需要 self-notion 桌面端开着；replace/trash 必须 confirm=true。",
+            "_meta": {
+                "anthropic/searchHint": "write create append move rename delete tag note 笔记 写入 新建 移动 删除",
+                "anthropic/maxResultSizeChars": 12000
+            },
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["create", "append", "replace", "rename", "move", "trash", "restore", "tag", "undo"]
+                    },
+                    "target": {"type": "string", "description": "标题 / id / 路径；create 以外必填"},
+                    "title": {"type": "string", "description": "create/rename 的新标题"},
+                    "content": {"type": "string", "description": "Markdown；create/append/replace 用"},
+                    "parent": {"type": "string", "description": "create/move 的目标目录；空 = 根"},
+                    "tags": {"type": "array", "items": {"type": "string"}},
+                    "confirm": {"type": "boolean", "description": "replace/trash 必须为 true"},
+                    "if_updated_at": {"type": "integer", "description": "可选：notes_cd 回的 updatedAt，防覆盖"}
+                },
+                "required": ["action"]
             }
         },
         {

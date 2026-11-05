@@ -831,6 +831,25 @@ export interface ToolsService {
   list(): ToolSpec[]
 }
 
+/** 外部 agent 写一篇的结果（`doc-write` service / `agent-bridge`）。 */
+export interface AgentWriteResult {
+  id: string
+  title: string
+  blocks: number
+}
+
+/**
+ * 给 `agent-bridge` 用的写服务（D-0191）。
+ *
+ * ★ 走 `plugins/tools/doc.ts` 那条路：库里的 PM JSON → 编辑器解析 markdown → 只动该动的块。
+ *   不另抄一份 markdown→PM，否则和编辑器 schema 漂。
+ */
+export interface DocWriteService {
+  create(title: string, markdown: string, groupId: string): Promise<AgentWriteResult>
+  append(id: string, markdown: string, groupId: string): Promise<AgentWriteResult>
+  replaceAll(id: string, markdown: string, groupId: string, title?: string): Promise<AgentWriteResult>
+}
+
 export interface AiMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content: string

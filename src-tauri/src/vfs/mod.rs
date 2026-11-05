@@ -227,6 +227,22 @@ pub fn path_of(db: &Db, id: &str) -> ApiResult<Option<String>> {
     })
 }
 
+/// 目录路径 → 它背后那篇文档的 id。`None` = 根 / 动态目录 / 不是文档。
+pub fn dir_id_of(db: &Db, path: &str) -> ApiResult<Option<String>> {
+    db.with(|c| {
+        let w = World::build(c)?;
+        let p = normalize(path);
+        if p == "/" || p == "/tree" {
+            return Ok(None);
+        }
+        let file = format!("{p}.md");
+        if let Some(FileRef::Doc(i)) = w.files.get(&file).or_else(|| w.files.get(&p)) {
+            return Ok(Some(w.docs[*i].id.clone()));
+        }
+        Ok(None)
+    })
+}
+
 /// 一批文档的规范路径。建一次 World，别在卡片循环里一条一条查。
 pub fn paths_of(db: &Db, ids: &[String]) -> ApiResult<HashMap<String, String>> {
     db.with(|c| {
