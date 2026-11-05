@@ -451,29 +451,82 @@ pub fn search(
 /// ★ 为什么需要它：`search` 走 `fts5_match`，词之间是**空格 = 隐式 AND**。
 ///   拿整条标题去 AND，等于要求候选笔记同时包含标题里的**每一个**字 ——
 ///   两篇相关的笔记几乎不可能做到，于是「候选邻居」永远是空的。
-///   策展人的 `links` 推断就建在那张候选表上，整条路等于死的（实测：三篇全「（没有）」）。
-/// ★ 单字中文丢掉：`的` / `是` 会命中全库，留着等于没筛。
+/// ★ 中文按相邻 bigram 切：单字 `的` / `是` 会命中全库；整段又会把语序绑死。
+///   `记忆淘汰` → `"记 忆" OR "忆 淘" OR "淘 汰"`，既有区分度又不怕标点。
 pub fn search_any(
     conn: &Connection,
     text: &str,
     limit: i64,
     include_trashed: bool,
 ) -> ApiResult<Vec<Hit>> {
-    let mut terms: Vec<String> = Vec::new();
-    for t in cjk_space(text).split_whitespace() {
-        if t.chars().count() < 2 {
-            continue;
-        }
-        let t = t.replace('"', "");
-        if !terms.iter().any(|x| x == &t) {
-            terms.push(t);
-        }
-    }
+    let terms = query_terms(text);
     if terms.is_empty() {
         return Ok(Vec::new());
     }
-    let m = terms.iter().map(|t| format!("\"{t}\"")).collect::<Vec<_>>().join(" OR ");
+    let m = terms.iter().map(|t| fts_term(t)).collect::<Vec<_>>().join(" OR ");
     search_with_match(conn, &m, limit, include_trashed)
+}
+
+/// 自由文字 → FTS 词项：中文相邻 bigram，英文/数字整词。
+pub(crate) fn query_terms(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut cjk = String::new();
+    let mut word = String::new();
+
+    let flush_cjk = |run: &mut String, out: &mut Vec<String>| {
+        let cs: Vec<char> = run.chars().collect();
+        if cs.len() == 1 {
+            out.push(cs[0].to_string());
+        } else {
+            for w in cs.windows(2) {
+                out.push(format!("{}{}", w[0], w[1]));
+            }
+        }
+        run.clear();
+    };
+    let flush_word = |w: &mut String, out: &mut Vec<String>| {
+        let t = w.to_lowercase();
+        if t.chars().count() >= 2 {
+            out.push(t);
+        }
+        w.clear();
+    };
+
+    for c in text.chars() {
+        if is_cjk(c) {
+            flush_word(&mut word, &mut out);
+            cjk.push(c);
+        } else if c.is_alphanumeric() {
+            flush_cjk(&mut cjk, &mut out);
+            word.push(c);
+        } else {
+            flush_cjk(&mut cjk, &mut out);
+            flush_word(&mut word, &mut out);
+        }
+    }
+    flush_cjk(&mut cjk, &mut out);
+    flush_word(&mut word, &mut out);
+
+    let mut seen = Vec::new();
+    out.retain(|t| {
+        if seen.contains(t) {
+            false
+        } else {
+            seen.push(t.clone());
+            true
+        }
+    });
+    out
+}
+
+/// 一个词项 → FTS5 短语。中文 run 已经按字切过，所以 `记忆` 要写成 `"记 忆"`。
+pub(crate) fn fts_term(term: &str) -> String {
+    let inner = cjk_space(term)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace('"', "");
+    format!("\"{inner}\"")
 }
 
 /// `search` / `search_any` 共用的下半段 —— MATCH 表达式已经拼好了。

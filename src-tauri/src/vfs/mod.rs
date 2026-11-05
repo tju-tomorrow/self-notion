@@ -211,6 +211,65 @@ pub fn read(
 
 /// 全扫所有**未删除**文档的投影正文，逐行找**字面子串**（不是正则，见模块头）。
 /// 返回的 `path` 是该文档在 `/tree/` 下的规范路径（一篇文档只报一次路径）。
+/// 所有目录路径（含动态目录）。给 MCP 的 `cd <目录名>` 用。
+pub fn dirs(db: &Db) -> ApiResult<Vec<String>> {
+    db.with(|c| {
+        let w = World::build(c)?;
+        Ok(w.dirs.into_iter().collect::<Vec<_>>())
+    })
+}
+
+/// 文档在 `/tree/` 下的规范路径。`None` = 已删除 / 没有投影。
+pub fn path_of(db: &Db, id: &str) -> ApiResult<Option<String>> {
+    db.with(|c| {
+        let w = World::build(c)?;
+        Ok(w.by_id.get(id).and_then(|&i| w.tree_path[i].clone()))
+    })
+}
+
+/// 一批文档的规范路径。建一次 World，别在卡片循环里一条一条查。
+pub fn paths_of(db: &Db, ids: &[String]) -> ApiResult<HashMap<String, String>> {
+    db.with(|c| {
+        let w = World::build(c)?;
+        Ok(ids
+            .iter()
+            .filter_map(|id| {
+                w.by_id
+                    .get(id)
+                    .and_then(|&i| w.tree_path[i].clone())
+                    .map(|p| (id.clone(), p))
+            })
+            .collect())
+    })
+}
+
+/// 一个目录下的直接子文档 id。给 `notes_map` 按目录下钻用。
+pub fn ids_in(db: &Db, dir: &str) -> ApiResult<Vec<String>> {
+    db.with(|c| {
+        let w = World::build(c)?;
+        let p = normalize(dir);
+        Ok(w.files
+            .iter()
+            .filter(|(path, _)| parent_of(path) == Some(p.as_str()))
+            .filter_map(|(_, r)| match r {
+                FileRef::Doc(i) | FileRef::Outline(i) => Some(w.docs[*i].id.clone()),
+                _ => None,
+            })
+            .collect())
+    })
+}
+
+/// 一个虚拟路径指向哪篇文档。`None` = 不是文档正文（清单 / 系统文件）。
+pub fn id_of(db: &Db, path: &str) -> ApiResult<Option<String>> {
+    db.with(|c| {
+        let w = World::build(c)?;
+        Ok(match lookup(&w, &normalize(path)) {
+            Lookup::File(FileRef::Doc(i) | FileRef::Outline(i)) => Some(w.docs[i].id.clone()),
+            _ => None,
+        })
+    })
+}
+
 pub fn grep(db: &Db, pattern: &str, ignore_case: bool) -> ApiResult<Vec<Hit>> {
     if pattern.is_empty() {
         // 空模式会匹配每一行 —— 信任边界上响亮报错，不静默吐整库（CONVENTIONS 第十节）
@@ -1262,7 +1321,7 @@ fn ymd(ms: i64) -> (i64, u32, u32) {
     (y, m, d)
 }
 
-fn ymd_str(ms: i64) -> String {
+pub(crate) fn ymd_str(ms: i64) -> String {
     let (y, m, d) = ymd(ms);
     format!("{y:04}-{m:02}-{d:02}")
 }

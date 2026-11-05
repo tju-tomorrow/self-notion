@@ -10,12 +10,14 @@
 //! ★ **stdout 是协议流**：一行一条 JSON，多一个字都不行。日志一律 stderr。
 
 use crate::commands::{ApiError, ApiResult};
-use crate::store::{docs, Db};
+use crate::store::Db;
 use crate::vfs;
-use serde::Deserialize;
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
+
+mod nav;
+mod notes;
 
 /// 客户端没报版本（或报了个我们不认识的）时的兜底 —— 我们只用得到 `tools` 那一块。
 const PROTOCOL: &str = "2024-11-05";
@@ -34,6 +36,7 @@ pub fn serve() {
     };
     eprintln!("[self-notion] mcp: 只读打开 {}", path.display());
 
+    let mut nav = nav::Nav::new();
     let mut out = std::io::stdout();
     for line in std::io::stdin().lock().lines() {
         let Ok(line) = line else { break }; // stdin 断了 = 客户端走了
@@ -55,7 +58,7 @@ pub fn serve() {
                 continue;
             }
         };
-        if let Some(resp) = handle(&db, &msg) {
+        if let Some(resp) = handle(&db, &mut nav, &msg) {
             // serde 会把字符串里的换行转义掉，所以一条消息一定是一行
             let _ = writeln!(out, "{resp}");
             let _ = out.flush();
@@ -64,7 +67,7 @@ pub fn serve() {
 }
 
 /// 一条消息进，一条（或零条）出。`None` = 不回。
-fn handle(db: &Db, msg: &Value) -> Option<String> {
+fn handle(db: &Db, nav: &mut nav::Nav, msg: &Value) -> Option<String> {
     // 通知没有 id —— 客户端那条 `notifications/initialized` 就在这儿被静默收掉，
     // 别的通知（cancelled / roots 变了…）一视同仁：不回，也不当未知方法报错。
     let id = msg.get("id")?.clone();
@@ -78,12 +81,14 @@ fn handle(db: &Db, msg: &Value) -> Option<String> {
             "capabilities": { "tools": { "listChanged": false } },
             "serverInfo": { "name": "self-notion", "version": env!("CARGO_PKG_VERSION") },
             // 进来的第一站：这棵树的语法本身写在 /AGENTS.md 里（docs/vfs.md 第七节）
-            "instructions": "这是 self-notion 的虚拟文档目录。先 vfs_read /index.md 看全局，\
-                             再 vfs_grep 定位，正文用 vfs_read 拿。目录语法见 /AGENTS.md。",
+            "instructions": "这是 self-notion 个人笔记库。notes_map() 看全局，\
+                             notes_find(q) 定位，notes_cd(标题|id|目录) 打开，\
+                             notes_read(section=…) 读，notes_related(id) 找关联。\
+                             不要一次读全库。",
         })),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tools() })),
-        "tools/call" => call_tool(db, &params),
+        "tools/call" => call_tool(db, nav, &params),
         other => Err((-32601, format!("unknown method: {other}"))),
     };
 
@@ -98,7 +103,7 @@ fn handle(db: &Db, msg: &Value) -> Option<String> {
 
 /// `tools/call`。**业务失败走 `isError: true`，不是 JSON-RPC 层的错** ——
 /// 那段文本直接喂给模型，它据此改参数重试就完了。
-fn call_tool(db: &Db, params: &Value) -> Result<Value, (i64, String)> {
+fn call_tool(db: &Db, nav: &mut nav::Nav, params: &Value) -> Result<Value, (i64, String)> {
     let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
     let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
 
@@ -106,24 +111,17 @@ fn call_tool(db: &Db, params: &Value) -> Result<Value, (i64, String)> {
         "vfs_list" => tool(&args, |a: vfs::ListArgs| {
             vfs::list(db, &a.path).and_then(|v| json_text(&v))
         }),
-        "vfs_grep" => tool(&args, |a: vfs::GrepArgs| {
-            vfs::grep(db, &a.pattern, a.ignore_case).and_then(|v| json_text(&v))
-        }),
-        // read 回正文本身，不套 JSON —— 模型要的是 `cat` 的样子
-        "vfs_read" => tool(&args, |a: vfs::ReadArgs| vfs::read(db, &a.path, a.offset, a.limit)),
         "vfs_stat" => tool(&args, |a: vfs::StatArgs| -> ApiResult<String> {
             let p = a.path.clone();
             // 路径不存在在这儿是一次失败（stat 在文件系统里也是 ENOENT），不静默回 null
             let e = vfs::stat(db, &a.path)?.ok_or_else(|| ApiError::new("not_found", p))?;
             json_text(&e)
         }),
-        "doc_list" => tool(&args, |a: DocListArgs| {
-            db.with(|c| docs::list(c, a.include_trashed)).and_then(|v| json_text(&v))
-        }),
-        // 先 get 一下再读：id 打错要报 not_found，不能和「从没落过库的文档」一样静默回空串
-        "doc_text" => tool(&args, |a: DocTextArgs| {
-            db.with(|c| docs::get(c, &a.id).and_then(|_| docs::text(c, &a.id)))
-        }),
+        "notes_cd" => tool(&args, |a: nav::CdArgs| nav::cd(db, nav, a.target.as_deref())),
+        "notes_read" => tool(&args, |a: nav::ReadArgs| nav::read(db, nav, &a)),
+        "notes_find" => tool(&args, |a: notes::FindArgs| notes::find(db, &a)),
+        "notes_map" => tool(&args, |a: notes::MapArgs| notes::map(db, &a)),
+        "notes_related" => tool(&args, |a: notes::RelatedArgs| notes::related(db, nav, &a)),
         // kb_* 落到知识库工具面的唯一实现（D-0187）。★ 走 `call_readonly`，**不是** `call` ——
         // 分派是按名字走的，「清单里没列」拦不住客户端自己编一个 `kb_accept` 发过来（实测过）。
         n if n.starts_with("kb_") => crate::kb::tools::call_readonly(db, n, &args),
@@ -136,105 +134,111 @@ fn call_tool(db: &Db, params: &Value) -> Result<Value, (i64, String)> {
     })
 }
 
-/// 工具清单：老的六条（本文件字面量）+ 知识库那 9 条只读（`kb::tools::catalog()`，D-0187）。
-/// **这就是只读边界本身**（D-0084 第 3 条）：没有写工具，不是"默认关" —— 所以并的是
-/// `catalog()`，**不是** `catalog_writable()`。
-/// `inputSchema` 的形状对着 `vfs/mod.rs` 的入参结构（那边是 camelCase）。
+/// 工具清单：5 条主工具 + 2 条逃生口（D-0191）。
+/// **这就是只读边界本身**（D-0084 第 3 条）：没有写工具，不是"默认关"。
 fn tools() -> Value {
-    let mut list = json!([
+    json!([
         {
-            "name": "vfs_list",
-            "description": "列一个虚拟目录的直接子项（目录在前，其次按名字）。",
+            "name": "notes_cd",
+            "description": "笔记导航。不传 target = pwd + ls；传目录名进目录，传标题/id/路径打开文章，回大纲 + 1k 预览。支持 ..、/、标题#小节。",
+            "_meta": {
+                "anthropic/searchHint": "cd ls open note article 笔记 打开 进入 目录",
+                "anthropic/maxResultSizeChars": 12000
+            },
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "path": {
-                        "type": "string",
-                        // 列**真的存在**的：`/search/<词>` 是动态目录（vfs/mod.rs 的 `search_matches`），
-                        // 它不在静态表里，但能列举、能读，所以算数。
-                        "description": "虚拟路径：/ · /tree · /tree/工作 · /by-date · /recent · /favorites · /outline · /trash · /by-tag/<标签> · /links/to · /links/from · /search/<词>"
-                    }
-                },
-                "required": ["path"]
+                    "target": {"type": "string", "description": "目录名 / 标题 / 32 位 id / 虚拟路径；不传 = 列当前目录"}
+                }
             }
         },
         {
-            "name": "vfs_grep",
-            "description": "在所有未删除文档的正文里找**字面子串**（不是正则），回 path + 行号 + 整行。",
+            "name": "notes_read",
+            "description": "读当前文章或指定文章。section 先按标题匹配、再按正文匹配；不传 section 时，长文先回大纲 + 预览。",
+            "_meta": {
+                "anthropic/searchHint": "read note section cat 笔记 正文 读",
+                "anthropic/maxResultSizeChars": 12000
+            },
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "pattern": {"type": "string", "description": "字面子串，不能为空"},
-                    "ignoreCase": {"type": "boolean", "description": "忽略大小写，默认 false"}
-                },
-                "required": ["pattern"]
-            }
-        },
-        {
-            "name": "vfs_read",
-            "description": "读一个虚拟文件的正文。也可以读系统生成的 /index.md 和 /AGENTS.md。",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "虚拟路径，如 /tree/工作/周报.md"},
+                    "target": {"type": "string", "description": "标题 / id / 路径；不传 = 当前文章"},
+                    "section": {"type": "string", "description": "标题或正文关键字，如「三刀流」"},
                     "offset": {"type": "integer", "description": "从第几行开始，0 起数"},
                     "limit": {"type": "integer", "description": "最多几行"}
+                }
+            }
+        },
+        {
+            "name": "notes_find",
+            "description": "按关键词/问题找笔记，回 6–8 张卡片（标题、一句摘要、命中片段、id），不返回全文。",
+            "_meta": {
+                "anthropic/searchHint": "search find note query 笔记 搜索 查找 之前写过",
+                "anthropic/maxResultSizeChars": 12000
+            },
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "关键词、问题或标题片段"},
+                    "limit": {"type": "integer", "description": "最多几条，默认 8"}
+                },
+                "required": ["query"]
+            }
+        },
+        {
+            "name": "notes_map",
+            "description": "全局地图：按规则聚类出主题和篇数，每类给 3 个例子。传 scope 下钻某个主题或目录。",
+            "_meta": {
+                "anthropic/searchHint": "map overview topics library 笔记 全局 地图 主题 分类",
+                "anthropic/maxResultSizeChars": 12000
+            },
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "scope": {"type": "string", "description": "主题名或目录名；不传 = 根地图"},
+                    "limit": {"type": "integer", "description": "下钻时最多几条，默认 20"}
+                }
+            }
+        },
+        {
+            "name": "notes_related",
+            "description": "跟一篇相关的笔记：显式链接 + AI 推断的 pending 链接 + 标题相近。不传 id = 当前文章。",
+            "_meta": {
+                "anthropic/searchHint": "related similar backlinks 笔记 关联 相关 反链",
+                "anthropic/maxResultSizeChars": 12000
+            },
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "文档 id；不传 = 当前文章"},
+                    "limit": {"type": "integer", "description": "最多几条，默认 8"}
+                }
+            }
+        },
+        {
+            "name": "vfs_list",
+            "description": "逃生口：列虚拟目录。优先用 notes_cd()。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "虚拟路径：/ · /tree · /by-date · /recent · /by-tag/<标签> · /links/to · /search/<词>"}
                 },
                 "required": ["path"]
             }
         },
         {
             "name": "vfs_stat",
-            "description": "看一个路径存不存在、是文件还是目录、多大。",
+            "description": "逃生口：看路径是文件还是目录、多大。",
             "inputSchema": {
                 "type": "object",
                 "properties": {"path": {"type": "string"}},
                 "required": ["path"]
             }
-        },
-        {
-            "name": "doc_list",
-            "description": "全部文档的元数据（一行 JSON：id / title / parentId / updatedAt / tags…）。按路径找正文用 vfs_*。",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "includeTrashed": {"type": "boolean", "description": "连回收站一起，默认 false"}
-                }
-            }
-        },
-        {
-            "name": "doc_text",
-            "description": "按文档 id 读 Markdown 投影正文（id 从 doc_list 拿）。",
-            "inputSchema": {
-                "type": "object",
-                "properties": {"id": {"type": "string"}},
-                "required": ["id"]
-            }
         }
-    ]);
-    // 知识库那 9 条只读工具并进来。★ 用 catalog() 不是 catalog_writable() ——
-    // 写工具不进 MCP，只读边界就是这份清单里没有写工具（D-0084 第 3 条）。
-    if let Some(arr) = list.as_array_mut() {
-        if let Some(kb) = crate::kb::tools::catalog().as_array() {
-            arr.extend(kb.iter().cloned());
-        }
-    }
-    list
+    ])
 }
 
 /* ─────────────────────────── 小工具 ─────────────────────────── */
-
-/// doc_list 的入参。只有这一条工具的参数不在 `vfs/mod.rs` 里，就写在这儿。
-#[derive(Deserialize, Default)]
-#[serde(default, rename_all = "camelCase")]
-struct DocListArgs {
-    include_trashed: bool,
-}
-
-#[derive(Deserialize)]
-struct DocTextArgs {
-    id: String,
-}
 
 /// 参数 → 干活。解不开就是 `bad_args`（和 `commands::dispatch` 同一个口径）。
 fn tool<T: serde::de::DeserializeOwned>(

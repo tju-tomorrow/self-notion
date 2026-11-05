@@ -26,7 +26,7 @@ pub fn catalog() -> Value {
     json!([
         {
             "name": "kb_search",
-            "description": "全文检索笔记（比 vfs_grep 好：带排序、能按标签/主题/时间过滤）。先看 /index.md 定方向，再用这个精确找。",
+            "description": "全文检索笔记（带排序、有上限）。notes_cd 找不到精确标题时用它；别用 vfs_grep 全库扫。",
             "inputSchema": {
                 "type": "object",
                 "properties": {
