@@ -26,8 +26,16 @@ const TEXT_MARKS: ReadonlyArray<{ name: MarkName; text: string; cls: string }> =
   { name: 'italic', text: 'I', cls: 'sn-itb-i' },
   { name: 'underline', text: 'U', cls: 'sn-itb-u' },
   { name: 'strike', text: 'S', cls: 'sn-itb-s' },
-  { name: 'code', text: '</>', cls: 'sn-itb-code' },
+  { name: 'code', text: '&lt;/&gt;', cls: 'sn-itb-code' },
 ]
+
+const MARK_TITLES: Readonly<Record<MarkName, string>> = {
+  bold: '加粗',
+  italic: '斜体',
+  underline: '下划线',
+  strike: '删除线',
+  code: '行内代码',
+}
 
 /** 色板：Notion 那套默认色，空串 = 默认（等于清除）。 */
 const COLORS: Readonly<Record<ColorKind, readonly string[]>> = {
@@ -80,6 +88,7 @@ function createBar(view: EditorView, onComment?: (at: CommentAnchor) => void) {
   const markBtns = new Map<MarkName, HTMLButtonElement>()
   for (const { name, text, cls } of TEXT_MARKS) {
     const btn = mkButton(text, cls)
+    btn.title = MARK_TITLES[name]
     btn.addEventListener('click', () => {
       toggleMark(schema.marks[name])(view.state, view.dispatch, view)
       after()
