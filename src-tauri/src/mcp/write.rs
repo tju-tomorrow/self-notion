@@ -10,7 +10,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::time::{Duration, Instant};
 
-const WAIT: Duration = Duration::from_secs(10);
+const WAIT: Duration = Duration::from_secs(60);
 const POLL: Duration = Duration::from_millis(100);
 
 #[derive(Deserialize, Default)]
@@ -197,16 +197,9 @@ pub(crate) fn enqueue(action: &str, payload: Value) -> ApiResult<String> {
         }
     }
 
-    let _ = w.with(|c| {
-        c.execute(
-            "DELETE FROM agent_request WHERE id = ?1 AND state = 'pending'",
-            [id.as_str()],
-        )
-        .map_err(db_err)
-    });
     Err(ApiError::new(
         "agent",
-        "桌面端没响应（10s）。写操作需要 self-notion 开着；读不受影响。",
+        "桌面端 60s 内没处理完；请求仍在队列里，稍后会自动执行，先别重发。",
     ))
 }
 

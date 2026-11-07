@@ -306,7 +306,7 @@ function toDocJson(blocks: readonly PMNode[]): string {
 export function docFromMarkdown(markdown: string): string {
   const blocks: PMNode[] = []
   try {
-    parser.parse(markdown).forEach((block) => convertBlock(block, blocks, NO_RANGE))
+    mdBlocks(markdown, blocks)
   } catch (err) {
     reportError('editor-prosemirror', err)
     blocks.length = 0
@@ -319,12 +319,69 @@ export function docFromMarkdown(markdown: string): string {
 export function blocksFromMarkdown(markdown: string): PMNode[] | null {
   try {
     const blocks: PMNode[] = []
-    parser.parse(markdown).forEach((block) => convertBlock(block, blocks, NO_RANGE))
+    mdBlocks(markdown, blocks)
     return blocks.length > 0 ? blocks : null
   } catch (err) {
     reportError('editor-prosemirror', err)
     return null
   }
+}
+
+/** commonmark tokenizer 不认 GFM 表格，按行自己切出来，其余照旧交给原 parser。 */
+function mdBlocks(markdown: string, out: PMNode[]): void {
+  const lines = markdown.split('\n')
+  let buf: string[] = []
+  const flush = () => {
+    if (!buf.length) return
+    parser.parse(buf.join('\n')).forEach((block) => convertBlock(block, out, NO_RANGE))
+    buf = []
+  }
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i].includes('|') && TABLE_DELIM.test(lines[i + 1] ?? '')) {
+      flush()
+      const table = mdTable(lines, i)
+      out.push(container(schema.nodes.table.create(null, table.rows), [], NO_RANGE))
+      i = table.end - 1
+    } else {
+      buf.push(lines[i])
+    }
+  }
+  flush()
+}
+
+function mdCell(text: string): PMNode {
+  const inline = parser.parse(text).firstChild
+  const kids = inline ? inlineOf(inline) : []
+  return schema.nodes.paragraph.create(null, kids)
+}
+
+function mdTable(lines: readonly string[], start: number): { rows: PMNode[]; end: number } {
+  const cells = (line: string): string[] => {
+    let s = line.trim()
+    if (s.startsWith('|')) s = s.slice(1)
+    if (s.endsWith('|')) s = s.slice(0, -1)
+    return s.split('|').map((c) => c.trim())
+  }
+  const head = cells(lines[start])
+  const rows: PMNode[] = [
+    schema.nodes.table_row.create(
+      null,
+      head.map((t) => schema.nodes.table_header.create(null, mdCell(t))),
+    ),
+  ]
+  let i = start + 2
+  while (i < lines.length && lines[i].trim() && lines[i].includes('|')) {
+    const row = cells(lines[i])
+    while (row.length < head.length) row.push('')
+    rows.push(
+      schema.nodes.table_row.create(
+        null,
+        row.slice(0, head.length).map((t) => schema.nodes.table_cell.create(null, mdCell(t))),
+      ),
+    )
+    i += 1
+  }
+  return { rows, end: i }
 }
 
 /* ───────────────── 外部文件：带原文的解析 + 保真序列化（D-0139 / D-0141 / D-0142）───────────────── */

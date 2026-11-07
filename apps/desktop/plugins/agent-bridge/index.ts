@@ -21,7 +21,7 @@ export const name = 'agent-bridge'
 // rpc：agent:pending / agent:finish / doc:* / version:*；doc-write 是软依赖。
 export const inject = ['rpc']
 
-const TICK_MS = 500
+const TICK_MS = 200
 
 interface Pending {
   id: string
@@ -47,9 +47,16 @@ export function apply(ctx: Context) {
     }
   }
 
+  const wake = () => void tick()
   void tick()
-  const timer = setInterval(() => void tick(), TICK_MS)
-  ctx.effect(() => () => clearInterval(timer))
+  const timer = setInterval(wake, TICK_MS)
+  document.addEventListener('visibilitychange', wake)
+  window.addEventListener('focus', wake)
+  ctx.effect(() => () => {
+    clearInterval(timer)
+    document.removeEventListener('visibilitychange', wake)
+    window.removeEventListener('focus', wake)
+  })
 }
 
 async function handle(ctx: Context, req: Pending): Promise<void> {
@@ -89,7 +96,10 @@ async function run(
         groupId,
       )
       const parentId = str(args, 'parentId')
-      if (parentId) await ctx.rpc.call('doc:move', { id: made.id, parentId })
+      if (parentId) {
+        await ctx.rpc.call('doc:move', { id: made.id, parentId })
+        await linkChild(ctx, docWrite, parentId, made.id, groupId)
+      }
       const tags = strs(args, 'tags')
       if (tags.length) await ctx.rpc.call('doc:tags', { id: made.id, tags })
       return { id: made.id, title: made.title, blocks: made.blocks }
@@ -123,6 +133,7 @@ async function run(
         id,
         parentId: parentId || null,
       })
+      if (parentId && docWrite) await linkChild(ctx, docWrite, parentId, id, groupId)
       return { id: meta.id, title: meta.title }
     }
     case 'trash':
@@ -159,6 +170,26 @@ async function run(
     }
     default:
       throw new Error(`不认识的 action：${action}`)
+  }
+}
+
+async function linkChild(
+  ctx: Context,
+  docWrite: DocWriteService,
+  parentId: string,
+  childId: string,
+  groupId: string,
+): Promise<void> {
+  try {
+    const opened = await ctx.rpc.call<{ content: string | null }>('doc:open', { id: parentId })
+    if (opened.content?.includes(childId)) return
+    await docWrite.append(
+      parentId,
+      `[${childId}](self-notion://doc/${childId})`,
+      groupId,
+    )
+  } catch (err) {
+    reportError('agent-bridge', err)
   }
 }
 
