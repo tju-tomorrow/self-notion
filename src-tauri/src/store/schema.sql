@@ -251,3 +251,14 @@ CREATE TABLE IF NOT EXISTS agent_request (
   done_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS agent_request_state ON agent_request(state, at);
+
+-- ── 学习指标（D-0193）。行为计数只由编辑器累加；熟悉度是人手（或 Agent）打的档。
+--    行为分不存，读的时候算。加表不占 SCHEMA_VERSION。
+CREATE TABLE IF NOT EXISTS doc_learn (
+  doc_id       TEXT PRIMARY KEY,
+  opens        INTEGER NOT NULL DEFAULT 0,
+  read_ms      INTEGER NOT NULL DEFAULT 0,
+  depth        INTEGER NOT NULL DEFAULT 0,    -- 0–100，读到过的最深位置
+  familiarity  INTEGER,                       -- 1–4，null = 没打过
+  at           INTEGER NOT NULL
+);

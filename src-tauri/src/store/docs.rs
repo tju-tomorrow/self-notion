@@ -257,7 +257,7 @@ pub fn restore_trash(conn: &Connection) -> ApiResult<usize> {
 /// 清空回收站 —— 连同内容一起硬删，**没有撤销**这条路（同 `remove`）。
 pub fn empty_trash(conn: &Connection) -> ApiResult<usize> {
     let tx = conn.unchecked_transaction().map_err(db_err)?;
-    for table in ["doc", "doc_version", "doc_text", "doc_fts", "doc_summary"] {
+    for table in ["doc", "doc_version", "doc_text", "doc_fts", "doc_summary", "doc_learn"] {
         tx.execute(
             &format!(
                 "DELETE FROM {table} WHERE doc_id IN
@@ -291,7 +291,7 @@ pub fn empty_trash(conn: &Connection) -> ApiResult<usize> {
 pub fn remove(conn: &Connection, id: &str) -> ApiResult<()> {
     let tx = conn.unchecked_transaction().map_err(db_err)?;
     // documents 留到最后 —— 子树是靠它物化的，先删就拿不到子孙了
-    for table in ["doc", "doc_version", "doc_text", "doc_fts", "doc_summary"] {
+    for table in ["doc", "doc_version", "doc_text", "doc_fts", "doc_summary", "doc_learn"] {
         tx.execute(
             &format!("{SUBTREE} DELETE FROM {table} WHERE doc_id IN (SELECT id FROM sub)"),
             [id],

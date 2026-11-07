@@ -462,6 +462,19 @@ export interface DocMeta {
   tags: string[]
 }
 
+/** 熟悉度四档（D-0193）。下标 + 1 = 库里的整数。null = 没打过。 */
+export const FAMILIARITY = ['不熟', '略懂', '熟悉', '很熟'] as const
+
+/** `learn:*` 的一行。行为分现算，不存。 */
+export interface LearnRow {
+  docId: string
+  opens: number
+  readMs: number
+  depth: number
+  familiarity: number | null
+  score: number
+}
+
 /** `search:query` 的一行。形状 = Rust `store::docs::Hit`。 */
 export interface SearchHit {
   id: string

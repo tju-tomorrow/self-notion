@@ -205,6 +205,7 @@ globalStyle('.sn-block mark[data-color]:not([data-color=""])', {
 globalStyle('.sn-page-meta', {
   position: 'relative',
   display: 'flex',
+  flexWrap: 'wrap',
   alignItems: 'center',
   gap: 8,
   boxSizing: 'border-box',
@@ -229,7 +230,37 @@ globalStyle('.sn-page-meta::after', {
 // 取不到创建时间（`doc:list` 还没回来）就整块收掉，不留一个空日历。
 globalStyle('.sn-page-meta [data-on="0"]', { display: 'none' })
 
-globalStyle(':is(.sn-meta-time, .sn-meta-words)', { display: 'flex', alignItems: 'center', gap: 4 })
+globalStyle('.sn-meta-learn', {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  marginLeft: 'auto',
+})
+
+globalStyle('.sn-meta-fam', { display: 'flex', alignItems: 'center', gap: 2 })
+
+globalStyle('.sn-fam', {
+  border: 'none',
+  background: 'transparent',
+  fontFamily: 'inherit',
+  fontSize: 12,
+  color: 'inherit',
+  cursor: 'pointer',
+  padding: '0 4px',
+  borderRadius: 4,
+  lineHeight: '20px',
+})
+
+globalStyle('.sn-fam[data-on="1"]', {
+  color: 'var(--affine-v2-text-primary)',
+  background: 'var(--affine-v2-button-secondary)',
+})
+
+globalStyle(':is(.sn-meta-time, .sn-meta-words, .sn-backlinks-head)', {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 4,
+})
 
 globalStyle('.sn-meta-sep', { opacity: 0.5 })
 
@@ -315,28 +346,51 @@ globalStyle('.sn-cover[data-on="1"] .sn-cover-add', { display: 'none' })
 globalStyle('.sn-page-icon', { fontSize: 48, lineHeight: 1 })
 globalStyle('.sn-page-icon[data-on="0"]', { display: 'none' })
 
-/* ── 反向链接（正文之后，现算） ── */
+/* ── 反向链接：跟创建时间、字数同一行；名单浮在上面，不占正文 ── */
 
-globalStyle('.sn-backlinks', { maxWidth: COLUMN, margin: '32px auto 0' })
-// 没人提到这一篇 → 整块收掉（别在每篇空文档底下挂一句「暂无」）。
-globalStyle('.sn-backlinks[data-on="0"]', { display: 'none' })
+globalStyle('.sn-backlinks', {
+  position: 'relative',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+})
 
 globalStyle('.sn-backlinks-head', {
-  marginBottom: 6,
-  fontSize: 12,
-  color: 'var(--sn-muted, #8a8a8a)',
+  padding: 0,
+  border: 'none',
+  background: 'transparent',
+  color: 'inherit',
+  font: 'inherit',
+  cursor: 'pointer',
 })
+
+globalStyle('.sn-backlinks-pop', {
+  display: 'none',
+  position: 'absolute',
+  zIndex: 5,
+  top: 'calc(100% + 8px)',
+  left: 0,
+  minWidth: 180,
+  maxWidth: 280,
+  padding: 4,
+  border: '1px solid var(--affine-border-color, rgba(0, 0, 0, .1))',
+  borderRadius: 'var(--affine-popover-radius, 8px)',
+  background: 'var(--affine-background-overlay-panel-color, #fff)',
+  boxShadow: 'var(--affine-popover-shadow, 0 4px 16px rgba(0, 0, 0, .16))',
+  color: 'var(--affine-text-primary-color, #333)',
+})
+globalStyle('.sn-backlinks[data-open="1"] .sn-backlinks-pop', { display: 'block' })
 
 globalStyle('.sn-backlinks-item', {
   display: 'block',
   width: '100%',
-  padding: '3px 6px',
+  padding: '5px 8px',
   border: 'none',
-  borderRadius: 4,
+  borderRadius: 6,
   background: 'transparent',
   color: 'inherit',
-  fontSize: 14,
+  fontSize: 13,
   textAlign: 'left',
   cursor: 'pointer',
 })
-globalStyle('.sn-backlinks-item:hover', { background: 'rgba(127, 127, 127, .12)' })
+globalStyle('.sn-backlinks-item:hover', { background: 'var(--affine-hover-color, rgba(127, 127, 127, .12))' })

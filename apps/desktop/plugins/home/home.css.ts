@@ -108,6 +108,18 @@ export const filter = style({
   },
 })
 
+export const chipOn = style({
+  height: 28,
+  padding: '0 12px',
+  border: 'none',
+  borderRadius: 8,
+  background: 'var(--affine-v2-layer-background-hoverOverlay)',
+  color: 'var(--affine-v2-text-primary)',
+  fontFamily: 'inherit',
+  fontSize: 14,
+  cursor: 'pointer',
+})
+
 export const ghostBtn = style({
   height: 28,
   padding: '0 12px',
@@ -363,6 +375,45 @@ export const rowDateValue = style({
   width: 56,
   textAlign: 'right',
   fontVariantNumeric: 'tabular-nums',
+})
+
+/** 「不熟悉」筛开着时，时间列换成这一行指标。 */
+export const learnLine = style({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  marginLeft: 16,
+  flexShrink: 0,
+  fontSize: 12,
+  color: 'var(--affine-v2-text-secondary)',
+  fontVariantNumeric: 'tabular-nums',
+})
+
+export const famBtn = style({
+  border: 'none',
+  background: 'transparent',
+  fontFamily: 'inherit',
+  fontSize: 12,
+  color: 'var(--affine-v2-text-tertiary)',
+  cursor: 'pointer',
+  padding: '0 4px',
+  height: 22,
+  borderRadius: 4,
+})
+
+export const famOn = style([
+  famBtn,
+  {
+    color: 'var(--affine-v2-text-primary)',
+    background: 'var(--affine-v2-button-secondary)',
+  },
+])
+
+export const cardLearn = style({
+  marginTop: 6,
+  fontSize: 12,
+  lineHeight: '18px',
+  color: 'var(--affine-v2-text-secondary)',
 })
 
 /* ── 网格视图（grid / masonry 共用） ── */

@@ -13,6 +13,7 @@ pub mod blob;
 pub mod comment;
 pub mod docs;
 pub mod kb;
+pub mod learn;
 pub mod links;
 pub mod summary;
 pub mod sync;
@@ -59,7 +60,8 @@ fn reset(conn: &Connection) -> Result<(), rusqlite::Error> {
          DROP TABLE IF EXISTS entity_mention;
          DROP TABLE IF EXISTS graph_edge;
          DROP TABLE IF EXISTS vec;
-         DROP TABLE IF EXISTS agent_request;",
+         DROP TABLE IF EXISTS agent_request;
+         DROP TABLE IF EXISTS doc_learn;",
     )?;
     conn.execute_batch(include_str!("schema.sql"))
 }

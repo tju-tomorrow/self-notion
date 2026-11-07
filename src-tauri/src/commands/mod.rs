@@ -15,7 +15,7 @@ use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::store::{self, agent, blob, comment, docs, links, sync, version, Db};
+use crate::store::{self, agent, blob, comment, docs, learn, links, sync, version, Db};
 use crate::vfs;
 
 /// 字节字段的线上形状：**base64 字符串**。
@@ -261,6 +261,29 @@ pub fn dispatch(
         "doc:touch" => call(db, |c| {
             let a: DocId = parse(args)?;
             docs::touch(c, &a.id)
+        }),
+        // 学习指标（D-0193）。打开 / 进度只该由编辑器打；熟悉度人也能打。
+        "learn:list" => call(db, learn::list),
+        "learn:get" => call(db, |c| {
+            let a: DocId = parse(args)?;
+            learn::get(c, &a.id)
+        }),
+        "learn:opened" => call(db, |c| {
+            let a: DocId = parse(args)?;
+            learn::opened(c, &a.id)
+        }),
+        "learn:progress" => call(db, |c| {
+            let a: LearnProgress = parse(args)?;
+            learn::progress(c, &a.id, a.add_ms, a.depth)
+        }),
+        "learn:familiarity" => call(db, |c| {
+            let a: LearnFamiliarity = parse(args)?;
+            if let Some(n) = a.level {
+                if !(1..=4).contains(&n) {
+                    return Err(learn::bad_level(n));
+                }
+            }
+            learn::set_familiarity(c, &a.id, a.level)
         }),
         // ★ 落一份正文（PM doc JSON，覆盖式）。origin != 'user' 时由 Rust 强制先快照再写（D-0043）
         // 写完广播给别的窗口（架构第七节）—— 别的窗口开着这篇的话重读，两边才是一份数据。
@@ -774,6 +797,22 @@ struct DocFlag {
 #[serde(rename_all = "camelCase")]
 struct DocIds {
     ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LearnProgress {
+    id: String,
+    add_ms: i64,
+    depth: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LearnFamiliarity {
+    id: String,
+    /// 1–4；null = 清掉。
+    level: Option<i64>,
 }
 
 #[derive(Deserialize)]

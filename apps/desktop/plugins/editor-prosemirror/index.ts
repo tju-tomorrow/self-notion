@@ -26,6 +26,7 @@ import { setCreateDoc, setDocs, setLoadDoc, setOpenDoc } from './doc-meta'
 import { setSyncApi } from './sync'
 import { setScheme as setMermaidScheme } from './nodes/mermaid'
 import { FindPanel, type FindApi } from './find-panel'
+import { setLearnRpc } from './learn'
 import { registerEditorView, reloadDoc } from './view'
 
 type EditorModule = typeof import('./editor')
@@ -47,6 +48,7 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 export function apply(ctx: Context) {
+  setLearnRpc((method, args) => ctx.rpc.call(method, args))
   // mermaid 的配色跟明暗走 —— `nodes/mermaid.ts` 那层拿不到 ctx，这边推给它（契约 D10）。
   const pushScheme = () => setMermaidScheme(ctx.theme.scheme)
   pushScheme()

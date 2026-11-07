@@ -28,6 +28,7 @@ import { firstTextPos } from './commands/block'
 import { metaOf } from './doc-meta'
 import { docsBacking, type DocPayload, type DocsBacking } from './doc-source'
 import { createFindApi, findPlugin, type FindApi } from './find'
+import { startLearn } from './learn'
 import { nodeViews } from './nodes'
 import { outlinePlugin } from './outline'
 import { renderPageHead, type PageHead } from './page-head'
@@ -284,10 +285,9 @@ export async function mountEditor(el: HTMLElement, docId: string, side?: HTMLEle
     { signal: abort.signal },
   )
 
-  // 正文之后：反向链接（谁提到了这一篇）。**现算**的，不进 doc。
-  // ★ 文件模式不取（`link:backlinks` 是按库里的 docId 算的，外部文件不进图谱，D-0140）。
+  // 反向链接跟创建时间、字数同一行。挂在正文里会占掉落光标的空白（D-0140：文件模式不取）。
   const backlinks = file ? noopView() : renderBacklinks(docId)
-  if (!file) el.appendChild(backlinks.el)
+  if (!file) metaEl.appendChild(backlinks.el)
 
   const rec: Live = {
     id: docId,
@@ -343,6 +343,9 @@ export async function mountEditor(el: HTMLElement, docId: string, side?: HTMLEle
     view.dispatch(view.state.tr.setSelection(Selection.near(doc.resolve(at), 1)).scrollIntoView())
     view.focus()
   })
+
+  // 外部文件不进笔记库，没有学习指标这一行。
+  if (!file) startLearn(docId, el, abort.signal)
 
   return {
     unmount: () => dispose(live.get(docId)),

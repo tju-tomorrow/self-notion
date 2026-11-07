@@ -39,8 +39,10 @@ import {
 } from '@blocksuite/icons/rc'
 import {
   DOCS_CHANGED,
+  FAMILIARITY,
   OPEN_DOC,
   type DocMeta,
+  type LearnRow,
   type ListGroup,
 } from '../../src/kernel/contract'
 import { buildSections, filterGroup, timeAgo, type OrderKey } from './group'
@@ -57,6 +59,13 @@ import * as s from './home.css'
  *  （它的 `viewToggleItem` 是 `fontSize: 16` + `width: 24`）。两个不是一个尺寸。 */
 const ROW_ICON = 24
 const VIEW_ICON = 16
+
+function readTime(ms: number): string {
+  const min = Math.round(ms / 60_000)
+  if (min < 1) return '不到 1 分'
+  if (min < 60) return `${min} 分`
+  return `${Math.floor(min / 60)} 时 ${min % 60} 分`
+}
 
 /* ── 当前分组：模块级状态 + 订阅（侧栏 → SHOW_LIST → 这里） ──
  * 状态放模块级而不是组件里：事件可能在首页还没挂载时发（用户正在看编辑器时点侧栏），
@@ -233,13 +242,16 @@ export function Home({ ctx }: { ctx: Context }) {
   const [grouped, setGrouped] = useState(() => readLocal('sn.home.grouped', true))
   const [order, setOrder] = useState<OrderKey>(() => readLocal('sn.home.order', 'updatedAt'))
   const [filter, setFilter] = useState('')
+  const [unfamiliar, setUnfamiliar] = useState(() => readLocal('sn.home.unfamiliar', false))
+  const [learn, setLearn] = useState<ReadonlyMap<string, LearnRow>>(() => new Map())
 
   // 视图 / 分组 / 排序落盘：这仨是「我怎么看我的库」的偏好，不该每次重开重来。
   useEffect(() => {
     writeLocal('sn.home.view', view)
     writeLocal('sn.home.grouped', grouped)
     writeLocal('sn.home.order', order)
-  }, [view, grouped, order])
+    writeLocal('sn.home.unfamiliar', unfamiliar)
+  }, [view, grouped, order, unfamiliar])
   /** 同时只开一个浮层：`'display'` 或某篇文档的 id。 */
   const [open, setOpen] = useState<string | null>(null)
   /** 正在原地改名的那一行。菜单里点「重命名」也走这里。 */
@@ -253,7 +265,12 @@ export function Home({ ctx }: { ctx: Context }) {
 
   // 一次取全量（含回收站），分组在前端切 —— 这样切分组不用再往返一次。
   const reload = useCallback(async () => {
-    setDocs(await ctx.rpc.call<DocMeta[]>('doc:list', { includeTrashed: true }))
+    const [all, rows] = await Promise.all([
+      ctx.rpc.call<DocMeta[]>('doc:list', { includeTrashed: true }),
+      ctx.rpc.call<LearnRow[]>('learn:list', {}),
+    ])
+    setDocs(all)
+    setLearn(new Map(rows.map((row) => [row.docId, row])))
   }, [ctx])
 
   /** 失败要响亮：静默空着会被当成「库空了」。 */
@@ -310,10 +327,11 @@ export function Home({ ctx }: { ctx: Context }) {
    *   换成下次数据变化时再重算，用户看不出来。
    */
   const visible = useMemo(() => {
-    const base = filterGroup(docs, active)
+    let base = filterGroup(docs, active)
+    if (unfamiliar) base = base.filter((doc) => learn.get(doc.id)?.familiarity === 1)
     const q = filter.trim().toLowerCase()
     return q === '' ? base : base.filter((doc) => doc.title.toLowerCase().includes(q))
-  }, [docs, active, filter])
+  }, [docs, active, filter, unfamiliar, learn])
 
   const close = useCallback(() => setOpen(null), [])
   const toggle = useCallback((key: string) => setOpen((cur) => (cur === key ? null : key)), [])
@@ -523,6 +541,28 @@ export function Home({ ctx }: { ctx: Context }) {
   const shown = items.slice(win.start, win.end)
 
   const label = (doc: DocMeta) => doc.title || ctx.i18n.t('sidebar.untitled')
+
+  const learnText = (doc: DocMeta) => {
+    const row = learn.get(doc.id)
+    if (!row || (row.opens === 0 && row.readMs === 0 && row.depth === 0)) {
+      return ctx.i18n.t('home.learn.line', { opens: 0, time: '0 分', depth: 0, score: 0 })
+    }
+    return ctx.i18n.t('home.learn.line', {
+      opens: row.opens,
+      time: readTime(row.readMs),
+      depth: row.depth,
+      score: row.score,
+    })
+  }
+
+  const setLevel = (doc: DocMeta, level: number) => {
+    const cur = learn.get(doc.id)?.familiarity ?? null
+    const next = cur === level ? null : level
+    void run(async () => {
+      const row = await ctx.rpc.call<LearnRow>('learn:familiarity', { id: doc.id, level: next })
+      setLearn((prev) => new Map(prev).set(row.docId, row))
+    })
+  }
   const favLabel = (doc: DocMeta) =>
     ctx.i18n.t(doc.isFavorite ? 'home.unfavorite' : 'sidebar.favorite')
 
@@ -646,6 +686,21 @@ export function Home({ ctx }: { ctx: Context }) {
       {check(doc)}
       {icon(doc, ROW_ICON)}
       <span className={s.rowBrief}>{titleOf(doc, s.rowTitle)}</span>
+      {unfamiliar ? (
+        <span className={s.learnLine} onClick={(e) => e.stopPropagation()}>
+          <span>{learnText(doc)}</span>
+          {FAMILIARITY.map((name, i) => (
+            <button
+              key={name}
+              type="button"
+              className={learn.get(doc.id)?.familiarity === i + 1 ? s.famOn : s.famBtn}
+              onClick={() => setLevel(doc, i + 1)}
+            >
+              {name}
+            </button>
+          ))}
+        </span>
+      ) : (
       <span className={s.rowDates}>
         <span
           className={s.rowDate}
@@ -665,6 +720,7 @@ export function Home({ ctx }: { ctx: Context }) {
           <span className={s.rowDateValue}>{timeAgo(doc.createdAt, now)}</span>
         </span>
       </span>
+      )}
       {actionsFor(doc)}
     </div>
   )
@@ -682,6 +738,7 @@ export function Home({ ctx }: { ctx: Context }) {
         {titleOf(doc, s.cardTitle)}
         {actionsFor(doc)}
       </div>
+      {unfamiliar ? <div className={s.cardLearn}>{learnText(doc)}</div> : null}
     </div>
   )
 
@@ -695,7 +752,14 @@ export function Home({ ctx }: { ctx: Context }) {
           </span>
         </div>
 
-        <div className={s.actions}>
+          <div className={s.actions}>
+          <button
+            type="button"
+            className={unfamiliar ? s.chipOn : s.ghostBtn}
+            onClick={() => setUnfamiliar((on) => !on)}
+          >
+            {ctx.i18n.t('home.unfamiliar')}
+          </button>
           {/* 筛选：库里几百篇时只靠滚动找太累，⌘K 又得先想起关键词。 */}
           <input
             className={s.filter}
@@ -790,7 +854,13 @@ export function Home({ ctx }: { ctx: Context }) {
           <div className={s.empty}>
             <AllDocsIcon width={64} height={64} />
             <p className={s.emptyText}>
-              {ctx.i18n.t(active === 'all' ? 'home.empty' : `home.empty.${active}`)}
+              {ctx.i18n.t(
+                unfamiliar
+                  ? 'home.empty.unfamiliar'
+                  : active === 'all'
+                    ? 'home.empty'
+                    : `home.empty.${active}`,
+              )}
             </p>
           </div>
         ) : (

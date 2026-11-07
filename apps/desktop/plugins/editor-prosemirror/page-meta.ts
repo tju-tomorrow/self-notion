@@ -7,8 +7,11 @@
  */
 import { Plugin } from 'prosemirror-state'
 
+import { FAMILIARITY, type LearnRow } from '../../src/kernel/contract'
+import { reportError } from '../../src/kernel/errors'
 import { metaOf, subscribe } from './doc-meta'
 import { calendarIcon, pageIcon } from './icons'
+import { fetchLearn, setFamiliarity, subscribeLearn } from './learn'
 
 export interface MetaStrings {
   /** 形如 `创建于 {time}`。 */
@@ -46,9 +49,52 @@ export function metaPlugin(el: HTMLElement, docId: string, strings: MetaStrings)
       words.append(pageIcon(14), wordsText)
 
       // ★ 视图会被**重建**：`find.ts` / `comment.ts` 的 `reconfigure` 会把所有插件视图 destroy 再建一遍
-      //   （一开查找面板就撞）。不先清空自己那一格，这行就变成两行 —— 真撞过。
-      el.replaceChildren()
-      el.append(time, sep, words)
+      //   （一开查找面板就撞）。不先摘掉自己那几格，这行就变成两行 —— 真撞过。
+      // 反链也挂在这一行里，重建时别把它一起摘掉。
+      for (const node of el.querySelectorAll(
+        ':scope > :is(.sn-meta-time, .sn-meta-sep, .sn-meta-words, .sn-meta-learn)',
+      )) {
+        node.remove()
+      }
+
+      const learn = document.createElement('span')
+      learn.className = 'sn-meta-learn'
+      const stats = document.createElement('span')
+      stats.className = 'sn-meta-stats'
+      const fam = document.createElement('span')
+      fam.className = 'sn-meta-fam'
+      let current: LearnRow | null = null
+      const buttons = FAMILIARITY.map((label, i) => {
+        const b = document.createElement('button')
+        b.type = 'button'
+        b.className = 'sn-fam'
+        b.textContent = label
+        b.addEventListener('click', (e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          const next = current?.familiarity === i + 1 ? null : i + 1
+          void setFamiliarity(docId, next).catch((err) => reportError('learn', err))
+        })
+        return b
+      })
+      fam.append(...buttons)
+      learn.append(stats, fam)
+
+      const applyRow = (row: LearnRow): void => {
+        current = row
+        const mins = Math.round(row.readMs / 60_000)
+        const timeLabel =
+          mins < 1 ? '不到 1 分' : mins < 60 ? `${mins} 分` : `${Math.floor(mins / 60)} 时 ${mins % 60} 分`
+        stats.textContent = `打开 ${row.opens} · ${timeLabel} · 读到 ${row.depth}% · 效果 ${row.score}`
+        buttons.forEach((b, i) => {
+          // 别写成 data-on="0"：这一行的 `[data-on="0"]` 是「整格收掉」，会把没选中的档藏没。
+          if (row.familiarity === i + 1) b.dataset.on = '1'
+          else delete b.dataset.on
+        })
+      }
+
+      // 反链可能已经在这一行末尾，时间/字数要留在它前面。
+      el.prepend(time, sep, words, learn)
 
       const paint = (): void => {
         const created = metaOf(docId)?.createdAt
@@ -62,6 +108,14 @@ export function metaPlugin(el: HTMLElement, docId: string, strings: MetaStrings)
 
       paint()
       const off = subscribe(paint)
+      const offLearn = subscribeLearn((row) => {
+        if (row.docId === docId) applyRow(row)
+      })
+      void fetchLearn(docId)
+        .then((row) => {
+          if (row) applyRow(row)
+        })
+        .catch((err) => reportError('learn', err))
 
       return {
         update: (next, prev) => {
@@ -69,8 +123,11 @@ export function metaPlugin(el: HTMLElement, docId: string, strings: MetaStrings)
         },
         destroy: () => {
           off()
-          // 重建时上面那句 `replaceChildren` 兜得住，但**真正的销毁**（换篇 / 拔插件）得自己摘干净。
-          el.replaceChildren()
+          offLearn()
+          time.remove()
+          sep.remove()
+          words.remove()
+          learn.remove()
         },
       }
     },

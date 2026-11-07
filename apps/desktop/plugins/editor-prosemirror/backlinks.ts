@@ -1,14 +1,12 @@
 /**
- * 文档底部的**反向链接** —— 谁提到了这一篇（D-0085 那条链接图谱的另一半）。
+ * 谁提到了这一篇。挂在标题下那行元信息里 —— 摊在正文里会挡住点空白落光标。
  *
- * ★ 数据是 Rust 现算的（`link:backlinks`，走 `doc_link` 的 `to_id` 索引）—— 这一侧只负责画。
- *   口子由 `index.ts` 装（跟 `blob.ts` / `doc-meta.ts` 一个规矩，不 import 别人的内部）。
- * ★ 刷新时机：挂载一次 + 每次 `DOCS_CHANGED`。别的文档改了正文就会重建出链，
- *   而我们读的是「谁指向我」，所以得跟着重取。
+ * 数据是 Rust 现算的（`link:backlinks`）。口子由 `index.ts` 装。
+ * 刷新：挂载一次 + 每次 `DOCS_CHANGED`（别的文档改了出链，这边读的是「谁指向我」）。
  */
 import type { DocMeta } from '../../src/kernel/contract'
-import { openDoc } from './doc-meta'
-import { subscribe } from './doc-meta'
+import { openDoc, subscribe } from './doc-meta'
+import { linkIcon } from './icons'
 
 export type LoadBacklinks = (id: string) => Promise<DocMeta[]>
 
@@ -26,38 +24,76 @@ export interface BacklinksView {
 export function renderBacklinks(docId: string): BacklinksView {
   const el = document.createElement('div')
   el.className = 'sn-backlinks'
+  el.dataset.on = '0'
+  el.dataset.open = '0'
+
+  const sep = document.createElement('span')
+  sep.className = 'sn-meta-sep'
+  sep.textContent = '·'
+
+  const head = document.createElement('button')
+  head.type = 'button'
+  head.className = 'sn-backlinks-head'
+  const headText = document.createElement('span')
+  head.append(linkIcon(14), headText)
+
+  const pop = document.createElement('div')
+  pop.className = 'sn-backlinks-pop'
+  el.append(sep, head, pop)
+
+  const close = () => {
+    el.dataset.open = '0'
+  }
+  head.addEventListener('click', (e) => {
+    e.preventDefault()
+    el.dataset.open = el.dataset.open === '1' ? '0' : '1'
+  })
+  const onPointer = (e: PointerEvent) => {
+    if (!el.contains(e.target as Node)) close()
+  }
+  const onKey = () => close()
+  document.addEventListener('pointerdown', onPointer)
+  document.addEventListener('keydown', onKey)
 
   const paint = () => {
     if (!load) return
     void load(docId)
       .then((rows) => {
-        el.replaceChildren()
-        // 没有人提到这一篇 → 整块收掉，别在每篇空文档底下挂一句「暂无」。
+        pop.replaceChildren()
         el.dataset.on = rows.length ? '1' : '0'
-        if (!rows.length) return
-
-        const head = document.createElement('div')
-        head.className = 'sn-backlinks-head'
-        head.textContent = `${rows.length} 个页面提到了这里`
-        el.appendChild(head)
-
+        if (!rows.length) {
+          close()
+          return
+        }
+        headText.textContent = `${rows.length} 个页面提到了这里`
         for (const row of rows) {
           const item = document.createElement('button')
           item.type = 'button'
           item.className = 'sn-backlinks-item'
           item.textContent = row.title || '未命名'
-          item.addEventListener('click', () => openDoc(row.id))
-          el.appendChild(item)
+          item.addEventListener('click', () => {
+            close()
+            openDoc(row.id)
+          })
+          pop.appendChild(item)
         }
       })
       .catch(() => {
-        // 取不到就不画 —— 反链是附加信息，不该拦一次错误弹窗（错误进 errors.log）。
         el.dataset.on = '0'
+        close()
       })
   }
 
   paint()
   const off = subscribe(paint)
 
-  return { el, destroy: off }
+  return {
+    el,
+    destroy: () => {
+      off()
+      document.removeEventListener('pointerdown', onPointer)
+      document.removeEventListener('keydown', onKey)
+      el.remove()
+    },
+  }
 }

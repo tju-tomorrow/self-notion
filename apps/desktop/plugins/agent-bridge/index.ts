@@ -12,6 +12,7 @@ import {
   type DocMeta,
   type DocWriteService,
   type EditorService,
+  type LearnRow,
 } from '../../src/kernel/contract'
 import { reportError } from '../../src/kernel/errors'
 
@@ -137,6 +138,13 @@ async function run(
       })
       return { id: meta.id, title: meta.title }
     }
+    case 'familiarity': {
+      const row = await ctx.rpc.call<LearnRow>('learn:familiarity', {
+        id,
+        level: levelOf(args.level),
+      })
+      return { id: row.docId, familiarity: row.familiarity, score: row.score }
+    }
     case 'undo': {
       const versions = await ctx.rpc.call<{ id: number }[]>('version:list', {
         id,
@@ -152,6 +160,12 @@ async function run(
     default:
       throw new Error(`不认识的 action：${action}`)
   }
+}
+
+function levelOf(v: unknown): number | null {
+  if (v === null || v === undefined) return null
+  if (typeof v === 'number' && v >= 1 && v <= 4) return v
+  throw new Error('familiarity 只能是 1–4，或 null 清除')
 }
 
 function str(a: Record<string, unknown>, key: string): string {

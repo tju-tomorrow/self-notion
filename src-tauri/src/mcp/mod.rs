@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
+mod learn;
 mod nav;
 mod notes;
 mod write;
@@ -87,7 +88,9 @@ fn handle(db: &Db, nav: &mut nav::Nav, msg: &Value) -> Option<String> {
                              notes_find(q) 定位，notes_cd(标题|id|目录) 打开，\
                              notes_read(section=…) 读，notes_related(id) 找关联。\
                              写用 notes_write（create/append/replace/rename/move/trash/restore/tag/undo）；\
-                             replace/trash 要 confirm。写需要桌面端开着。不要一次读全库。",
+                             replace/trash 要 confirm。写需要桌面端开着。\
+                             notes_learn 读打开次数、阅读时长、读到多深、行为分和熟悉度；\
+                             只能改熟悉度（familiarity=1–4，0 清除）。不要一次读全库。",
         })),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tools() })),
@@ -125,6 +128,7 @@ fn call_tool(db: &Db, nav: &mut nav::Nav, params: &Value) -> Result<Value, (i64,
         "notes_find" => tool(&args, |a: notes::FindArgs| notes::find(db, &a)),
         "notes_map" => tool(&args, |a: notes::MapArgs| notes::map(db, &a)),
         "notes_related" => tool(&args, |a: notes::RelatedArgs| notes::related(db, nav, &a)),
+        "notes_learn" => tool(&args, |a: learn::Args| learn::call(db, &a)),
         "notes_write" => tool(&args, |a: write::WriteArgs| write::write(db, &a)),
         // kb_* 落到知识库工具面的唯一实现（D-0187）。★ 走 `call_readonly`，**不是** `call` ——
         // 分派是按名字走的，「清单里没列」拦不住客户端自己编一个 `kb_accept` 发过来（实测过）。
@@ -216,6 +220,22 @@ fn tools() -> Value {
                 "properties": {
                     "id": {"type": "string", "description": "文档 id；不传 = 当前文章"},
                     "limit": {"type": "integer", "description": "最多几条，默认 8"}
+                }
+            }
+        },
+        {
+            "name": "notes_learn",
+            "description": "一篇笔记的学习数据：打开次数、阅读时长、读到的最深位置（0–100）、行为分、熟悉度（不熟/略懂/熟悉/很熟）。不传 target 列有记录的；unfamiliar=true 只列「不熟」。familiarity=1–4 打档、0 清除，改档需要桌面端开着。行为计数不能由这里改。",
+            "_meta": {
+                "anthropic/searchHint": "learn familiarity reading progress 笔记 熟悉度 学习 阅读 不熟",
+                "anthropic/maxResultSizeChars": 12000
+            },
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "target": {"type": "string", "description": "标题 / id / 路径；不传 = 列表"},
+                    "unfamiliar": {"type": "boolean", "description": "true = 只列熟悉度为「不熟」的"},
+                    "familiarity": {"type": "integer", "description": "1 不熟 · 2 略懂 · 3 熟悉 · 4 很熟 · 0 清除。传了就是写，需要 target"}
                 }
             }
         },

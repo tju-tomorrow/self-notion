@@ -123,7 +123,7 @@ fn run(db: &Db, a: &WriteArgs) -> ApiResult<String> {
         }
     }
 
-    let result = send(&action, Value::Object(payload))?;
+    let result = enqueue(&action, Value::Object(payload))?;
     let v: Value = serde_json::from_str(&result).unwrap_or(Value::Null);
     let id = v
         .get("id")
@@ -147,7 +147,7 @@ fn run(db: &Db, a: &WriteArgs) -> ApiResult<String> {
     Ok(out)
 }
 
-fn send(action: &str, payload: Value) -> ApiResult<String> {
+pub(crate) fn enqueue(action: &str, payload: Value) -> ApiResult<String> {
     let path = store::default_db_path();
     let w = Db::open_readwrite(&path)
         .map_err(|e| ApiError::new("db", format!("打开库失败：{e}")))?;
