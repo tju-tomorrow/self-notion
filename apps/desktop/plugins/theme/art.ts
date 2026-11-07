@@ -90,7 +90,7 @@ html[data-sn-theme] .sn-pane-body {
    两块玻璃各拧各的，看起来就是「没同步」（用户 2026-10-08）。取不到时用 88%，
    跟 paper.ts 的 PAPER_ALPHA_DEFAULT 一档，所以默认长相不变。 */
 html[data-sn-theme] aside {
-  background: color-mix(in srgb, var(--sn-sidebar) calc(var(--sn-paper-alpha, 88) * 1%), transparent)
+  background: color-mix(in srgb, color-mix(in srgb, var(--sn-sidebar) 72%, var(--affine-v2-layer-background-primary)) calc(var(--sn-paper-alpha, 88) * 1%), transparent)
 }
 `
 

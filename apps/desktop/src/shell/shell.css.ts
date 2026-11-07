@@ -139,7 +139,7 @@ export const sidebarSwitch = style([iconButton, { marginLeft: 'auto' }])
 
 export const body = style({ flex: 1, display: 'flex', minHeight: 0 })
 
-/** 侧栏。压 25% 主色留 75% 给 vibrancy —— 压过 45% 壁纸纹理就被抹平，白瞎了磨砂。 */
+/** 侧栏跟正文同一个色系、只压暗一档；大面积透明会让系统冷灰透出来，和暖纸面糊成两截。 */
 export const sidebar = style({
   flex: `0 0 ${sidebarWidth}`,
   display: 'flex',
@@ -149,8 +149,8 @@ export const sidebar = style({
   overflow: 'hidden',
   // 给右缘那条抓带定位用（抓带压在 overflow: hidden 里面，不然会被裁掉）
   position: 'relative',
-  background: 'color-mix(in srgb, var(--affine-v2-layer-background-primary) 25%, transparent)',
-  borderRight: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
+  background: 'color-mix(in srgb, var(--affine-v2-layer-background-primary) 82%, var(--sn-text, #333))',
+  borderRight: '1px solid var(--sn-line, rgba(0, 0, 0, .1))',
 })
 
 /** 拖拽改侧栏宽度的抓带。只有 4px 宽、贴右缘内侧：细到看不见，但够得着。
