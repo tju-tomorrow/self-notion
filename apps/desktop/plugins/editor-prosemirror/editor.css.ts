@@ -161,7 +161,7 @@ globalStyle('.sn-pm-title', {
   font: 'inherit',
   fontFamily: DOC_FONT,
   // ⌘± / 设置页的字号缩放（`--sn-font-scale`）—— 40 是缩放前的基准。
-  fontSize: 'calc(40px * var(--sn-font-scale, 1))',
+  fontSize: 'calc(34px * var(--sn-font-scale, 1))',
   fontWeight: 700,
   lineHeight: 1.2,
   color: 'inherit',
@@ -269,6 +269,21 @@ globalStyle('.sn-meta-sep', { opacity: 0.5 })
 //   纵向节奏改由下面那几条显式给（段落 14px、标题上 28 下 8 上下浮动）。
 globalStyle('.ProseMirror :is(p, h1, h2, h3, blockquote, pre, ul, ol)', { margin: 0 })
 
+globalStyle('.ProseMirror blockquote', {
+  margin: '10px 0',
+  padding: '6px 12px',
+  borderLeft: '3px solid var(--sn-accent, #1e96eb)',
+  background: 'color-mix(in srgb, var(--sn-accent, #1e96eb) 6%, transparent)',
+  borderRadius: '0 4px 4px 0',
+})
+
+globalStyle('.ProseMirror hr', {
+  height: 1,
+  border: 'none',
+  margin: '16px 0',
+  background: 'var(--sn-line, rgba(0, 0, 0, .1))',
+})
+
 // 段与段：每侧 5 + `.sn-block` 自身的 2 = 14px。视觉分块靠它，不是靠行距。
 globalStyle('.sn-block > p', { margin: '5px 0' })
 
@@ -276,7 +291,7 @@ globalStyle('.sn-block > p', { margin: '5px 0' })
 // margin 又被上面清成 0，标题会直接贴在上一段屁股上。
 const HEADINGS = [
   { tag: 'h1', size: 1.875, top: 1, bottom: 0.4 },
-  { tag: 'h2', size: 1.5, top: 1.2, bottom: 0.4 },
+  { tag: 'h2', size: 1.35, top: 1.1, bottom: 0.4 },
   { tag: 'h3', size: 1.25, top: 1.4, bottom: 0.5 },
 ] as const
 for (const h of HEADINGS) {
@@ -297,6 +312,7 @@ globalStyle('.ProseMirror', {
   fontFamily: DOC_FONT,
   fontSize: 'calc(16px * var(--sn-font-scale, 1))',
   lineHeight: 1.7,
+  color: 'color-mix(in srgb, var(--sn-text, #333) 94%, #000)',
   outline: 'none',
 })
 

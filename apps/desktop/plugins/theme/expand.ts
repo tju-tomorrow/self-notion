@@ -26,7 +26,7 @@ export function expand(seeds: Seeds | null): Record<string, string> {
   const { canvas, sidebar, surface, accent, text, border } = seeds
 
   // 混出来的中间色，下面反复用 —— 明暗两档主题走的是同一套比例，所以换主题不用改公式。
-  const text2 = blend(text, 66, canvas)
+  const text2 = blend(text, 80, canvas)
   const text3 = blend(text, 52, canvas)
   const disabled = blend(text, 40, canvas)
   const iconPrimary = blend(text, 92, canvas)
@@ -122,7 +122,7 @@ export function expand(seeds: Seeds | null): Record<string, string> {
     '--sn-accent': accent,
     '--sn-muted': text2,
     '--sn-text': text,
-    '--sn-line': border,
+    '--sn-line': on(text, 14),
     '--sn-bg': canvas,
     '--sn-panel': surface,
     '--sn-hover': on(accent, 12),
