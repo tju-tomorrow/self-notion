@@ -134,12 +134,79 @@ function emptyDocJson(): unknown {
 function parseDoc(raw: string | null): PMNode {
   if (raw !== null) {
     try {
-      return schema.nodeFromJSON(JSON.parse(raw))
+      const original = JSON.parse(raw)
+      const compat = JSON.parse(raw)
+      compatTables(compat)
+      try {
+        return schema.nodeFromJSON(compat)
+      } catch {
+        return schema.nodeFromJSON(original)
+      }
     } catch (err) {
       reportError('editor-prosemirror', err)
     }
   }
   return schema.nodeFromJSON(emptyDocJson())
+}
+
+type Json = Record<string, unknown>
+
+/** 老数据里 GFM 表格被压成一个竖线段落，加载时还原成真表格；不回写库。 */
+function compatTables(json: Json): void {
+  const group = (json.content as Json[] | undefined)?.[0]
+  if (group?.type !== 'blockGroup' || !Array.isArray(group.content)) return
+  group.content = (group.content as Json[]).map((block) => {
+    const para = (block.content as Json[] | undefined)?.[0]
+    if (block.type === 'blockContainer' && para?.type === 'paragraph') {
+      const table = asTable(para)
+      if (table) return { ...block, content: [table, ...(block.content as Json[]).slice(1)] }
+    }
+    return block
+  })
+}
+
+function plainText(para: Json): string {
+  return ((para.content as Json[] | undefined) ?? [])
+    .map((n) => (n.type === 'text' ? String(n.text ?? '') : ''))
+    .join('')
+}
+
+function asTable(para: Json): Json | null {
+  const text = plainText(para)
+  const delim = /\|(?:[\s]*:?-+:?\s*\|)+/.exec(text)
+  if (!delim) return null
+  const cols = (delim[0].match(/-+/g) ?? []).length
+  if (cols < 1) return null
+  const pick = (s: string): string[] =>
+    s.split('|').map((t) => t.trim()).filter((t) => t.length > 0)
+  const head = pick(text.slice(0, delim.index))
+  while (head.length < cols) head.unshift('')
+  const body = pick(text.slice(delim.index + delim[0].length))
+  if (body.length === 0) return null
+  const cell = (t: string, kind: string): Json => ({
+    type: kind,
+    content: [{ type: 'paragraph', content: t ? [{ type: 'text', text: t }] : [] }],
+  })
+  const rows: Json[] = [
+    { type: 'table_row', content: head.slice(0, cols).map((t) => cell(t, 'table_header')) },
+  ]
+  for (let i = 0; i < body.length; i += cols) {
+    const row = body.slice(i, i + cols)
+    while (row.length < cols) row.push('')
+    rows.push({ type: 'table_row', content: row.slice(0, cols).map((t) => cell(t, 'table_cell')) })
+  }
+  return { type: 'table', content: rows }
+}
+
+function subpageIdsOf(doc: PMNode): string[] {
+  const ids: string[] = []
+  doc.descendants((node) => {
+    if (node.type.name === 'subpage') {
+      const id = String(node.attrs.docId ?? '')
+      if (id) ids.push(id)
+    }
+  })
+  return ids
 }
 
 function buildPlugins(parts: {
@@ -210,6 +277,7 @@ export async function mountEditor(el: HTMLElement, docId: string, side?: HTMLEle
   // 面包屑块要知道「本页是谁」——它从 `view.dom` 往上找这个属性（每栏的 `el` 各带各的，
   // 多栏并存时比一个「当前文档」的全局更准）。
   el.dataset.docId = docId
+  el.dataset.subpageIds = subpageIdsOf(doc).join(',')
 
   // 页头（封面 + 图标）在标题之上。图标只读（改它走外壳的 ⋯ 菜单），封面归编辑器。
   // ★ 文件模式整块不出现：封面 / 图标是**文档级**的，markdown 里没有它们，写进去也是丢（D-0140）。

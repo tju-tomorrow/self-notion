@@ -17,6 +17,7 @@ import {
   type SplitViewEvent,
 } from '../../src/kernel/contract'
 import { reportError } from '../../src/kernel/errors'
+import { allDocs, subscribe } from './doc-meta'
 import type { EditorHandle } from './editor'
 import './editor.css'
 
@@ -174,6 +175,8 @@ class PaneView {
   private pct: number | null = null
   /** 防串台：连点两篇时，先发的那次必须在挂载前发现自己已经过期。 */
   private seq = 0
+  private subpages = document.createElement('div')
+  private offMeta = () => {}
 
   constructor(private readonly host: EditorHostElement) {
     this.el = document.createElement('div')
@@ -202,6 +205,7 @@ class PaneView {
     main.className = 'sn-pane-main'
     main.append(this.body, this.side)
     this.el.append(this.head, main)
+    this.offMeta = subscribe(() => this.paintSubpages())
     // 点哪一栏哪一栏就是「当前」。
     this.el.addEventListener('pointerdown', () => this.host.onPanePointerDown(this.index))
   }
@@ -259,6 +263,8 @@ class PaneView {
       }
       this.handle = handle
       this.shown = want
+      this.body.append(this.subpages)
+      this.paintSubpages()
     } catch (err) {
       // 静默失败是 D-0045 明令禁止的：打不开就留痕 + 让用户看见，别给个空白编辑器。
       reportError('editor-prosemirror', err)
@@ -283,11 +289,41 @@ class PaneView {
 
   /** 这一栏走人（关栏 / 拔插件）—— 走的路上把最后一点改动落库。 */
   destroy(): void {
+    this.offMeta()
     const leaving = this.shown
     this.seq++
     this.teardown()
     if (leaving !== null) void load().then((editor) => editor.flushDoc(leaving))
     this.el.remove()
+  }
+
+  private paintSubpages(): void {
+    const id = this.shown
+    if (!id) {
+      this.subpages.replaceChildren()
+      return
+    }
+    const taken = new Set((this.body.dataset.subpageIds ?? '').split(',').filter(Boolean))
+    const cards = allDocs()
+      .filter((d) => d.parentId === id && d.deletedAt === null && !taken.has(d.id))
+      .map((d) => {
+        const card = document.createElement('div')
+        card.className = 'sn-subpage'
+        card.dataset.docId = d.id
+        const icon = document.createElement('span')
+        icon.className = 'sn-subpage-icon'
+        icon.textContent = d.icon ?? '📄'
+        const label = document.createElement('span')
+        label.className = 'sn-subpage-title'
+        label.textContent = d.title || '无标题'
+        card.append(icon, label)
+        card.addEventListener('click', () => openDoc(d.id))
+        return card
+      })
+    const box = document.createElement('div')
+    box.style.cssText = 'display:flex;flex-direction:column;gap:2px;margin:8px 0'
+    box.append(...cards)
+    this.subpages.replaceChildren(box)
   }
 
   private showEmpty(text: string): void {
