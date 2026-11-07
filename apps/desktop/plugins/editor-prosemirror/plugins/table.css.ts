@@ -7,7 +7,7 @@
  */
 import { globalStyle } from '@vanilla-extract/css'
 
-const BORDER = 'var(--affine-border-color, rgba(0, 0, 0, .12))'
+const BORDER = 'color-mix(in srgb, currentColor 34%, transparent)'
 const SELECT = 'var(--affine-primary-color, #1e96eb)'
 
 globalStyle('.sn-table', {
@@ -20,11 +20,18 @@ globalStyle('.sn-table', {
 globalStyle('.sn-table-cell', {
   // .selectedCell:after 的定位基准（那份 CSS 我们没引）
   position: 'relative',
-  verticalAlign: 'top',
+  verticalAlign: 'middle',
+  textAlign: 'left',
   boxSizing: 'border-box',
   minWidth: 40,
-  padding: '4px 8px',
+  padding: '7px 10px',
+  lineHeight: 1.5,
   border: `1px solid ${BORDER}`,
+})
+
+globalStyle('.sn-table-header', {
+  fontWeight: 600,
+  background: 'color-mix(in srgb, currentColor 7%, transparent)',
 })
 
 // 单元格多选（CellSelection）的底色；prosemirror-tables 给选中的格挂 `selectedCell`。

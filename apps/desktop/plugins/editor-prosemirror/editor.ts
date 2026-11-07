@@ -25,7 +25,7 @@ import { renderBacklinks, type BacklinksView } from './backlinks'
 import { commentApi, type CommentHooks } from './comment'
 import { newBlockId, notionKeymap } from './commands'
 import { firstTextPos } from './commands/block'
-import { metaOf } from './doc-meta'
+import { allDocs, metaOf, subscribe } from './doc-meta'
 import { docsBacking, type DocPayload, type DocsBacking } from './doc-source'
 import { createFindApi, findPlugin, type FindApi } from './find'
 import { startLearn } from './learn'
@@ -131,12 +131,13 @@ function emptyDocJson(): unknown {
 }
 
 /** 库里的字节 → PM 的 doc。坏字节（手改库之类）降级成一篇空的，别让编辑器挂不起来。 */
-function parseDoc(raw: string | null): PMNode {
+function parseDoc(raw: string | null, docId: string): PMNode {
   if (raw !== null) {
     try {
       const original = JSON.parse(raw)
       const compat = JSON.parse(raw)
       compatTables(compat)
+      compatSubpages(compat, docId)
       try {
         return schema.nodeFromJSON(compat)
       } catch {
@@ -198,15 +199,46 @@ function asTable(para: Json): Json | null {
   return { type: 'table', content: rows }
 }
 
-function subpageIdsOf(doc: PMNode): string[] {
-  const ids: string[] = []
-  doc.descendants((node) => {
-    if (node.type.name === 'subpage') {
-      const id = String(node.attrs.docId ?? '')
-      if (id) ids.push(id)
-    }
+/** 侧栏按 parent_id 列子页，正文里也补成同款 subpage 块 —— 两边同源，不留第二种样式。 */
+function compatSubpages(json: Json, docId: string): void {
+  const group = (json.content as Json[] | undefined)?.[0]
+  if (group?.type !== 'blockGroup' || !Array.isArray(group.content)) return
+  const existing = new Set<string>()
+  for (const block of group.content as Json[]) {
+    const node = (block.content as Json[] | undefined)?.[0]
+    if (node?.type === 'subpage') existing.add(String((node.attrs as Json | undefined)?.docId ?? ''))
+  }
+  for (const d of missingSubpages(docId, existing)) {
+    (group.content as Json[]).push({
+      type: 'blockContainer',
+      attrs: { id: newBlockId() },
+      content: [{ type: 'subpage', attrs: { docId: d.id } }],
+    })
+  }
+}
+
+function missingSubpages(docId: string, existing: Set<string>): { id: string }[] {
+  return allDocs()
+    .filter((d) => d.parentId === docId && d.deletedAt === null && !existing.has(d.id))
+    .map((d) => ({ id: d.id }))
+}
+
+function syncSubpages(view: EditorView, docId: string): void {
+  const existing = new Set<string>()
+  view.state.doc.descendants((node) => {
+    if (node.type.name === 'subpage') existing.add(String(node.attrs.docId ?? ''))
   })
-  return ids
+  const kids = missingSubpages(docId, existing)
+  if (!kids.length) return
+  const blocks = kids.map((d) =>
+    schema.nodes.blockContainer.create(
+      { id: newBlockId() },
+      schema.nodes.subpage.create({ docId: d.id }),
+    ),
+  )
+  const group = view.state.doc.firstChild
+  if (!group) return
+  view.dispatch(view.state.tr.insert(1 + group.content.size, blocks))
 }
 
 function buildPlugins(parts: {
@@ -270,14 +302,13 @@ export async function mountEditor(el: HTMLElement, docId: string, side?: HTMLEle
   const raw = handle.raw
   const parsed = raw !== undefined ? docFromRaw(raw) : null
   const file = parsed !== null
-  const doc = parsed ? parsed.doc : parseDoc(handle.content)
+  const doc = parsed ? parsed.doc : parseDoc(handle.content, docId)
 
   dispose(live.get(docId))
   el.replaceChildren()
   // 面包屑块要知道「本页是谁」——它从 `view.dom` 往上找这个属性（每栏的 `el` 各带各的，
   // 多栏并存时比一个「当前文档」的全局更准）。
   el.dataset.docId = docId
-  el.dataset.subpageIds = subpageIdsOf(doc).join(',')
 
   // 页头（封面 + 图标）在标题之上。图标只读（改它走外壳的 ⋯ 菜单），封面归编辑器。
   // ★ 文件模式整块不出现：封面 / 图标是**文档级**的，markdown 里没有它们，写进去也是丢（D-0140）。
@@ -372,6 +403,11 @@ export async function mountEditor(el: HTMLElement, docId: string, side?: HTMLEle
     hadFocus: false,
   }
   live.set(docId, rec)
+  const editorView = view
+  if (!file && editorView) {
+    const offSub = subscribe(() => syncSubpages(editorView, docId))
+    abort.signal.addEventListener('abort', offSub, { once: true })
+  }
   // 只认「用户自己点进来 / 键进来」—— `view.focus()` 由程序调用的那几次也会冒泡，但那正说明
   // 光标已经是用户要的位置，算落过光标没有坏处。
   view.dom.addEventListener('focusin', () => {
