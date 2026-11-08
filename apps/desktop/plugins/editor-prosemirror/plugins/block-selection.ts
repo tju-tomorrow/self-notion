@@ -44,6 +44,8 @@ export function findBlock(doc: PMNode, id: string): BlockHit | null {
  * 构造时不校验层级：`map()` 之后位置可能落回块内容里，那种情况下 `nodes` 为空，退化成普通选区。
  */
 export class BlockSelection extends Selection {
+  /** 基类默认 true 会让 PM 把自定义选区当 DOM caret 同步，DOMObserver 随后读回 TextSelection 盖掉它。 */
+  visible = false
   readonly nodes: PMNode[]
 
   constructor($anchor: ResolvedPos, $head: ResolvedPos) {
@@ -88,6 +90,23 @@ export class BlockSelection extends Selection {
 
   toJSON(): { type: string; anchor: number; head: number } {
     return { type: 'block', anchor: this.anchor, head: this.head }
+  }
+
+  getBookmark(): BlockBookmark {
+    return new BlockBookmark(this.anchor, this.head)
+  }
+}
+
+/** 基类默认返回 TextBookmark，保存/恢复一次就把块选区降级成文本选区。 */
+class BlockBookmark {
+  constructor(private readonly anchor: number, private readonly head: number) {}
+
+  map(mapping: Mappable): BlockBookmark {
+    return new BlockBookmark(mapping.map(this.anchor), mapping.map(this.head))
+  }
+
+  resolve(doc: PMNode): Selection {
+    return BlockSelection.create(doc, Math.min(this.anchor, this.head), Math.max(this.anchor, this.head))
   }
 }
 
@@ -161,8 +180,8 @@ export function blankDragPlugin(): Plugin {
         if (armed === null || anchorId !== null) return
         anchorId = armed
         lastId = armed
-        selectBlockRange(view, armed)
         view.focus()
+        selectBlockRange(view, armed)
       }
 
       const onMove = (e: MouseEvent): void => {
