@@ -86,11 +86,12 @@ export const backspace: Command = (state, dispatch) => {
     const prev = prevSibling($pos, block)
     // 上一块是原子块（分割线 / 图片 / 媒体）→ 直接删掉它。交给 baseKeymap 会把它包成父块，
     // 于是同一个 Backspace 只会「缩进去 / 退出来」来回跳，那块永远删不掉。
-    // subpage 是能打开的文章卡片，不是装饰块：第一次退格只选中，再按一次才删。
+    // subpage 是能打开的文章卡片，不是装饰块：退格删掉当前空段落、光标向上选中它。
     if (prev && prev.node.child(0).isAtom) {
       if (prev.node.child(0).type.name === 'subpage') {
         if (dispatch) {
-          const tr = state.tr.setSelection(NodeSelection.create(state.doc, prev.pos))
+          const tr = state.tr.delete(block.pos, block.pos + block.node.nodeSize)
+          tr.setSelection(NodeSelection.create(tr.doc, prev.pos))
           dispatch(tr)
         }
         return true
