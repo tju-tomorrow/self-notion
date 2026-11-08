@@ -14,6 +14,8 @@ import type { EditorState } from 'prosemirror-state'
 import type { Mappable } from 'prosemirror-transform'
 import type { EditorView } from 'prosemirror-view'
 
+import { reportNote } from '../../../src/kernel/errors'
+
 import './block-selection.css'
 
 /** 块在文档里的落点。`at` = 节点前那个位置；`level` = 它所在那一层（同层才能算一个范围）。 */
@@ -83,8 +85,10 @@ export class BlockSelection extends Selection {
     const from = mapping.mapResult(this.from)
     const to = mapping.mapResult(this.to)
     // 一端被整个删掉就退回离另一端最近的普通选区，别留一个指不到东西的块选区。
-    if (to.deleted) return Selection.near(doc.resolve(from.pos))
-    if (from.deleted) return Selection.near(doc.resolve(to.pos))
+    if (to.deleted || from.deleted) {
+      reportNote('blocksel', `map degraded ${this.from}..${this.to} delFrom=${from.deleted} delTo=${to.deleted}`)
+      return to.deleted ? Selection.near(doc.resolve(from.pos)) : Selection.near(doc.resolve(to.pos))
+    }
     return new BlockSelection(doc.resolve(from.pos), doc.resolve(to.pos))
   }
 
@@ -130,6 +134,7 @@ export function selectBlockRange(view: EditorView, fromBlockId: string, toBlockI
   }
 
   view.dispatch(view.state.tr.setSelection(BlockSelection.create(doc, from, to)).scrollIntoView())
+  reportNote('blocksel', `select ${from}..${to} -> ${view.state.selection.constructor.name}`)
 }
 
 /**
@@ -165,6 +170,19 @@ function blockIdAt(host: HTMLElement, y: number): string | null {
  */
 export function blankDragPlugin(): Plugin {
   return new Plugin({
+    appendTransaction: (trs, oldState, newState) => {
+      const tr = trs.find((t) => t.selectionSet)
+      if (!tr) return null
+      const o = oldState.selection
+      const n = newState.selection
+      if (!(o instanceof BlockSelection) && !(n instanceof BlockSelection)) return null
+      reportNote(
+        'blocksel',
+        `${o.constructor.name}(${o.from}..${o.to}) -> ${n.constructor.name}(${n.from}..${n.to})` +
+          ` steps=${tr.steps.length} doc=${tr.docChanged} pointer=${String(tr.getMeta('pointer') ?? false)}`,
+      )
+      return null
+    },
     view(view) {
       const host = view.dom.parentElement
       if (host === null) return {}
@@ -201,6 +219,11 @@ export function blankDragPlugin(): Plugin {
         lastId = null
         window.removeEventListener('mousemove', onMove)
         window.removeEventListener('mouseup', onUp)
+        reportNote('blocksel', `mouseup sel=${view.state.selection.constructor.name}`)
+        window.setTimeout(
+          () => reportNote('blocksel', `after tick sel=${view.state.selection.constructor.name}`),
+          0,
+        )
       }
 
       const onDown = (e: MouseEvent): void => {
