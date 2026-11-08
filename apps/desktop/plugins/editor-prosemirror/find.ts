@@ -119,7 +119,7 @@ export function setMatches(view: EditorView, matches: readonly Match[], active =
   paint(view, matches, matches.length === 0 ? -1 : active)
 }
 
-/** 跳到一处命中：把它选上 + 滚到视野里，并标成「当前」。 */
+/** 跳到一处命中：把它选上 + 滚到视野里，并标成「当前」。★ 不 view.focus() —— 查找框打字时焦点要留在框里。 */
 export function focusMatch(view: EditorView, m: Match): void {
   const doc = view.state.doc
   if (m.from < 0 || m.from >= m.to || m.to > doc.content.size) return
@@ -133,7 +133,6 @@ export function focusMatch(view: EditorView, m: Match): void {
       .setMeta(findKey, { matches, active: idx >= 0 ? idx : 0 })
       .scrollIntoView(),
   )
-  view.focus()
 }
 
 /** 位置还在原来那个块里吗 —— 文档被改过就别照旧偏移下手，免得替错地方。 */

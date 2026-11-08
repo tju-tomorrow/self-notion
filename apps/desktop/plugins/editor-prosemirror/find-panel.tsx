@@ -29,6 +29,8 @@ export function FindPanel({ ctx, api }: { ctx: Context; api: FindApi }) {
   const [at, setAt] = useState(0)
   const [note, setNote] = useState('')
   const input = useRef<HTMLInputElement>(null)
+  const composing = useRef(false)
+  const [composed, setComposed] = useState(0)
 
   const close = () => {
     setOpen(false)
@@ -65,6 +67,8 @@ export function FindPanel({ ctx, api }: { ctx: Context; api: FindApi }) {
 
   useEffect(() => {
     if (!open) return
+    // IME 合成中不碰编辑器：拼音中间态也会触发 onChange，一 dispatch 就会打断输入法。
+    if (composing.current) return
     if (query === '') {
       setMatches([])
       void api.search('')
@@ -84,7 +88,7 @@ export function FindPanel({ ctx, api }: { ctx: Context; api: FindApi }) {
       live = false
       clearTimeout(timer)
     }
-  }, [open, query, api])
+  }, [open, query, composed, api])
 
   const go = (delta: number) => {
     if (!matches.length) return
@@ -140,6 +144,11 @@ export function FindPanel({ ctx, api }: { ctx: Context; api: FindApi }) {
           placeholder: ctx.i18n.t('find.placeholder'),
           spellCheck: false,
           onChange: (e: { target: { value: string } }) => setQuery(e.target.value),
+          onCompositionStart: () => { composing.current = true },
+          onCompositionEnd: () => {
+            composing.current = false
+            setComposed((n) => n + 1)
+          },
           onKeyDown,
         }),
         h(
