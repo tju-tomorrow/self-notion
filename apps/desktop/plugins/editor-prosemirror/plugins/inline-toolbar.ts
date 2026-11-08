@@ -116,7 +116,10 @@ function createBar(view: EditorView, onComment?: (at: CommentAnchor) => void) {
   root.appendChild(mkSeparator())
 
   const linkBtn = mkButton(LINK_ICON, 'sn-itb-icon')
-  const hlBtn = mkButton(HL_ICON, 'sn-itb-icon')
+  const hlBtn = mkButton(HL_ICON, 'sn-itb-icon sn-itb-color')
+  const hlBar = document.createElement('span')
+  hlBar.className = 'sn-itb-bar'
+  hlBtn.appendChild(hlBar)
   const colorBtn = mkButton('A', 'sn-itb-color')
   const colorBar = document.createElement('span')
   colorBar.className = 'sn-itb-bar'
@@ -253,11 +256,13 @@ function createBar(view: EditorView, onComment?: (at: CommentAnchor) => void) {
       btn.dataset.active = String(state.doc.rangeHasMark(from, to, schema.marks[name]))
     }
     linkBtn.dataset.active = String(state.doc.rangeHasMark(from, to, schema.marks.link))
+    // 没上色时显示 ⌘⇧H 会刷的那个色，不然看不出快捷键的默认色变成了什么。
     const hl = activeColor(state, schema.marks.highlight)
     hlBtn.dataset.active = String(hl !== null)
+    hlBar.style.background = hl || (lastColor?.kind === 'highlight' ? lastColor.color : 'currentColor')
     const tc = activeColor(state, schema.marks.textColor)
     colorBtn.dataset.active = String(tc !== null)
-    colorBar.style.background = tc || 'currentColor'
+    colorBar.style.background = tc || (lastColor?.kind === 'textColor' ? lastColor.color : 'currentColor')
   }
 
   /** 工具条上点一块色：刷完把工具条收一下（快捷那条路不走这儿 —— 它不该动焦点，也不该挪浮层）。 */
