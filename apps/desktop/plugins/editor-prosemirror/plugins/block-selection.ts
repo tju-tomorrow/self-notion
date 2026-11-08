@@ -85,10 +85,8 @@ export class BlockSelection extends Selection {
     const from = mapping.mapResult(this.from)
     const to = mapping.mapResult(this.to)
     // 一端被整个删掉就退回离另一端最近的普通选区，别留一个指不到东西的块选区。
-    if (to.deleted || from.deleted) {
-      reportNote('blocksel', `map degraded ${this.from}..${this.to} delFrom=${from.deleted} delTo=${to.deleted}`)
-      return to.deleted ? Selection.near(doc.resolve(from.pos)) : Selection.near(doc.resolve(to.pos))
-    }
+    if (to.deleted) return Selection.near(doc.resolve(from.pos))
+    if (from.deleted) return Selection.near(doc.resolve(to.pos))
     return new BlockSelection(doc.resolve(from.pos), doc.resolve(to.pos))
   }
 
@@ -134,7 +132,6 @@ export function selectBlockRange(view: EditorView, fromBlockId: string, toBlockI
   }
 
   view.dispatch(view.state.tr.setSelection(BlockSelection.create(doc, from, to)).scrollIntoView())
-  reportNote('blocksel', `select ${from}..${to} -> ${view.state.selection.constructor.name}`)
 }
 
 /**
@@ -169,7 +166,15 @@ function blockIdAt(host: HTMLElement, y: number): string | null {
  *   那是 PM 的地盘，不抢。
  */
 export function blankDragPlugin(): Plugin {
+  /** 拖选会话 + 松手后一拍内，压住 PM 把浏览器 DOM caret 读回 TextSelection 的那次覆盖。 */
+  let suppress = false
   return new Plugin({
+    filterTransaction: (tr, state) => {
+      if (!suppress) return true
+      if (!(state.selection instanceof BlockSelection)) return true
+      if (!tr.selectionSet || tr.docChanged) return true
+      return tr.selection instanceof BlockSelection
+    },
     appendTransaction: (trs, oldState, newState) => {
       const tr = trs.find((t) => t.selectionSet)
       if (!tr) return null
@@ -198,6 +203,7 @@ export function blankDragPlugin(): Plugin {
         if (armed === null || anchorId !== null) return
         anchorId = armed
         lastId = armed
+        suppress = true
         view.focus()
         selectBlockRange(view, armed)
       }
@@ -219,11 +225,7 @@ export function blankDragPlugin(): Plugin {
         lastId = null
         window.removeEventListener('mousemove', onMove)
         window.removeEventListener('mouseup', onUp)
-        reportNote('blocksel', `mouseup sel=${view.state.selection.constructor.name}`)
-        window.setTimeout(
-          () => reportNote('blocksel', `after tick sel=${view.state.selection.constructor.name}`),
-          0,
-        )
+        window.setTimeout(() => { suppress = false }, 100)
       }
 
       const onDown = (e: MouseEvent): void => {
