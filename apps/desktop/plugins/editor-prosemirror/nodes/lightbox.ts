@@ -4,7 +4,7 @@
  * 纯 DOM —— 这一坨在懒加载的编辑器块里（`view.ts` 那条「不许静态 import react」），
  * 而且要挂到 `document.body` 上，走 React 就得再开一个 root。
  */
-import { reportError } from '../../../src/kernel/errors'
+import { reportError, reportNote } from '../../../src/kernel/errors'
 import './lightbox.css'
 
 /** 缩放上下限。上限取 8 是因为再大就是看像素点了；下限跟着「适应窗口」走（见 `open`）。 */
@@ -15,6 +15,13 @@ const MARGIN = 0.92
 export const DRAG_SLOP = 4
 
 let live: (() => void) | null = null
+
+/** 放大期间这些事件一律不往下传：编辑器还留着这张图的 NodeSelection 和焦点，
+ *  PM 的合成收尾 / beforeinput 一次 deleteSelection 就能把选中的原子块整个删掉。 */
+const SWALLOWED = [
+  'keydown', 'keyup', 'keypress', 'beforeinput', 'input',
+  'compositionstart', 'compositionupdate', 'compositionend',
+] as const
 
 export function openLightbox(src: string): void {
   // 同一时刻只留一个：开着的时候点另一张 = 换图。
@@ -91,19 +98,27 @@ export function openLightbox(src: string): void {
 
   const onDouble = () => reset(Math.abs(scale - fit) < 0.001 ? (fit < 1 ? 1 : 2) : fit, true)
 
-  const onKey = (e: KeyboardEvent) => {
-    if (e.key !== 'Escape') return
-    // 抢在编辑器前面：Esc 在这里是「关灯箱」，不该顺手把别的东西也关掉。
+  const onCapture = (e: Event): void => {
+    // 全在 window 捕获阶段拦掉：只 stopPropagation 挡不住同层的其他监听，也不挡
+    // defaultPrevented 那条判断；编辑器不该在放大期间收到任何一个键 / 输入 / 合成事件。
+    e.stopImmediatePropagation()
     e.stopPropagation()
+    if (!(e instanceof KeyboardEvent)) {
+      reportNote('lightbox', `拦下 ${e.type}`)
+      return
+    }
+    if (e.key !== 'Escape') return
+    e.preventDefault()
+    reportNote('lightbox', 'Esc → 只关灯箱')
     close()
   }
 
   const close = () => {
     if (live !== close) return
     live = null
+    for (const type of SWALLOWED) window.removeEventListener(type, onCapture, true)
     window.removeEventListener('mousemove', onMove)
     window.removeEventListener('mouseup', onUp)
-    window.removeEventListener('keydown', onKey, true)
     host.remove()
   }
 
@@ -118,7 +133,7 @@ export function openLightbox(src: string): void {
   closeBtn.addEventListener('click', () => close())
   window.addEventListener('mousemove', onMove)
   window.addEventListener('mouseup', onUp)
-  window.addEventListener('keydown', onKey, true)
+  for (const type of SWALLOWED) window.addEventListener(type, onCapture, true)
 
   img.addEventListener('load', () => {
     // 大图缩到窗口里，小图不放大（原尺寸就是最好的呈现）。
@@ -129,7 +144,6 @@ export function openLightbox(src: string): void {
     reportError('editor.image', new Error(`灯箱打不开这张图：${src}`))
     close()
   })
-  img.src = src
-
   document.body.appendChild(host)
+  img.src = src
 }
