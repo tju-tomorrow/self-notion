@@ -5,7 +5,7 @@
  * 光标不在行首、或者不是折叠选区 → 交回 baseKeymap（选东西删、删原子块那些）。
  */
 import type { Attrs, Node as PMNode, ResolvedPos } from 'prosemirror-model'
-import { TextSelection } from 'prosemirror-state'
+import { NodeSelection, TextSelection } from 'prosemirror-state'
 import type { Command, EditorState, Transaction } from 'prosemirror-state'
 
 import { schema } from '../schema'
@@ -86,7 +86,15 @@ export const backspace: Command = (state, dispatch) => {
     const prev = prevSibling($pos, block)
     // 上一块是原子块（分割线 / 图片 / 媒体）→ 直接删掉它。交给 baseKeymap 会把它包成父块，
     // 于是同一个 Backspace 只会「缩进去 / 退出来」来回跳，那块永远删不掉。
+    // subpage 是能打开的文章卡片，不是装饰块：第一次退格只选中，再按一次才删。
     if (prev && prev.node.child(0).isAtom) {
+      if (prev.node.child(0).type.name === 'subpage') {
+        if (dispatch) {
+          const tr = state.tr.setSelection(NodeSelection.create(state.doc, prev.pos))
+          dispatch(tr)
+        }
+        return true
+      }
       if (dispatch) {
         const tr = state.tr.delete(prev.pos, prev.pos + prev.node.nodeSize)
         tr.setSelection(TextSelection.create(tr.doc, state.selection.from - prev.node.nodeSize))
