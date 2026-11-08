@@ -45,9 +45,25 @@ const COLORS: Readonly<Record<ColorKind, readonly string[]>> = {
 
 /**
  * 上一次用过的那个色 —— **⌘⇧H** 刷的就是它（`kind` 一起记：上次可能是底纹，也可能是字色）。
- * 内存态、不落库：它是「刚才那一下」的手感，不是文档内容。
+ * 落在 localStorage：重开 app 后还在，不然每次重启都得回色板点一次才记得住。
  */
-let lastColor: { kind: ColorKind; color: string } | undefined
+const LAST_COLOR_KEY = 'sn-inline-toolbar-last-color'
+
+function readLastColor(): { kind: ColorKind; color: string } | undefined {
+  try {
+    const raw = localStorage.getItem(LAST_COLOR_KEY)
+    if (!raw) return undefined
+    const v = JSON.parse(raw) as Partial<{ kind: ColorKind; color: string }>
+    if ((v.kind === 'highlight' || v.kind === 'textColor') && typeof v.color === 'string' && v.color) {
+      return { kind: v.kind, color: v.color }
+    }
+  } catch {
+    // 坏数据 / 拿不到就当没存过
+  }
+  return undefined
+}
+
+let lastColor = readLastColor()
 
 const LINK_ICON =
   '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M6.6 9.4 9.4 6.6"/><path d="M7 4.4 8.2 3.2a2.5 2.5 0 0 1 3.6 3.6L10.6 8"/><path d="M9 11.6 7.8 12.8a2.5 2.5 0 0 1-3.6-3.6L5.4 8"/></svg>'
@@ -303,7 +319,14 @@ function mkSeparator(): HTMLElement {
  * 刷之前先按 mark 类型整段清一遍：一个位置只该有一个底纹 / 一个字色（Notion 也是替换不是叠加）。
  */
 function setColor(target: EditorView, kind: ColorKind, color: string): void {
-  if (color) lastColor = { kind, color }
+  if (color) {
+    lastColor = { kind, color }
+    try {
+      localStorage.setItem(LAST_COLOR_KEY, JSON.stringify(lastColor))
+    } catch {
+      // 私密模式 / 配额满就退回内存态
+    }
+  }
   const mark = schema.marks[kind]
   const { from, to } = target.state.selection
   const tr = target.state.tr.removeMark(from, to, mark)
