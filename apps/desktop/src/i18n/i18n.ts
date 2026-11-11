@@ -70,6 +70,9 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'sidebar.group.favorite': '收藏',
     'sidebar.group.pinned': '置顶',
     'sidebar.group.trash': '回收站',
+    // 设置页「侧栏」：六个导航入口各自显隐
+    'sidebar.settings.title': '侧栏',
+    'sidebar.settings.desc': '关掉的入口不再出现在左侧栏；页面本身还在。',
     // 侧栏那一行「虚拟目录」+ 它开出来的那一页（D-0094）
     'vfs.nav': '虚拟目录',
     'vfs.hint': '整库投影成的目录树 · 目录名就是查询条件',
@@ -707,6 +710,8 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'sidebar.group.favorite': 'Favorites',
     'sidebar.group.pinned': 'Pinned',
     'sidebar.group.trash': 'Trash',
+    'sidebar.settings.title': 'Sidebar',
+    'sidebar.settings.desc': 'Hidden entries disappear from the sidebar; the pages themselves remain.',
     'vfs.nav': 'Virtual directory',
     'vfs.hint': 'The library as a tree · a directory is a query',
     'vfs.search': 'grep (Enter to run)',

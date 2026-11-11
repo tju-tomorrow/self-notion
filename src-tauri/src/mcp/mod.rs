@@ -18,6 +18,7 @@ use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
 mod learn;
+mod media;
 mod nav;
 mod notes;
 mod write;
@@ -87,6 +88,8 @@ fn handle(db: &Db, nav: &mut nav::Nav, msg: &Value) -> Option<String> {
             "instructions": "这是 self-notion 个人笔记库。notes_map() 看全局，\
                              notes_find(q) 定位，notes_cd(标题|id|目录) 打开，\
                              notes_read(section=…) 读，notes_related(id) 找关联。\
+                             正文里的图片会随 notes_read 一起以 image 内容块返回；\
+                             大图或其他附件用 notes_blob(id) 单取。\
                              写用 notes_write（create/append/replace/rename/move/trash/restore/tag/undo）；\
                              replace/trash 要 confirm。写需要桌面端开着。\
                              notes_learn 读打开次数、阅读时长、读到多深、行为分和熟悉度；\
@@ -113,36 +116,55 @@ fn call_tool(db: &Db, nav: &mut nav::Nav, params: &Value) -> Result<Value, (i64,
     let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
     let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
 
-    let text: ApiResult<String> = match name {
+    let out: ApiResult<(String, Vec<Value>)> = match name {
+        "notes_read" => tool(&args, |a: nav::ReadArgs| {
+            nav::read(db, nav, &a).map(|t| media::expand(db, t))
+        }),
+        "notes_blob" => tool(&args, |a: media::FetchArgs| media::fetch(db, &a.id)),
         "vfs_list" => tool(&args, |a: vfs::ListArgs| {
             vfs::list(db, &a.path).and_then(|v| json_text(&v))
-        }),
+        })
+        .map(plain),
         "vfs_stat" => tool(&args, |a: vfs::StatArgs| -> ApiResult<String> {
             let p = a.path.clone();
             // 路径不存在在这儿是一次失败（stat 在文件系统里也是 ENOENT），不静默回 null
             let e = vfs::stat(db, &a.path)?.ok_or_else(|| ApiError::new("not_found", p))?;
             json_text(&e)
-        }),
-        "notes_cd" => tool(&args, |a: nav::CdArgs| nav::cd(db, nav, a.target.as_deref())),
-        "notes_read" => tool(&args, |a: nav::ReadArgs| nav::read(db, nav, &a)),
-        "notes_find" => tool(&args, |a: notes::FindArgs| notes::find(db, &a)),
-        "notes_map" => tool(&args, |a: notes::MapArgs| notes::map(db, &a)),
-        "notes_related" => tool(&args, |a: notes::RelatedArgs| notes::related(db, nav, &a)),
-        "notes_learn" => tool(&args, |a: learn::Args| learn::call(db, &a)),
-        "notes_write" => tool(&args, |a: write::WriteArgs| write::write(db, &a)),
+        })
+        .map(plain),
+        "notes_cd" => {
+            tool(&args, |a: nav::CdArgs| nav::cd(db, nav, a.target.as_deref())).map(plain)
+        }
+        "notes_find" => tool(&args, |a: notes::FindArgs| notes::find(db, &a)).map(plain),
+        "notes_map" => tool(&args, |a: notes::MapArgs| notes::map(db, &a)).map(plain),
+        "notes_related" => {
+            tool(&args, |a: notes::RelatedArgs| notes::related(db, nav, &a)).map(plain)
+        }
+        "notes_learn" => tool(&args, |a: learn::Args| learn::call(db, &a)).map(plain),
+        "notes_write" => tool(&args, |a: write::WriteArgs| write::write(db, &a)).map(plain),
         // kb_* 落到知识库工具面的唯一实现（D-0187）。★ 走 `call_readonly`，**不是** `call` ——
         // 分派是按名字走的，「清单里没列」拦不住客户端自己编一个 `kb_accept` 发过来（实测过）。
-        n if n.starts_with("kb_") => crate::kb::tools::call_readonly(db, n, &args),
+        n if n.starts_with("kb_") => {
+            crate::kb::tools::call_readonly(db, n, &args).map(plain)
+        }
         other => return Err((-32602, format!("unknown tool: {other}"))),
     };
 
-    Ok(match text {
-        Ok(t) => json!({"content": [{"type": "text", "text": t}]}),
+    Ok(match out {
+        Ok((text, mut blocks)) => {
+            let mut content = vec![json!({"type": "text", "text": text})];
+            content.append(&mut blocks);
+            json!({"content": content})
+        }
         Err(e) => json!({"content": [{"type": "text", "text": e.to_string()}], "isError": true}),
     })
 }
 
-/// 工具清单：6 条主工具 + 2 条逃生口（D-0191/D-0192）。
+fn plain(text: String) -> (String, Vec<Value>) {
+    (text, Vec::new())
+}
+
+/// 工具清单：8 条主工具 + 2 条逃生口（D-0191/D-0192）。
 /// 读工具只读；唯一的写工具 `notes_write` 只落请求，正文由桌面端执行。
 fn tools() -> Value {
     json!([
@@ -162,9 +184,9 @@ fn tools() -> Value {
         },
         {
             "name": "notes_read",
-            "description": "读当前文章或指定文章。section 先按标题匹配、再按正文匹配；不传 section 时，长文先回大纲 + 预览。",
+            "description": "读当前文章或指定文章。section 先按标题匹配、再按正文匹配；不传 section 时，长文先回大纲 + 预览。正文里的图片会作为 image 内容块一起返回（单次最多 8 张）。",
             "_meta": {
-                "anthropic/searchHint": "read note section cat 笔记 正文 读",
+                "anthropic/searchHint": "read note section cat image 笔记 正文 读 图片",
                 "anthropic/maxResultSizeChars": 12000
             },
             "inputSchema": {
@@ -175,6 +197,21 @@ fn tools() -> Value {
                     "offset": {"type": "integer", "description": "从第几行开始，0 起数"},
                     "limit": {"type": "integer", "description": "最多几行"}
                 }
+            }
+        },
+        {
+            "name": "notes_blob",
+            "description": "按 id 取笔记里的图片 / 附件。图片回 image 内容块；文本文件回正文；其他只回元数据。",
+            "_meta": {
+                "anthropic/searchHint": "image attachment blob file 图片 附件 文件 附件内容",
+                "anthropic/maxResultSizeChars": 12000
+            },
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "blob id；也接受 self-notion://blob/<id>"}
+                },
+                "required": ["id"]
             }
         },
         {
@@ -290,10 +327,10 @@ fn tools() -> Value {
 /* ─────────────────────────── 小工具 ─────────────────────────── */
 
 /// 参数 → 干活。解不开就是 `bad_args`（和 `commands::dispatch` 同一个口径）。
-fn tool<T: serde::de::DeserializeOwned>(
+fn tool<T: serde::de::DeserializeOwned, R>(
     args: &Value,
-    f: impl FnOnce(T) -> ApiResult<String>,
-) -> ApiResult<String> {
+    f: impl FnOnce(T) -> ApiResult<R>,
+) -> ApiResult<R> {
     let a: T =
         serde_json::from_value(args.clone()).map_err(|e| ApiError::new("bad_args", e.to_string()))?;
     f(a)

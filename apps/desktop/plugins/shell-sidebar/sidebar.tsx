@@ -51,6 +51,7 @@ import { readLocal, writeLocal } from '../../src/kernel/local'
 import { DocMenu, useDocMenu } from '../../src/ui/doc-menu'
 import { toast } from '../../src/ui/toast'
 import { buildTree, favorites, pinned, recent, type DocMeta, type DocNode } from './tree'
+import { useNavVisible } from './visibility'
 import * as s from './sidebar.css'
 
 type Group = 'tree' | 'recent' | 'favorite' | 'pinned' | 'trash'
@@ -172,6 +173,8 @@ export function Sidebar({ ctx }: { ctx: Context }) {
   const [error, setError] = useState<string | null>(null)
   /** 拖拽重排时鼠标停在哪一行（画落点线）。`mode` 决定画什么线、也决定松手后干什么。 */
   const [dragOver, setDragOver] = useState<{ id: string; mode: DropMode } | null>(null)
+  /** 导航项显隐（设置页「侧栏」那六个开关）。 */
+  const visible = useNavVisible(ctx)
   /** 可滚区四段的展开/收起。 */
   const [collapsedSections, setCollapsedSections] = useState<Record<SectionId, boolean>>(() => ({
     favorites: readCollapsed(ctx, 'favorites'),
@@ -585,6 +588,8 @@ export function Sidebar({ ctx }: { ctx: Context }) {
         </div>
 
         {GROUPS.map((g) => {
+          // 「全部文档」「回收站」是主入口，不给藏；另外三个看设置。
+          if (g !== 'tree' && g !== 'trash' && !visible[g]) return null
           const Icon = GROUP_ICON[g]
           return (
             <button
@@ -610,7 +615,7 @@ export function Sidebar({ ctx }: { ctx: Context }) {
         {/* 虚拟目录（D-0094）。跟「设置」一样**不占分组**：点它主区换成一棵投影出来的
             目录树，四个分组还留在原处。`vfs` 服务不在（插件被卸了）就整行不画 ——
             不留一个点了没反应的入口。 */}
-        {ctx.get('vfs') !== undefined && (
+        {ctx.get('vfs') !== undefined && visible.vfs && (
           <button
             type="button"
             className={`${s.navItem} ${page === 'vfs' ? s.navItemOn : ''}`}
@@ -649,7 +654,7 @@ export function Sidebar({ ctx }: { ctx: Context }) {
 
         {/* 知识库两项（D-0189，破例改本文件）。跟上面两行同一个软依赖形状：`kb` 服务
             不在（`plugins/kb/` 被卸了）就整行不画 —— 主区那一页由它们自己画。 */}
-        {ctx.get('kb') !== undefined && (
+        {ctx.get('kb') !== undefined && visible.inbox && (
           <button
             type="button"
             className={`${s.navItem} ${page === 'inbox' ? s.navItemOn : ''}`}
@@ -666,7 +671,7 @@ export function Sidebar({ ctx }: { ctx: Context }) {
           </button>
         )}
 
-        {ctx.get('kb') !== undefined && (
+        {ctx.get('kb') !== undefined && visible.graph && (
           <button
             type="button"
             className={`${s.navItem} ${page === 'graph' ? s.navItemOn : ''}`}

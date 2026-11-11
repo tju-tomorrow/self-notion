@@ -15,6 +15,7 @@ import { createElement } from 'react'
 // 契约靠 module augmentation 挂到 Context 上；显式 import 一次，保证它进了编译单元。
 import type {} from '../../src/kernel/contract'
 import { Sidebar } from './sidebar'
+import { SidebarSection } from './settings'
 
 export const name = 'shell-sidebar'
 
@@ -24,7 +25,13 @@ export const name = 'shell-sidebar'
 export const inject = ['rpc', 'slot', 'settings', 'command', 'i18n']
 
 export function apply(ctx: Context) {
+  const section = () => createElement(SidebarSection, { ctx })
+  ;(section as { label?: string }).label = ctx.i18n.t('sidebar.settings.title')
+  ;(section as { group?: string }).group = 'look'
   // 逆函数是显式纪律（D-0033）：`register` 返回的就是它的 unregister，交给 ctx.effect 记账 ——
   // 卸载时自动撤销，不留半棵侧栏。
-  ctx.effect(() => ctx.slot.register('sidebar.item', () => createElement(Sidebar, { ctx })))
+  ctx.effect(() => [
+    ctx.slot.register('sidebar.item', () => createElement(Sidebar, { ctx })),
+    ctx.slot.register('settings.section', section),
+  ])
 }

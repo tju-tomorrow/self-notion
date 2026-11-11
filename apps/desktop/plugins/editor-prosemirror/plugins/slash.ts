@@ -21,7 +21,7 @@ import type { EditorView } from 'prosemirror-view'
 import { isFileId } from '../../../src/kernel/contract'
 import { reportError } from '../../../src/kernel/errors'
 import { firstTextPos } from '../commands/block'
-import { allDocs, createDoc } from '../doc-meta'
+import { allDocs, createDoc, openDoc } from '../doc-meta'
 import { newSrc } from '../sync'
 import { emptyTableRows } from './table'
 import './slash.css'
@@ -437,8 +437,9 @@ async function fillSubpage(view: EditorView, containerId: string): Promise<void>
   try {
     const docId = await createDoc('', currentDocId(view) || null)
     const at = firstContentPos(view.state.doc, containerId)
-    if (at === null) return
-    view.dispatch(view.state.tr.setNodeMarkup(at, undefined, { docId }))
+    if (at !== null) view.dispatch(view.state.tr.setNodeMarkup(at, undefined, { docId }))
+    // 建完就进去（Notion 行为，D-0064）：要等 `doc:create` 回来，否则打开时查不到这条刚建的。
+    openDoc(docId)
   } catch (err) {
     reportError('slash', err)
   }
