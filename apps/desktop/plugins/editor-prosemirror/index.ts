@@ -182,6 +182,9 @@ export function apply(ctx: Context) {
       stats: () => mod?.memoryStats() ?? [],
     }),
 
+    // 契约里早就声明了 `mem` 这个软服务，但一直没人提供 —— mem-monitor / 卡死监控都要它。
+    ctx.provide('mem', { stats: () => mod?.memoryStats() ?? [] }),
+
     // 把编辑器放进 `main.view`，并订阅 `OPEN_DOC`（点哪篇文档就挂哪篇）。
     registerEditorView(ctx),
 

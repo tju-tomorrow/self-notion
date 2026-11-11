@@ -11,6 +11,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import type { Context } from 'cordis'
 import type { RpcService } from '../../src/kernel/contract'
+import { noteSlow } from '../../src/kernel/rpc-timing'
 
 export const name = 'plugin-rpc'
 
@@ -40,10 +41,16 @@ function restore(err: unknown): unknown {
 export function apply(ctx: Context) {
   const rpc: RpcService = {
     async call<T = unknown>(method: `${string}:${string}`, args?: unknown): Promise<T> {
+      const at = performance.now()
       try {
         return (await invoke('api', { req: { method, args } })) as T
       } catch (err) {
         throw restore(err)
+      } finally {
+        // 监控自己的调用不记 —— 否则日志里全是自己的噪音。
+        if (!method.startsWith('perf:') && method !== 'log:error') {
+          noteSlow(method, performance.now() - at)
+        }
       }
     },
   }

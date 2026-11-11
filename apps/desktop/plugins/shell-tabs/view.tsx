@@ -6,8 +6,17 @@
 import { type DragEvent, type ReactNode, useEffect, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import type { Context } from 'cordis'
-import { CloseIcon, FileIconMdIcon, PageIcon, PlusIcon } from '@blocksuite/icons/rc'
-import { AGENT_TAB_ID, CLOSE_ALL, DOCS_CHANGED, OPEN_DOC, fileTitleOf, type DocMeta } from '../../src/kernel/contract'
+import { CloseIcon, FileIconMdIcon, PageIcon, PinIcon, PlusIcon } from '@blocksuite/icons/rc'
+import {
+  AGENT_TAB_ID,
+  CLOSE_ALL,
+  DOCS_CHANGED,
+  OPEN_DOC,
+  SPLIT_VIEW,
+  fileTitleOf,
+  type DocMeta,
+  type SplitViewEvent,
+} from '../../src/kernel/contract'
 import type { TabsStore } from './tabs'
 import * as s from './tabs.css'
 
@@ -35,6 +44,16 @@ function useDocMeta(ctx: Context, key: string): ReadonlyMap<string, DocMeta> {
   return docs
 }
 
+/** 主区现在几栏。**值的家在编辑器插件那边**，这里只接它广播的镜像（跟顶栏那颗分屏按钮同一条路）。 */
+function usePaneCount(ctx: Context): number {
+  const [panes, setPanes] = useState(1)
+  useEffect(() => {
+    const off = ctx.on(SPLIT_VIEW, ({ panes: n }: SplitViewEvent) => setPanes(n))
+    return () => void off()
+  }, [ctx])
+  return panes
+}
+
 export function TabBar({ ctx, store }: { ctx: Context; store: TabsStore }) {
   const snap = useSyncExternalStore(
     (cb) => store.subscribe(cb),
@@ -42,6 +61,7 @@ export function TabBar({ ctx, store }: { ctx: Context; store: TabsStore }) {
     () => store.snapshot(), // SSR / renderToString 要第三个参数，否则直接抛
   )
   const meta = useDocMeta(ctx, snap.tabs.map((tab) => tab.id).join(','))
+  const panes = usePaneCount(ctx)
 
   /** 「+」：建一篇空文档再走 OPEN_DOC —— 标签由 index.ts 那条监听自己加，这里不碰 store。
    *  `DOCS_CHANGED` 得跟着发，否则侧栏的树不知道多了一篇。 */
@@ -64,6 +84,8 @@ export function TabBar({ ctx, store }: { ctx: Context; store: TabsStore }) {
             doc={meta.get(tab.id)}
             index={i}
             active={tab.id === snap.activeId}
+            pinned={tab.pinned}
+            panes={panes}
           />
         ))}
       </div>
@@ -89,6 +111,8 @@ function TabItem({
   doc,
   index,
   active,
+  pinned,
+  panes,
 }: {
   ctx: Context
   store: TabsStore
@@ -96,6 +120,8 @@ function TabItem({
   doc: DocMeta | undefined
   index: number
   active: boolean
+  pinned: boolean
+  panes: number
 }) {
   const agent = id === AGENT_TAB_ID
   // 助手那一个不是文档：库里查不到它的名字和图标，所以名字和图标都自己给（D-0095）。
@@ -192,6 +218,11 @@ function TabItem({
           (doc?.icon ?? <PageIcon width={16} height={16} />)
         )}
       </span>
+      {pinned && (
+        <span className={s.pinIcon} aria-hidden>
+          <PinIcon width={12} height={12} />
+        </span>
+      )}
       <span className={s.label}>{title || ctx.i18n.t('shell-tabs.untitled')}</span>
       <button
         type="button"
@@ -214,6 +245,30 @@ function TabItem({
               className={s.menuItem}
               onClick={() => {
                 setMenu(null)
+                store.togglePin(id)
+              }}
+            >
+              {ctx.i18n.t(pinned ? 'shell-tabs.unpin' : 'shell-tabs.pin')}
+            </button>
+            {/* 分屏入口就在标签上：右键哪一篇，就把它放进新开出来的那一栏。
+                已经在看的（激活）那一篇不重发 OPEN_DOC —— 否则焦点被拽回旧栏，新栏空着没人管。 */}
+            <button
+              type="button"
+              className={s.menuItem}
+              onClick={() => {
+                setMenu(null)
+                const want = panes >= 3 ? 1 : panes + 1
+                ctx.emit(SPLIT_VIEW, { panes: want })
+                if (want > 1 && store.snapshot().activeId !== id) ctx.emit(OPEN_DOC, { id })
+              }}
+            >
+              {ctx.i18n.t(panes >= 3 ? 'shell-tabs.unsplit' : 'shell-tabs.split')}
+            </button>
+            <button
+              type="button"
+              className={s.menuItem}
+              onClick={() => {
+                setMenu(null)
                 store.closeOthers(id)
                 ctx.emit(OPEN_DOC, { id })
               }}
@@ -226,7 +281,10 @@ function TabItem({
               onClick={() => {
                 setMenu(null)
                 store.closeAll()
-                ctx.emit(CLOSE_ALL)
+                // 固定住的会留下来 —— 只有真的一枚不剩才回首页。
+                const after = store.snapshot().activeId
+                if (after === null) ctx.emit(CLOSE_ALL)
+                else ctx.emit(OPEN_DOC, { id: after })
               }}
             >
               {ctx.i18n.t('shell-tabs.closeAll')}

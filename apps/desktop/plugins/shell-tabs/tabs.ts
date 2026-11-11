@@ -12,6 +12,8 @@
 /** 一个标签 = 一个文档。文档身份就是 `documents.id`。 */
 export interface Tab {
   readonly id: string
+  /** 固定：排在最左，且「关闭其他 / 关闭所有」不扫它。 */
+  readonly pinned: boolean
 }
 
 export interface TabSnapshot {
@@ -32,12 +34,14 @@ export interface TabsStore {
   open(id: string): void
   close(id: string): void
 
-  /** 只留这一个（其余全关），它就是激活的那个。 */
+  /** 只留这一个（固定住的也留），它就是激活的那个。 */
   closeOthers(id: string): void
 
-  /** 全关。激活位变 null —— 调用方自己发 `CLOSE_ALL` 回首页。 */
+  /** 关掉没固定的；固定的留下，激活位落到还活着的那个。一个不剩才是 null。 */
   closeAll(): void
   activate(id: string): void
+  /** 固定 / 取消固定。钉住的排到最左。 */
+  togglePin(id: string): void
   /** 拖拽重排：把 `from` 位置的标签移到 `to` 位置 */
   move(from: number, to: number): void
 }
@@ -51,8 +55,10 @@ function normalize(input: TabSnapshot): TabSnapshot {
   for (const tab of input.tabs) {
     if (seen.has(tab.id)) continue
     seen.add(tab.id)
-    tabs.push({ id: tab.id })
+    tabs.push({ id: tab.id, pinned: tab.pinned === true })
   }
+  // 固定的永远在最左；sort 是稳定排序，组内顺序不动。
+  tabs.sort((a, b) => Number(b.pinned) - Number(a.pinned))
   const activeId =
     input.activeId !== null && seen.has(input.activeId) ? input.activeId : (tabs[0]?.id ?? null)
   return { tabs, activeId }
@@ -78,6 +84,7 @@ function sameSnap(a: TabSnapshot, b: TabSnapshot): boolean {
   if (a.activeId !== b.activeId || a.tabs.length !== b.tabs.length) return false
   for (let i = 0; i < a.tabs.length; i++) {
     if (a.tabs[i]?.id !== b.tabs[i]?.id) return false
+    if (a.tabs[i]?.pinned !== b.tabs[i]?.pinned) return false
   }
   return true
 }
@@ -112,7 +119,7 @@ export function createTabs(initial: TabSnapshot = EMPTY, onChange?: () => void):
     open(id) {
       const at = snap.tabs.findIndex((tab) => tab.id === id)
       if (at < 0) {
-        commit({ tabs: [...snap.tabs, { id }], activeId: id })
+        commit({ tabs: [...snap.tabs, { id, pinned: false }], activeId: id })
         return
       }
       // 已经开着：只切过去，不重复加一个
@@ -137,12 +144,22 @@ export function createTabs(initial: TabSnapshot = EMPTY, onChange?: () => void):
 
     closeOthers(id) {
       if (!snap.tabs.some((tab) => tab.id === id)) return
-      commit({ tabs: snap.tabs.filter((tab) => tab.id === id), activeId: id })
+      commit({ tabs: snap.tabs.filter((tab) => tab.id === id || tab.pinned), activeId: id })
     },
 
     closeAll() {
-      if (snap.tabs.length === 0) return
-      commit({ tabs: [], activeId: null })
+      const tabs = snap.tabs.filter((tab) => tab.pinned)
+      if (tabs.length === snap.tabs.length) return
+      const kept = tabs.some((tab) => tab.id === snap.activeId)
+      commit({ tabs, activeId: kept ? snap.activeId : (tabs[0]?.id ?? null) })
+    },
+
+    togglePin(id) {
+      if (!snap.tabs.some((tab) => tab.id === id)) return
+      const tabs = snap.tabs.map((tab) => (tab.id === id ? { ...tab, pinned: !tab.pinned } : tab))
+      // 跟 normalize 同一条规矩：钉住的在最左，组内顺序不变。
+      tabs.sort((a, b) => Number(b.pinned) - Number(a.pinned))
+      commit({ tabs, activeId: snap.activeId })
     },
 
     move(from, to) {
@@ -152,6 +169,8 @@ export function createTabs(initial: TabSnapshot = EMPTY, onChange?: () => void):
       const moved = tabs.splice(from, 1)[0]
       if (!moved) return
       tabs.splice(to, 0, moved)
+      // 拖进另一组也留不住：固定的必须在最左。
+      tabs.sort((a, b) => Number(b.pinned) - Number(a.pinned))
       commit({ tabs, activeId: snap.activeId })
     },
   }
@@ -159,23 +178,32 @@ export function createTabs(initial: TabSnapshot = EMPTY, onChange?: () => void):
 
 /* ────────────────────────── 会话恢复 ────────────────────────── */
 
-/** 落到 `meta` 表的形状（`ctx.settings` 会 JSON 序列化它）。只存 id —— 顺序即数组顺序。 */
+/** 落到 `meta` 表的形状（`ctx.settings` 会 JSON 序列化它）。`tabs` 的顺序即数组顺序；
+ *  `pinned` 单独一份 —— 老版本存的数据没有这个字段，读到就是全不固定。 */
 export interface PersistedTabs {
   tabs: string[]
   activeId: string | null
+  pinned: string[]
 }
 
 export function serialize(snap: TabSnapshot): PersistedTabs {
-  return { tabs: snap.tabs.map((tab) => tab.id), activeId: snap.activeId }
+  return {
+    tabs: snap.tabs.map((tab) => tab.id),
+    activeId: snap.activeId,
+    pinned: snap.tabs.filter((tab) => tab.pinned).map((tab) => tab.id),
+  }
 }
 
 /** 恢复。入参是 `unknown`（来自别处的 JSON），**逐字段校验**后收窄。 */
 export function restore(raw: unknown): TabSnapshot {
   if (!raw || typeof raw !== 'object') return EMPTY
-  const { tabs, activeId } = raw as { tabs?: unknown; activeId?: unknown }
+  const { tabs, activeId, pinned } = raw as { tabs?: unknown; activeId?: unknown; pinned?: unknown }
   const ids = Array.isArray(tabs) ? tabs.filter((id): id is string => typeof id === 'string') : []
+  const pinnedIds = new Set(
+    Array.isArray(pinned) ? pinned.filter((id): id is string => typeof id === 'string') : [],
+  )
   return normalize({
-    tabs: ids.map((id) => ({ id })),
+    tabs: ids.map((id) => ({ id, pinned: pinnedIds.has(id) })),
     activeId: typeof activeId === 'string' ? activeId : null,
   })
 }

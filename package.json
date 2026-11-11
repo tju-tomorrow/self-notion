@@ -9,6 +9,7 @@
     "tauri": "tauri",
     "verify": "pnpm --filter @self-notion/desktop verify && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
     "logs": "tail -n 200 -f \"$HOME/Library/Application Support/app.selfnotion.desktop/errors.log\"",
+    "perf": "sh -c 'F=\"$HOME/Library/Application Support/app.selfnotion.desktop/perf.log\"; { echo \"--- 最近样本\"; tail -n 3 \"$F\"; echo \"--- 异常\"; grep -E \"freeze|slow-rpc|jank|stall\" \"$F\" | tail -n 40; } 2>/dev/null'",
     "bugs": "sh -c 'D=\"$HOME/Library/Application Support/app.selfnotion.desktop/bugs\"; ls -t \"$D\" 2>/dev/null | head -10; L=$(ls -t \"$D\"/*.json 2>/dev/null | head -1); echo \"--- $L\"; cat \"$L\" 2>/dev/null'"
   },
   "devDependencies": {

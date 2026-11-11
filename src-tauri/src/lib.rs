@@ -19,6 +19,7 @@ mod kb;
 mod log;
 pub mod mcp;
 mod mem;
+mod perf;
 mod store;
 mod vfs;
 mod voice;
@@ -65,6 +66,12 @@ pub fn run() {
         // 应用菜单：默认那套 + File ▸ New Window（`windows.rs`）。
         .menu(windows::menu)
         .on_menu_event(|app, event| windows::on_menu(app, &event.id().0))
+        // 卡死判定要知道「哪个窗口在前台」—— 后台窗口的定时器被节流不是卡死。
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::Focused(on) => perf::set_focus(window.label(), *on),
+            tauri::WindowEvent::Destroyed => perf::window_gone(window.label()),
+            _ => {}
+        })
         // 图片 / 附件（D-0027）：`blob:getUrl` 回的就是 `self-notion://blob/<id>`，这里把它接上。
         // **只读** —— 写一律走 `blob:put` 命令，协议只服务 `<img src>` / `<video>` / `<audio>`。
         // 协议名和 CSP 里那句 `self-notion:`（img-src / connect-src）必须逐字一致，
@@ -103,6 +110,7 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             log::init(app.handle());
+            perf::init();
             // Dock 图标的右键菜单（`dock.rs`）：要主线程 + Tauri 的 delegate 已挂上。
             #[cfg(target_os = "macos")]
             crate::dock::install(app.handle());

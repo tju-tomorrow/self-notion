@@ -85,7 +85,13 @@ pub fn api(
     req: Request,
 ) -> ApiResult<Value> {
     // `window`：命令得知道是**哪个窗口**在调（露窗 / 新窗口 / 事件回执都按 label 走）。
-    dispatch(Some(&app), Some(window.label()), &db, &req.method, req.args)
+    let Request { method, args } = req;
+    let label = window.label().to_string();
+    let at = std::time::Instant::now();
+    crate::perf::rpc_begin(&label, &method);
+    let out = dispatch(Some(&app), Some(label.as_str()), &db, &method, args);
+    crate::perf::rpc_end(&label, &method, at.elapsed().as_millis() as u64);
+    out
 }
 
 /// `"命名空间:方法名"` → 一个 match 分支。
@@ -178,6 +184,10 @@ pub fn dispatch(
         "voice:start" => crate::voice::start(app, win, args),
         "voice:stop" => crate::voice::stop(win, args),
         "voice:cancel" => crate::voice::cancel(win, args),
+
+        // ── 卡死监控（实现在 `src/perf.rs`）───────────────────────────────────
+        "perf:beat" => crate::perf::beat(win.unwrap_or("unknown"), args)
+            .map_err(|e| ApiError::new("perf", e)),
 
         // ── 内存监控（D-0079；实现在 `src/mem.rs`）─────────────────────────────
         // 前两条不碰窗口，走 mem 自己的分派；`mem:tray` 要 AppHandle，得在这儿。

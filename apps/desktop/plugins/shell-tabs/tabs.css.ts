@@ -63,6 +63,17 @@ export const tabOver = style({
   boxShadow: 'inset 0 0 0 2px var(--affine-primary-color)',
 })
 
+/** 固定标签的图钉 —— 只占 12px，排在文档图标后面。 */
+export const pinIcon = style({
+  flex: '0 0 12px',
+  width: 12,
+  height: 12,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  color: 'var(--affine-primary-color)',
+})
+
 export const label = style({
   flex: 1,
   minWidth: 0,

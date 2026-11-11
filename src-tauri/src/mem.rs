@@ -43,8 +43,14 @@ pub struct MemSnap {
 
 /* ────────────────────────── 读进程内存 ────────────────────────── */
 
-/// 某进程的物理内存。进程没了 / 没权限就是 None，不报错。
-fn footprint(pid: i32) -> Option<u64> {
+/// 某进程的内存 + CPU 累计时间（mach ticks）。进程没了 / 没权限就是 None，不报错。
+pub(crate) struct Usage {
+    pub footprint: u64,
+    pub user: u64,
+    pub system: u64,
+}
+
+pub(crate) fn usage(pid: i32) -> Option<Usage> {
     let mut info = std::mem::MaybeUninit::<libc::rusage_info_v2>::zeroed();
     let rc = unsafe {
         // `rusage_info_t` 在绑定里是 `*mut c_void`，所以这里要让一层指针的形状对上 ——
@@ -54,7 +60,16 @@ fn footprint(pid: i32) -> Option<u64> {
     if rc != 0 {
         return None;
     }
-    Some(unsafe { info.assume_init() }.ri_phys_footprint)
+    let info = unsafe { info.assume_init() };
+    Some(Usage {
+        footprint: info.ri_phys_footprint,
+        user: info.ri_user_time,
+        system: info.ri_system_time,
+    })
+}
+
+fn footprint(pid: i32) -> Option<u64> {
+    usage(pid).map(|u| u.footprint)
 }
 
 fn all_pids() -> Vec<i32> {
