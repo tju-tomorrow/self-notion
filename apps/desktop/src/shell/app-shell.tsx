@@ -57,7 +57,7 @@ function TitleBar({
         <button
           type="button"
           className={s.sidebarSwitch}
-          title={label}
+          title={`${label} · Ctrl+B`}
           aria-label={label}
           aria-expanded={!collapsed}
           onClick={onToggle}
@@ -91,6 +91,18 @@ export function AppShell({ ctx }: { ctx: Context }) {
     writeLocal('sn.shell.collapsed', collapsed)
     writeLocal('sn.shell.width', width)
   }, [collapsed, width])
+
+  // Ctrl+B 开合侧栏。特意不认 Cmd —— Cmd+B 在编辑器里是加粗。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return
+      if (e.key.toLowerCase() !== 'b' || e.repeat) return
+      e.preventDefault()
+      setCollapsed((v) => !v)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   /** 拖右缘改宽度。监听挂在 window 上而不是抓带上 —— 指针跑出那 4px 也得跟着走。
    *  宽度只活在内存里（跟 `collapsed` 一样），重开回默认值。 */
