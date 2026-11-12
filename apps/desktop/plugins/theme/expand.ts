@@ -105,9 +105,10 @@ export function expand(seeds: Seeds | null, tone?: 'notion'): Record<string, str
     // ── 查找 / 评论高亮 ─────────────────────────────────────────────────────
     '--affine-find-highlight': on(accent, 35),
     '--affine-find-highlight-active': on(accent, 62),
-    '--affine-v2-block-comment-highlightDefault': on(accent, 14),
-    '--affine-v2-block-comment-highlightActive': on(accent, 26),
-    '--affine-v2-block-comment-highlightUnderline': accent,
+    // 评论高亮跟强调色脱开：Notion 那条是黄底，不是蓝下划线。
+    '--affine-v2-block-comment-highlightDefault': on('#f0c14b', 42),
+    '--affine-v2-block-comment-highlightActive': on('#f0c14b', 68),
+    '--affine-v2-block-comment-highlightUnderline': '#f0c14b',
 
     // ── 影子：几何照抄 AFFiNE（换了会看着"位移"），只把颜色染成靛黑 ──────────
     '--affine-shadow-2': `0px 0px 12px 0px ${on(INK, 55)}`,

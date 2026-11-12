@@ -9,12 +9,23 @@
  */
 import type { Node as PMNode } from 'prosemirror-model'
 import { Plugin } from 'prosemirror-state'
+import type { EditorState } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
 import {
   TableMap,
   TableView,
+  addColumnAfter,
+  addRowAfter,
   columnResizing,
   columnResizingPluginKey,
+  deleteColumn,
+  deleteRow,
+  isInTable,
+  mergeCells,
+  moveTableColumn,
+  moveTableRow,
+  selectedRect,
+  splitCell,
   tableEditing,
 } from 'prosemirror-tables'
 
@@ -38,7 +49,279 @@ export function tablePlugin(): Plugin[] {
       handleWidth: HANDLE,
     }),
     tableEditing(),
+    tableBarPlugin(),
   ]
+}
+
+/** 光标进表格时浮出来的那排按钮（Notion 的表格上沿那一条）。 */
+function tableBarPlugin(): Plugin {
+  return new Plugin({
+    view(view) {
+      const bar = document.createElement('div')
+      bar.className = 'sn-table-bar'
+      bar.hidden = true
+      const moveCurrent = (kind: 'row' | 'col', delta: number): void => {
+        const state = view.state
+        if (!isInTable(state)) return
+        const rect = selectedRect(state)
+        if (kind === 'row') {
+          const from = rect.top
+          const to = from + delta
+          if (to < 0 || to >= rect.map.height) return
+          moveTableRow({ from, to })(state, view.dispatch)
+        } else {
+          const from = rect.left
+          const to = from + delta
+          if (to < 0 || to >= rect.map.width) return
+          moveTableColumn({ from, to })(state, view.dispatch)
+        }
+      }
+      const btn = (label: string, run: () => void): void => {
+        const el = document.createElement('button')
+        el.type = 'button'
+        el.textContent = label
+        el.className = 'sn-table-bar-btn'
+        el.addEventListener('mousedown', (e) => e.preventDefault())
+        el.addEventListener('click', () => {
+          run()
+          view.focus()
+          sync()
+        })
+        bar.appendChild(el)
+      }
+      btn('+ 行', () => addRowAfter(view.state, view.dispatch))
+      btn('+ 列', () => addColumnAfter(view.state, view.dispatch))
+      btn('删行', () => deleteRow(view.state, view.dispatch))
+      btn('删列', () => deleteColumn(view.state, view.dispatch))
+      btn('合并', () => mergeCells(view.state, view.dispatch))
+      btn('拆分', () => splitCell(view.state, view.dispatch))
+      // 行 / 列重排（Notion 是拖，这里先给按钮）。
+      btn('行↑', () => moveCurrent('row', -1))
+      btn('行↓', () => moveCurrent('row', 1))
+      btn('列←', () => moveCurrent('col', -1))
+      btn('列→', () => moveCurrent('col', 1))
+      btn('删除表格', () => {
+        const at = tablePos(view.state)
+        if (at === null) return
+        const node = view.state.doc.nodeAt(at)
+        if (node) view.dispatch(view.state.tr.delete(at, at + node.nodeSize))
+      })
+      document.body.appendChild(bar)
+
+      /* ── 行 / 列拖动手柄 ─────────────────────────────────────────────── */
+      const rowGrip = document.createElement('div')
+      rowGrip.className = 'sn-table-grip sn-table-grip-row'
+      rowGrip.hidden = true
+      const colGrip = document.createElement('div')
+      colGrip.className = 'sn-table-grip sn-table-grip-col'
+      colGrip.hidden = true
+      const line = document.createElement('div')
+      line.className = 'sn-table-drop'
+      line.hidden = true
+      document.body.append(rowGrip, colGrip, line)
+
+      interface Hover {
+        table: HTMLTableElement
+        row: number
+        col: number
+      }
+      let hover: Hover | null = null
+      let drag: { kind: 'row' | 'col'; table: HTMLTableElement; from: number; pos: number } | null = null
+
+      const place = (): void => {
+        if (!hover) {
+          rowGrip.hidden = colGrip.hidden = true
+          return
+        }
+        const rowEl = hover.table.rows[hover.row]
+        const cellEl = rowEl?.cells[Math.min(hover.col, rowEl.cells.length - 1)]
+        if (!rowEl || !cellEl) return
+        const tableRect = hover.table.getBoundingClientRect()
+        const rowRect = rowEl.getBoundingClientRect()
+        const cellRect = cellEl.getBoundingClientRect()
+        rowGrip.hidden = false
+        // 放手柄槽右侧：左边已经被块手柄占了（表格第一行两个会叠在一起）。
+        rowGrip.style.left = `${Math.min(tableRect.right + 2, window.innerWidth - 18)}px`
+        rowGrip.style.top = `${rowRect.top + rowRect.height / 2 - 8}px`
+        colGrip.hidden = false
+        colGrip.style.left = `${cellRect.left + cellRect.width / 2 - 8}px`
+        colGrip.style.top = `${tableRect.top - 14}px`
+      }
+
+      const hide = (): void => {
+        hover = null
+        rowGrip.hidden = colGrip.hidden = true
+      }
+
+      const onHover = (e: MouseEvent): void => {
+        if (drag) return
+        const target = e.target
+        if (!(target instanceof Element)) return hide()
+        if (rowGrip.contains(target) || colGrip.contains(target)) return
+        const table = target.closest('table')
+        if (!(table instanceof HTMLTableElement) || !view.dom.contains(table)) return hide()
+        const rowEl = target.closest('tr')
+        const cellEl = target.closest('td, th')
+        if (!(rowEl instanceof HTMLTableRowElement) || !(cellEl instanceof HTMLTableCellElement)) return hide()
+        hover = {
+          table,
+          row: rowEl.sectionRowIndex,
+          col: cellEl.cellIndex,
+        }
+        place()
+      }
+
+      const tablePosOf = (table: HTMLTableElement): number | null => {
+        let found: number | null = null
+        view.state.doc.descendants((node, pos) => {
+          if (found !== null) return false
+          if (node.type.name !== 'table') return undefined
+          const dom = view.nodeDOM(pos)
+          if (dom instanceof HTMLElement && (dom === table || dom.contains(table))) {
+            found = pos
+            return false
+          }
+          return undefined
+        })
+        return found
+      }
+
+      const startDrag = (kind: 'row' | 'col') => (e: MouseEvent): void => {
+        if (!hover) return
+        const pos = tablePosOf(hover.table)
+        if (pos === null) return
+        e.preventDefault()
+        drag = { kind, table: hover.table, from: kind === 'row' ? hover.row : hover.col, pos }
+        const onMove = (ev: MouseEvent): void => {
+          if (!drag) return
+          const rect = drag.table.getBoundingClientRect()
+          const index = indexAt(drag.table, drag.kind, ev.clientX, ev.clientY)
+          if (index === null) {
+            line.hidden = true
+            return
+          }
+          line.hidden = false
+          if (drag.kind === 'row') {
+            const rowRect = drag.table.rows[index]?.getBoundingClientRect()
+            if (!rowRect) return
+            line.style.left = `${rect.left}px`
+            line.style.width = `${rect.width}px`
+            line.style.height = '2px'
+            line.style.top = `${ev.clientY > rowRect.top + rowRect.height / 2 ? rowRect.bottom : rowRect.top}px`
+          } else {
+            const cellRect = drag.table.rows[0]?.cells[Math.min(index, (drag.table.rows[0]?.cells.length ?? 1) - 1)]?.getBoundingClientRect()
+            if (!cellRect) return
+            line.style.top = `${rect.top}px`
+            line.style.height = `${rect.height}px`
+            line.style.width = '2px'
+            line.style.left = `${ev.clientX > cellRect.left + cellRect.width / 2 ? cellRect.right : cellRect.left}px`
+          }
+        }
+        const onUp = (ev: MouseEvent): void => {
+          const current = drag
+          drag = null
+          line.hidden = true
+          window.removeEventListener('mousemove', onMove)
+          window.removeEventListener('mouseup', onUp)
+          if (!current) return
+          const index = indexAt(current.table, current.kind, ev.clientX, ev.clientY)
+          if (index === null || index === current.from) return
+          const state = view.state
+          const target = current.kind === 'row' ? Math.min(index, tableHeight(current.table) - 1) : Math.min(index, tableWidth(current.table) - 1)
+          if (current.kind === 'row') moveTableRow({ from: current.from, to: target, pos: current.pos, select: false })(state, view.dispatch)
+          else moveTableColumn({ from: current.from, to: target, pos: current.pos, select: false })(state, view.dispatch)
+        }
+        window.addEventListener('mousemove', onMove)
+        window.addEventListener('mouseup', onUp)
+      }
+
+      rowGrip.addEventListener('mousedown', startDrag('row'))
+      colGrip.addEventListener('mousedown', startDrag('col'))
+      document.addEventListener('mousemove', onHover, true)
+      document.addEventListener('scroll', hide, true)
+
+      const sync = (): void => {
+        const at = tablePos(view.state)
+        if (at === null) {
+          bar.hidden = true
+          return
+        }
+        const dom = view.nodeDOM(at)
+        if (!(dom instanceof HTMLElement)) {
+          bar.hidden = true
+          return
+        }
+        const rect = dom.getBoundingClientRect()
+        if (rect.bottom < 0 || rect.top > window.innerHeight) {
+          bar.hidden = true
+          return
+        }
+        bar.hidden = false
+        const width = bar.getBoundingClientRect().width
+        const top = rect.top >= 30 ? rect.top - 28 : rect.bottom + 4
+        bar.style.left = `${Math.max(4, Math.min(rect.right - width, window.innerWidth - width - 4))}px`
+        bar.style.top = `${Math.max(4, top)}px`
+      }
+      sync()
+      const onScroll = (): void => sync()
+      window.addEventListener('scroll', onScroll, true)
+      window.addEventListener('resize', onScroll)
+      return {
+        update: sync,
+        destroy: () => {
+          window.removeEventListener('scroll', onScroll, true)
+          window.removeEventListener('resize', onScroll)
+          document.removeEventListener('mousemove', onHover, true)
+          document.removeEventListener('scroll', hide, true)
+          bar.remove()
+          rowGrip.remove()
+          colGrip.remove()
+          line.remove()
+        },
+      }
+    },
+  })
+}
+
+/** 指针落在第几行 / 第几列（不在表里 → null）。列按第一行的 cellIndex 算，跨列时落在起始列。 */
+function indexAt(table: HTMLTableElement, kind: 'row' | 'col', x: number, y: number): number | null {
+  const rect = table.getBoundingClientRect()
+  if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return null
+  if (kind === 'row') {
+    for (let i = 0; i < table.rows.length; i += 1) {
+      const r = table.rows[i].getBoundingClientRect()
+      if (y >= r.top && y <= r.bottom) return i
+    }
+    return null
+  }
+  const first = table.rows[0]
+  if (!first) return null
+  for (let i = 0; i < first.cells.length; i += 1) {
+    const c = first.cells[i].getBoundingClientRect()
+    if (x >= c.left && x <= c.right) return first.cells[i].cellIndex
+  }
+  return null
+}
+
+const tableHeight = (table: HTMLTableElement): number => table.rows.length
+
+const tableWidth = (table: HTMLTableElement): number => {
+  let width = 0
+  for (const row of Array.from(table.rows)) {
+    let n = 0
+    for (const cell of Array.from(row.cells)) n += cell.colSpan
+    width = Math.max(width, n)
+  }
+  return width
+}
+
+/** 光标所在表格节点的位置（不在表格里 → null）。 */
+function tablePos(state: EditorState): number | null {
+  const $from = state.selection.$from
+  for (let d = $from.depth; d > 0; d -= 1) {
+    if ($from.node(d).type.name === 'table') return $from.before(d)
+  }
+  return null
 }
 
 /** 官方 TableView 自己造 `<table>`，不走 schema 的 toDOM，类名得在这儿补。 */

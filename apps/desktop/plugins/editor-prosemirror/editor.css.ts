@@ -287,6 +287,64 @@ globalStyle('.ProseMirror hr', {
 // 段与段：每侧 5 + `.sn-block` 自身的 2 = 14px。视觉分块靠它，不是靠行距。
 globalStyle('.sn-block > p', { margin: '5px 0' })
 
+// 列表：标记挂在左边凹槽里，正文整体右移一格（换成列表后文字要看得出来挪了）。
+// 序号来自 `plugins/list-number.ts` 的 `data-num`，不是 CSS counter —— 断开的列表要重新从 1 数。
+globalStyle(':is(.sn-bulleted, .sn-numbered)', {
+  position: 'relative',
+  margin: '3px 0',
+  paddingLeft: '1.5em',
+})
+
+globalStyle('.sn-bulleted::before', {
+  content: '"•"',
+  position: 'absolute',
+  left: 0,
+  width: '1.5em',
+  textAlign: 'center',
+  lineHeight: 'inherit',
+})
+
+// Tab 缩出来的层级靠标记区分（Notion 同款）：二级空心圆、三级往后方块。
+// 只认 `.sn-block > .sn-group` 这条链 —— 分栏里的 `sn-group` 不算缩进，不然栏内第一条也是二级。
+globalStyle('.sn-block > .sn-group > .sn-block > .sn-bulleted::before', {
+  content: '"◦"',
+})
+
+globalStyle('.sn-block > .sn-group > .sn-block > .sn-group > .sn-block > .sn-bulleted::before', {
+  content: '"▪"',
+})
+
+globalStyle('.sn-numbered::before', {
+  content: 'attr(data-num) "."',
+  position: 'absolute',
+  left: 0,
+  lineHeight: 'inherit',
+  fontVariantNumeric: 'tabular-nums',
+})
+
+// 块级字色 / 背景色（`⋮⋮` 菜单）：只画在这块自己的内容上，嵌套子块不跟着变。
+globalStyle('.sn-block[data-color]:not([data-color=""]) > :first-child', {
+  color: 'var(--sn-block-color, inherit)',
+})
+
+globalStyle('.sn-block[data-bg]:not([data-bg=""]) > :first-child', {
+  backgroundColor: 'var(--sn-block-bg, transparent)',
+  borderRadius: 3,
+})
+
+// 空段落上的提示（`plugins/block-hint.ts` 挂的装饰）。绝对定位，别把光标挤到字后面去。
+globalStyle('.sn-block-hint', { position: 'relative' })
+
+globalStyle('.sn-block-hint::before', {
+  content: 'attr(data-hint)',
+  position: 'absolute',
+  left: 0,
+  top: 0,
+  color: 'var(--sn-muted, #8a8a8a)',
+  pointerEvents: 'none',
+  userSelect: 'none',
+})
+
 // 标题：字号 / 行高 / 上下留白都显式给 —— 浏览器默认的 h1-h3 只有粗细和字号，
 // margin 又被上面清成 0，标题会直接贴在上一段屁股上。
 const HEADINGS = [

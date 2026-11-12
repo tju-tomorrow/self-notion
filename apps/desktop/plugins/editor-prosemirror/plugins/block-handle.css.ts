@@ -6,7 +6,7 @@
  */
 import { globalStyle } from '@vanilla-extract/css'
 
-const GUTTER = 40
+const GUTTER = 44
 
 // 选择器多带一层（`.ProseMirror` / `.sn-pane-body`）是为了赢过 `editor.css.ts` 里的 `padding` 简写 ——
 // 两份都是 globalStyle，谁赢只看规则顺序，靠顺序太脆。
@@ -19,17 +19,22 @@ globalStyle('.sn-block-handle', {
   zIndex: 30,
   display: 'flex',
   alignItems: 'center',
-  gap: 1,
+  justifyContent: 'center',
+  gap: 2,
   width: GUTTER,
-  height: 22,
+  height: 24,
   userSelect: 'none',
   color: 'var(--sn-muted, #8a8a8a)',
+  opacity: 0.55,
+  transition: 'opacity .12s ease',
 })
+
+globalStyle('.sn-block-handle:hover', { opacity: 1 })
 
 globalStyle('.sn-block-handle[hidden]', { display: 'none' })
 
 globalStyle('.sn-block-btn', {
-  width: 19,
+  width: 20,
   height: 20,
   padding: 0,
   display: 'flex',
@@ -40,10 +45,10 @@ globalStyle('.sn-block-btn', {
   background: 'transparent',
   color: 'inherit',
   font: 'inherit',
-  fontSize: 14,
   lineHeight: 1,
   cursor: 'pointer',
   userSelect: 'none',
+  transition: 'background .1s ease, color .1s ease',
 })
 
 globalStyle('.sn-block-btn:hover', {
@@ -51,7 +56,7 @@ globalStyle('.sn-block-btn:hover', {
   color: 'var(--sn-text, #333)',
 })
 
-globalStyle('.sn-block-drag', { cursor: 'grab', fontSize: 13, letterSpacing: -1 })
+globalStyle('.sn-block-drag', { cursor: 'default' })
 
 // 拖拽缩略图：塞在视口外，只为给 setDragImage 一个挂着的元素。
 globalStyle('.sn-drag-ghost', {
@@ -75,3 +80,95 @@ globalStyle('.sn-drop-indent', {
 })
 
 globalStyle('.sn-drop-indent[hidden]', { display: 'none' })
+
+
+/* ── 块菜单（`⋮⋮` 点开 / 块上右键）── */
+// 苹果那套：半透明 + 背景模糊 + 大圆角 + 一行 28 的安静列表。
+globalStyle('.sn-block-menu', {
+  position: 'fixed',
+  zIndex: 60,
+  width: 232,
+  maxHeight: 'min(70vh, 640px)',
+  overflowY: 'auto',
+  padding: 6,
+  borderRadius: 12,
+  border: '1px solid color-mix(in srgb, currentColor 10%, transparent)',
+  background: 'color-mix(in srgb, var(--sn-bg, #fff) 92%, transparent)',
+  backdropFilter: 'blur(24px) saturate(1.6)',
+  WebkitBackdropFilter: 'blur(24px) saturate(1.6)',
+  boxShadow: '0 12px 32px rgba(0, 0, 0, .16), 0 2px 8px rgba(0, 0, 0, .06)',
+  fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif',
+  fontSize: 13,
+  lineHeight: 1.3,
+  color: 'var(--sn-text, #333)',
+})
+
+globalStyle('.sn-block-menu-item', {
+  display: 'flex',
+  alignItems: 'center',
+  width: '100%',
+  height: 28,
+  padding: '0 8px',
+  border: 'none',
+  borderRadius: 6,
+  background: 'transparent',
+  color: 'inherit',
+  font: 'inherit',
+  fontSize: 13,
+  textAlign: 'left',
+  cursor: 'pointer',
+  transition: 'background .1s ease',
+})
+
+globalStyle('.sn-block-menu-item:hover', {
+  background: 'color-mix(in srgb, currentColor 8%, transparent)',
+})
+
+globalStyle('.sn-block-menu-label', {
+  marginTop: 8,
+  padding: '6px 8px 2px',
+  borderTop: '1px solid color-mix(in srgb, currentColor 9%, transparent)',
+  fontSize: 11,
+  color: 'var(--sn-muted, #8a8a8a)',
+})
+
+globalStyle('.sn-block-menu-grid', {
+  display: 'grid',
+  gridTemplateColumns: '1fr 1fr',
+  columnGap: 2,
+})
+
+globalStyle('.sn-block-menu-cell', { height: 28 })
+
+globalStyle('.sn-block-menu-swatches', {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(10, 1fr)',
+  gap: 6,
+  padding: '4px 8px 2px',
+})
+
+globalStyle('.sn-block-menu-swatch', {
+  width: '100%',
+  aspectRatio: '1 / 1',
+  maxWidth: 15,
+  maxHeight: 15,
+  justifySelf: 'center',
+  alignSelf: 'center',
+  padding: 0,
+  border: '1px solid color-mix(in srgb, currentColor 12%, transparent)',
+  borderRadius: '50%',
+  cursor: 'pointer',
+  transition: 'transform .1s ease',
+})
+
+globalStyle('.sn-block-menu-swatch:hover', { transform: 'scale(1.15)' })
+
+globalStyle('.sn-block-menu-swatch[data-on="true"]', {
+  boxShadow:
+    '0 0 0 2px var(--sn-bg, #fff), 0 0 0 3.5px color-mix(in srgb, currentColor 50%, transparent)',
+})
+
+globalStyle('.sn-block-menu-swatch-none', {
+  backgroundImage:
+    'linear-gradient(135deg, transparent 44%, color-mix(in srgb, currentColor 55%, transparent) 44%, color-mix(in srgb, currentColor 55%, transparent) 56%, transparent 56%)',
+})

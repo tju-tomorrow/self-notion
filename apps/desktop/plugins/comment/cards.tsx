@@ -8,7 +8,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react'
 import { fullTime, timeAgo } from '../../src/ui/timeago'
 import type { Context } from 'cordis'
 import type { Comment } from '../../src/kernel/contract'
-import { commentOnPage, removeComment, replyTo, setResolved, updateBody } from './actions'
+import { commentOnPage, commitDraft, removeComment, replyTo, setResolved, updateBody } from './actions'
 import { setCommentState, useCommentState, type Thread } from './state'
 import * as s from './comment.css'
 
@@ -32,27 +32,68 @@ export function ThreadCard({
 }) {
   const st = useCommentState()
   const id = thread.root.id
-  return (
-    <div
+  const draft = thread.root.body === ''
+  const open = draft || st.expanded === id
+  const place = (el: HTMLElement | null) => {
+    if (el) refs.cards.current.set(id, el)
+    else refs.cards.current.delete(id)
+  }
+  const lead = (
+    <span
       ref={(el) => {
-        if (el) refs.cards.current.set(id, el)
-        else refs.cards.current.delete(id)
+        if (el) refs.leads.current.set(id, el)
+        else refs.leads.current.delete(id)
       }}
-      data-flash={st.spot?.id === id}
-      className={dock ? s.card : s.cardFloat}
-    >
-      {/* 被推下去之后连回锚点的那根线 —— 只在浮卡模式摆位（`layer.tsx`）。 */}
-      <span
-        ref={(el) => {
-          if (el) refs.leads.current.set(id, el)
-          else refs.leads.current.delete(id)
-        }}
-        className={s.lead}
-        style={{ display: 'none' }}
+      className={s.lead}
+      style={{ display: 'none' }}
+    />
+  )
+
+  // 草稿只留输入框。回复 / 解决 / 删除是写完之后的事，塞进来会和输入框挤成一行。
+  if (draft) {
+    return (
+      <div ref={place} className={dock ? s.card : `${s.card} ${s.floatPos}`}>
+        {lead}
+        <Composer
+          ctx={ctx}
+          kind="body"
+          id={id}
+          placeholder={ctx.i18n.t('comment.placeholder')}
+          autoFocus={st.spot?.id === id}
+          onCancel={() => void removeComment(ctx, id, false)}
+        />
+      </div>
+    )
+  }
+
+  // 没展开：一行正文就够把这条和那条分开。点它、或点正文里的黄底，再摊开。
+  if (!open) {
+    return (
+      <button
+        type="button"
+        ref={place}
+        className={dock ? s.chip : `${s.chip} ${s.floatPos}`}
+        title={dock ? thread.root.quote : undefined}
+        onClick={() => setCommentState({ expanded: id })}
+      >
+        {lead}
+        <span className={s.chipText}>{thread.root.body}</span>
+        <span className={s.time}>{timeAgo(thread.root.createdAt)}</span>
+      </button>
+    )
+  }
+
+  return (
+    <div ref={place} className={dock ? s.card : `${s.card} ${s.floatPos}`}>
+      {lead}
+      {dock && thread.root.quote ? <div className={s.quoted}>{thread.root.quote}</div> : null}
+      <Row
+        ctx={ctx}
+        c={thread.root}
+        onCollapse={draft ? undefined : () => setCommentState({ expanded: null, replyTo: null })}
       />
-      <Row ctx={ctx} c={thread.root} dock={dock} />
       {thread.replies.map((r) => (
-        <Row key={r.id} ctx={ctx} c={r} dock={dock} reply />
+        <Row key={r.id} ctx={ctx} c={r} reply />
       ))}
       {st.replyTo === id ? (
         <div className={s.reply}>
@@ -72,35 +113,21 @@ export function ThreadCard({
 function Row({
   ctx,
   c,
-  dock,
   reply,
+  onCollapse,
 }: {
   ctx: Context
   c: Comment
-  dock: boolean
   reply?: boolean
+  /** 根评论上的时间能把这张卡收回一行。草稿没有这个。 */
+  onCollapse?: () => void
 }) {
   const st = useCommentState()
   const draft = c.body === ''
   const [editing, setEditing] = useState(false)
-  const me = ctx.i18n.t('comment.me')
 
   const inner = (
     <>
-      <div className={s.head}>
-        <span className={s.avatar} aria-hidden="true">
-          {me.slice(0, 1)}
-        </span>
-        <span className={s.name}>{me}</span>
-        <span className={s.time} title={fullTime(c.createdAt)}>
-          {timeAgo(c.createdAt)}
-        </span>
-        {c.anchor === 'page' ? <span className={s.pageTag}>{ctx.i18n.t('comment.pageTag')}</span> : null}
-      </div>
-
-      {/* 引用原文只在窄栏里画（浮卡就贴着原文）。 */}
-      {dock && c.quote ? <div className={s.quoted}>{c.quote}</div> : null}
-
       {draft || editing ? (
         <Composer
           ctx={ctx}
@@ -116,38 +143,93 @@ function Row({
         <p className={s.body}>{c.body}</p>
       )}
 
-      <div className={s.actions} data-on={editing || draft ? '1' : '0'}>
-        {draft || reply ? null : (
-          <button type="button" className={s.action} onClick={() => setEditing(true)}>
-            {ctx.i18n.t('comment.edit')}
-          </button>
-        )}
-        {c.resolved || reply ? null : (
+      <div className={s.foot}>
+        {onCollapse ? (
           <button
             type="button"
-            className={s.action}
-            onClick={() => setCommentState({ replyTo: st.replyTo === c.id ? null : c.id })}
+            className={s.timeBtn}
+            title={`${ctx.i18n.t('comment.collapse')} · ${fullTime(c.createdAt)}`}
+            onClick={onCollapse}
           >
-            {ctx.i18n.t('comment.reply')}
+            {timeAgo(c.createdAt)}
           </button>
+        ) : (
+          <span className={s.time} title={fullTime(c.createdAt)}>
+            {timeAgo(c.createdAt)}
+          </span>
         )}
-        {reply ? null : (
-          <button
-            type="button"
-            className={s.action}
-            onClick={() => void setResolved(ctx, c.id, !c.resolved)}
-          >
-            {c.resolved ? ctx.i18n.t('comment.reopen') : ctx.i18n.t('comment.resolve')}
+        {c.anchor === 'page' && !reply ? (
+          <span className={s.pageTag}>{ctx.i18n.t('comment.pageTag')}</span>
+        ) : null}
+        <div className={s.actions} data-on={editing ? '1' : '0'}>
+          {reply ? null : (
+            <button type="button" className={s.action} onClick={() => setEditing(true)}>
+              {ctx.i18n.t('comment.edit')}
+            </button>
+          )}
+          {c.resolved || reply ? null : (
+            <button
+              type="button"
+              className={s.action}
+              onClick={() =>
+                setCommentState({
+                  expanded: c.id,
+                  replyTo: st.replyTo === c.id ? null : c.id,
+                })
+              }
+            >
+              {ctx.i18n.t('comment.reply')}
+            </button>
+          )}
+          {reply ? null : (
+            <button
+              type="button"
+              className={s.action}
+              onClick={() => void setResolved(ctx, c.id, !c.resolved)}
+            >
+              {c.resolved ? ctx.i18n.t('comment.reopen') : ctx.i18n.t('comment.resolve')}
+            </button>
+          )}
+          <button type="button" className={s.action} onClick={() => void removeComment(ctx, c.id, true)}>
+            {ctx.i18n.t('comment.remove')}
           </button>
-        )}
-        <button type="button" className={s.action} onClick={() => void removeComment(ctx, c.id, true)}>
-          {ctx.i18n.t('comment.remove')}
-        </button>
+        </div>
       </div>
     </>
   )
 
   return reply ? <div className={s.reply}>{inner}</div> : inner
+}
+
+/** 点了「评论」、还没写字的那一个输入框。不进库。 */
+export const DRAFT_ID = 'sn:draft'
+
+export function DraftCard({
+  ctx,
+  dock,
+  refs,
+}: {
+  ctx: Context
+  dock: boolean
+  refs: Refs
+}) {
+  return (
+    <div
+      ref={(el) => {
+        if (el) refs.cards.current.set(DRAFT_ID, el)
+        else refs.cards.current.delete(DRAFT_ID)
+      }}
+      className={dock ? s.card : `${s.card} ${s.floatPos}`}
+    >
+      <Composer
+        ctx={ctx}
+        kind="draft"
+        placeholder={ctx.i18n.t('comment.placeholder')}
+        autoFocus
+        onCancel={() => setCommentState({ draft: null })}
+      />
+    </div>
+  )
 }
 
 /** 页面级那张卡 —— 贴在正文末尾（Notion 也是放页面最下面）。 */
@@ -158,10 +240,9 @@ export function WriteCard({ ctx, refs, dock }: { ctx: Context; refs: Refs; dock:
         if (el) refs.cards.current.set(PAGE_ID, el)
         else refs.cards.current.delete(PAGE_ID)
       }}
-      className={dock ? s.writeCard : s.writeCardFloat}
+      className={dock ? s.writeCard : `${s.writeCard} ${s.floatPos}`}
     >
       <Composer ctx={ctx} kind="page" placeholder={ctx.i18n.t('comment.placeholder')} />
-      <p className={s.hint}>{ctx.i18n.t('comment.hint')}</p>
     </div>
   )
 }
@@ -185,7 +266,7 @@ function Composer({
   onCancel,
 }: {
   ctx: Context
-  kind: 'page' | 'body' | 'reply'
+  kind: 'page' | 'body' | 'reply' | 'draft'
   id?: string
   parent?: Comment
   placeholder: string
@@ -205,7 +286,12 @@ function Composer({
   const send = () => {
     const value = text.trim()
     if (value === '') return
-    if (kind === 'page') {
+    if (kind === 'draft') {
+      void commitDraft(ctx, value).then((ok) => {
+        if (!ok) return
+        setText('')
+      })
+    } else if (kind === 'page') {
       // 发成功了才清空 —— 失败了输入的东西还在，能再按一次。
       void commentOnPage(ctx, value).then((ok) => {
         if (!ok) return
@@ -222,7 +308,7 @@ function Composer({
   }
 
   return (
-    <div className={s.inputRow}>
+    <div>
       <textarea
         ref={ref}
         className={s.input}
@@ -245,10 +331,12 @@ function Composer({
           }
         }}
       />
-      {kind === 'body' && onCancel ? (
-        <button type="button" className={s.action} onClick={onCancel}>
-          {ctx.i18n.t('comment.cancel')}
-        </button>
+      {(kind === 'body' || kind === 'draft') && onCancel ? (
+        <div className={s.foot}>
+          <button type="button" className={s.action} onClick={onCancel}>
+            {ctx.i18n.t('comment.cancel')}
+          </button>
+        </div>
       ) : null}
     </div>
   )

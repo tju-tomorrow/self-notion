@@ -10,7 +10,7 @@
  * 旧插件那一大坨调度（`editor-blocksuite/paste.ts`）不用搬。
  */
 import { Fragment, Slice, type Node as PMNode } from 'prosemirror-model'
-import { Plugin, Selection } from 'prosemirror-state'
+import { Plugin, Selection, TextSelection } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
 
 import { reportError } from '../../../src/kernel/errors'
@@ -58,7 +58,10 @@ export function pastePlugin(): Plugin {
         if (sources.length === 0) {
           // 带 HTML 的一律让路：那份 HTML 才是原格式，`text/plain` 只是它的降级版（契约 P2）。
           if (html) return false
-          const blocks = markdownBlocks(data.getData('text/plain'))
+          const text = data.getData('text/plain')
+          // 选中文字后粘一个网址 = 给这段文字加链接（Notion 同款）。
+          if (linkOverSelection(view, text)) return true
+          const blocks = markdownBlocks(text)
           // 不像 markdown → 照旧交回 PM。
           if (!blocks) return false
           insertBlocks(view, blocks)
@@ -74,6 +77,17 @@ export function pastePlugin(): Plugin {
       },
     },
   })
+}
+
+/** 剪贴板里只有一个网址、而且正选着字 → 给这段字加 link。 */
+function linkOverSelection(view: EditorView, text: string): boolean {
+  const sel = view.state.selection
+  if (!(sel instanceof TextSelection) || sel.empty) return false
+  const url = text.trim()
+  if (!/^(?:https?:\/\/|www\.)\S+$/.test(url)) return false
+  const href = url.startsWith('www.') ? `https://${url}` : url
+  view.dispatch(view.state.tr.addMark(sel.from, sel.to, schema.marks.link.create({ href })))
+  return true
 }
 
 async function insert(view: EditorView, targets: Targets, sources: Source[]): Promise<void> {

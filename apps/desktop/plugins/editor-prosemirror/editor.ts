@@ -8,6 +8,7 @@
 import { baseKeymap } from 'prosemirror-commands'
 import { dropCursor } from 'prosemirror-dropcursor'
 import { history, redo, undo } from 'prosemirror-history'
+import { undoInputRule } from 'prosemirror-inputrules'
 import { keymap } from 'prosemirror-keymap'
 import type { Node as PMNode } from 'prosemirror-model'
 import { EditorState, Selection, type Plugin } from 'prosemirror-state'
@@ -22,7 +23,7 @@ import type {
 import { filePathOf } from '../../src/kernel/contract'
 import { reportError } from '../../src/kernel/errors'
 import { renderBacklinks, type BacklinksView } from './backlinks'
-import { commentApi, type CommentHooks } from './comment'
+import { anchorTop, anchorsOf, commentApi, stripAnchors, type CommentHooks } from './comment'
 import { newBlockId, notionKeymap } from './commands'
 import { firstTextPos } from './commands/block'
 import { allDocs, metaOf, subscribe } from './doc-meta'
@@ -35,9 +36,11 @@ import { outlinePlugin } from './outline'
 import { renderPageHead, type PageHead } from './page-head'
 import { metaPlugin } from './page-meta'
 import { blockHandlePlugin } from './plugins/block-handle'
+import { blockHintPlugin } from './plugins/block-hint'
 import { blankDragPlugin } from './plugins/block-selection'
 import { inlineToolbarPlugin } from './plugins/inline-toolbar'
 import { inputRulesPlugin } from './plugins/input-rules'
+import { listNumberPlugin } from './plugins/list-number'
 import { mentionPlugin } from './plugins/mention'
 import { pastePlugin } from './plugins/paste'
 import { slashPlugin } from './plugins/slash'
@@ -252,6 +255,8 @@ function buildPlugins(parts: {
   file: boolean
 }): Plugin[] {
   const plugins: Plugin[] = [
+    // 自动格式刚触发时 ⌘Z 先只退那一下（不然 history 会把前面打的字一起撤掉）。
+    keymap({ 'Mod-z': undoInputRule }),
     history(),
     keymap({ 'Mod-z': undo, 'Mod-y': redo, 'Shift-Mod-z': redo }),
     // ★ 顺序是规矩：`slash` 和 `notionKeymap` 都排在 `baseKeymap` **之前** —— PM 的 handleKeyDown
@@ -265,6 +270,9 @@ function buildPlugins(parts: {
     ...tablePlugin(),
     keymap(notionKeymap),
     inputRulesPlugin(),
+    listNumberPlugin(),
+    // 空段落上那句「输入 / 唤起菜单」。
+    blockHintPlugin(),
     // 工具条那颗「评论」→ 把量好的选区交给评论插件（D-0079）。软依赖，没接上就不建那颗按钮。
     // ★ 文件模式**也不建**：锚点按 docId 写进 `comment` 表，而外部文件不进库（D-0140）。
     inlineToolbarPlugin(
@@ -723,3 +731,23 @@ export const revealCommentAnchor = (id: string) => comments.reveal(id)
 export const pushCommentStates = (list: readonly CommentState[]) => comments.setStates(list)
 export const commentCardLayout = (ids: readonly string[]) => comments.layout(ids)
 export const commentCardLayer = () => comments.layer()
+
+/** 这篇还在的锚点。视图没挂上 → null，调用方不许当成「原文没了」。 */
+export function commentAnchorsOf(docId: string): { inlineIds: string[]; blockIds: string[] } | null {
+  const view = live.get(docId)?.view
+  if (!view) return null
+  return anchorsOf(view.state.doc)
+}
+
+/** 摘掉这篇里这些锚点。对着这篇的视图，不碰「当前第一篇」。 */
+export function stripCommentAnchors(docId: string, ids: readonly string[]): void {
+  const view = live.get(docId)?.view
+  if (view) stripAnchors(view, ids)
+}
+
+/** 草稿锚点还没写进正文时，卡片该对齐的高度。量不到 → null。 */
+export function commentAnchorTop(docId: string, blockId: string, index: number): number | null {
+  const view = live.get(docId)?.view
+  if (!view) return null
+  return anchorTop(view, blockId, index)
+}

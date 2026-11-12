@@ -194,15 +194,17 @@ function addAnchor(view: EditorView, id: string, at: CommentTarget): void {
   view.dispatch(tr)
 }
 
-/** 擦掉某条评论在正文里的**所有**锚点。 */
-function removeAnchor(view: EditorView, id: string): void {
+/** 一次摘掉这些 id 的锚点。不进撤销栈：这是「评论已经没了」的收尾，不是一次编辑。 */
+export function stripAnchors(view: EditorView, ids: readonly string[]): void {
+  if (ids.length === 0) return
+  const drop = new Set(ids)
   const tr = view.state.tr
   let touched = false
   view.state.doc.descendants((node, pos) => {
     if (!node.isText) return
-    const ids = idsOf(node)
-    if (!ids.includes(id)) return
-    const rest = ids.filter((x) => x !== id)
+    const have = idsOf(node)
+    if (!have.some((id) => drop.has(id))) return
+    const rest = have.filter((id) => !drop.has(id))
     if (rest.length) tr.addMark(pos, pos + node.nodeSize, markOf(rest))
     else tr.removeMark(pos, pos + node.nodeSize, schema.marks.comment)
     touched = true
@@ -210,6 +212,41 @@ function removeAnchor(view: EditorView, id: string): void {
   if (!touched) return
   tr.setMeta('addToHistory', false)
   view.dispatch(tr)
+}
+
+/** 某个块里第 `index` 个字，相对评论层的 Y。草稿还没打 mark，摆卡片靠这个，别堆到顶上。 */
+export function anchorTop(view: EditorView, blockId: string, index: number): number | null {
+  const layer = layerOf(view)
+  if (!layer) return null
+  const hit = findBlock(view.state.doc, blockId)
+  if (!hit) return null
+  const range = contentRange({ pos: hit.at, content: contentOf(hit.node) })
+  const pos = range ? Math.min(Math.max(range.from, range.from + index), Math.max(range.from, range.to - 1)) : hit.at + 1
+  try {
+    return Math.max(0, view.coordsAtPos(pos).top - layer.getBoundingClientRect().top)
+  } catch {
+    return null
+  }
+}
+
+/** 扫一遍正文：行内评论的 id，以及还在的块 id。 */
+export function anchorsOf(doc: PMNode): { inlineIds: string[]; blockIds: string[] } {
+  const inlineIds: string[] = []
+  const blockIds: string[] = []
+  const seen = new Set<string>()
+  doc.descendants((node) => {
+    if (node.type.name === 'blockContainer') {
+      const id = String(node.attrs.id ?? '')
+      if (id) blockIds.push(id)
+    }
+    if (!node.isText) return
+    for (const id of idsOf(node)) {
+      if (seen.has(id)) continue
+      seen.add(id)
+      inlineIds.push(id)
+    }
+  })
+  return { inlineIds, blockIds }
 }
 
 /** 某条评论在正文里的第一个锚点位置（没有 → -1）。页面级 / 块级评论在这里天然是 -1。 */
@@ -465,7 +502,7 @@ export function commentApi(currentView: () => EditorView | null, next?: CommentH
       }
     },
     addAnchor: (id, at) => use((view) => addAnchor(view, id, at)),
-    removeAnchor: (id) => use((view) => removeAnchor(view, id)),
+    removeAnchor: (id) => use((view) => stripAnchors(view, [id])),
     reveal: (id) => use((view) => reveal(view, id)),
     setStates: (states) => {
       try {

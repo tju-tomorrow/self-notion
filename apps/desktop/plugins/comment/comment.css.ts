@@ -50,25 +50,51 @@ export const float = style({ position: 'absolute', top: 0, right: 0, width: CARD
 export const card = style({
   position: 'relative',
   boxSizing: 'border-box',
-  // 窄栏那一列有 12 的内边距，卡片跟着那一列走；浮卡自己定宽（`cardFloat`）。
   width: '100%',
-  padding: '10px 12px',
+  padding: '8px 10px',
   border: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
-  borderRadius: 8,
+  borderRadius: 10,
   background: 'var(--affine-v2-layer-background-secondary)',
-  // 浮卡模式下这一层是 `pointer-events: none`（卡片那一层不该吃点击）—— 卡片自己得打开。
+  // 浮卡那一层是 `pointer-events: none` —— 卡片自己得打开。
+  pointerEvents: 'auto',
+})
+
+/** 浮卡摆位。长相在 `card` / `chip` 上，这一份只负责绝对定位（`top` 由 `layer.tsx` 写）。 */
+export const floatPos = style({ position: 'absolute', right: 0, width: CARD_W })
+
+/** 收起时的一行。正文本身就是这条和那条的区别，不再画头像和名字。 */
+export const chip = style({
+  position: 'relative',
+  boxSizing: 'border-box',
+  width: '100%',
+  height: 32,
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '0 10px',
+  border: 'none',
+  borderRadius: 8,
+  appearance: 'none',
+  background: 'var(--affine-v2-layer-background-secondary)',
+  color: 'var(--affine-v2-text-primary)',
+  fontFamily: 'inherit',
+  fontSize: 13,
+  lineHeight: '18px',
+  textAlign: 'left',
+  cursor: 'pointer',
   pointerEvents: 'auto',
   selectors: {
-    // 被「点一条评论」点到的：描一圈，让眼睛找得到。
-    '&[data-flash="true"]': {
-      borderColor: 'var(--affine-primary-color)',
-      boxShadow: '0 0 0 1px var(--affine-primary-color)',
-    },
+    '&:hover': { background: 'var(--affine-v2-layer-background-tertiary)' },
   },
 })
 
-/** 浮卡模式下的卡片：自己就是绝对定位的那一个（`top` 由 `layer.tsx` 写）。 */
-export const cardFloat = style([card, { position: 'absolute', right: 0, width: CARD_W }])
+export const chipText = style({
+  flex: '1 1 auto',
+  minWidth: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+})
 
 /** 回复：内缩一档、字号小一号。 */
 export const reply = style({
@@ -78,37 +104,30 @@ export const reply = style({
   fontSize: 12,
 })
 
-export const head = style({
+export const foot = style({
   display: 'flex',
   alignItems: 'center',
   gap: 6,
-  marginBottom: 4,
-  fontSize: 12,
-  lineHeight: '18px',
+  marginTop: 4,
 })
 
-/** 头像：一圆 + 名字首字。单人应用没有第二个人，用 `comment.me` 那个字就够。 */
-export const avatar = style({
-  flex: '0 0 18px',
-  width: 18,
-  height: 18,
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  borderRadius: '50%',
-  background: 'var(--affine-primary-color)',
-  color: '#fff',
-  fontSize: 11,
-  fontWeight: 600,
-  userSelect: 'none',
-})
+export const time = style({ color: 'var(--affine-v2-text-tertiary)', fontSize: 12, flex: '0 0 auto' })
 
-export const name = style({ color: 'var(--affine-v2-text-secondary)', fontWeight: 500 })
-
-export const time = style({ color: 'var(--affine-v2-text-tertiary)' })
+/** 时间就是收起按钮 —— 单人没有第二个人，不需要头像和名字。 */
+export const timeBtn = style([
+  time,
+  {
+    padding: 0,
+    border: 'none',
+    appearance: 'none',
+    background: 'transparent',
+    fontFamily: 'inherit',
+    cursor: 'pointer',
+    selectors: { '&:hover': { color: 'var(--affine-v2-text-primary)' } },
+  },
+])
 
 export const pageTag = style({
-  marginLeft: 'auto',
   padding: '0 5px',
   borderRadius: 4,
   fontSize: 10,
@@ -117,20 +136,15 @@ export const pageTag = style({
   background: 'var(--affine-v2-layer-background-tertiary)',
 })
 
-/** 引用原文。**只在窄栏里画** —— 浮卡就贴在原文旁边，再抄一遍是废话。 */
+/** 窄栏里卡片不贴着原文，留一行原文让人知道在说哪句。浮卡不画。 */
 export const quoted = style({
   marginBottom: 4,
-  padding: '2px 6px',
-  borderLeft: '2px solid var(--affine-v2-block-comment-highlightUnderline)',
-  borderRadius: 3,
-  background: 'var(--affine-v2-block-comment-highlightDefault)',
-  fontSize: 11,
+  fontSize: 12,
   lineHeight: '16px',
-  color: 'var(--affine-v2-text-secondary)',
-  display: '-webkit-box',
-  WebkitLineClamp: 2,
-  WebkitBoxOrient: 'vertical',
+  color: 'var(--affine-v2-text-tertiary)',
   overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
 })
 
 export const body = style({
@@ -148,7 +162,7 @@ export const actions = style({
   display: 'flex',
   alignItems: 'center',
   gap: 2,
-  marginTop: 2,
+  marginLeft: 'auto',
   opacity: 0,
   transition: 'opacity .12s',
   selectors: {
@@ -210,13 +224,16 @@ export const lead = style({
 export const inputRow = style({ display: 'flex', alignItems: 'flex-end', gap: 6 })
 
 export const input = style({
+  display: 'block',
   width: '100%',
-  minHeight: 28,
+  minWidth: 0,
+  boxSizing: 'border-box',
+  minHeight: 32,
   maxHeight: 160,
-  padding: '4px 8px',
-  border: '1px solid var(--affine-v2-layer-insideBorder-border)',
-  borderRadius: 6,
-  background: 'var(--affine-v2-layer-background-primary)',
+  padding: '6px 10px',
+  border: 'none',
+  borderRadius: 8,
+  background: 'var(--affine-v2-layer-background-secondary)',
   color: 'var(--affine-v2-text-primary)',
   fontFamily: 'inherit',
   fontSize: 13,
@@ -225,19 +242,16 @@ export const input = style({
   outline: 'none',
   selectors: {
     '&::placeholder': { color: 'var(--affine-v2-text-placeholder)' },
-    '&:focus': { borderColor: 'var(--affine-primary-color)' },
+    '&:focus': { background: 'var(--affine-v2-layer-background-tertiary)' },
   },
 })
 
-/** 页面级那张卡：只有一个输入框 + 一行提示，没有头像那行。 */
-export const writeCard = style([card, { padding: '8px 10px' }])
-
-export const writeCardFloat = style([cardFloat, { padding: '8px 10px' }])
-
-export const hint = style({
-  margin: '5px 0 0',
-  fontSize: 11,
-  color: 'var(--affine-v2-text-tertiary)',
+/** 页面级那张、以及还没写完的草稿：就是一条输入，不再套一张带框的卡。 */
+export const writeCard = style({
+  position: 'relative',
+  boxSizing: 'border-box',
+  width: '100%',
+  pointerEvents: 'auto',
 })
 
 export const empty = style({

@@ -22,14 +22,15 @@ function buildRules(): InputRule[] {
   return [
     // `# ` `## ` `### ` —— Notion 只有三级，多的落 h3（schema 的 clampLevel 兜）。
     textblockTypeInputRule(/^(#{1,3})\s$/, n.heading, (x) => ({ level: x[1].length })),
-    textblockTypeInputRule(/^\s*([-*])\s$/, n.bulletedListItem),
-    textblockTypeInputRule(/^\s*(\d+)\.\s$/, n.numberedListItem),
+    textblockTypeInputRule(/^\s*([-*+])\s$/, n.bulletedListItem),
+    textblockTypeInputRule(/^\s*(\d+)[.)]\s$/, n.numberedListItem),
     // `[] ` / `[ ] ` 都认（Notion 两种都吃）。
     textblockTypeInputRule(/^\s*\[\s?\]\s$/, n.todoItem),
     textblockTypeInputRule(/^\s*>\s$/, n.toggle, () => ({ open: true })),
     textblockTypeInputRule(/^\s*["|]\s$/, n.quote),
     textblockTypeInputRule(/^```$/, n.codeBlock),
     dividerRule(),
+    linkRule(),
     // 行内：`**x**` / `*x*` / `~~x~~` / `` `x` `` —— 都要求成对闭合，跟「行首 + 空格」的块级规则不打架。
     markRule(/^\*\*([^*]+)\*\*$/, m.bold),
     markRule(/^\*([^*]+)\*$/, m.italic),
@@ -54,6 +55,25 @@ function markRule(regexp: RegExp, markType: MarkType): InputRule {
     if (textStart > start) tr.delete(start, textStart)
     tr.addMark(start, start + inner.length, markType.create())
     tr.removeStoredMark(markType)
+    return tr
+  })
+}
+
+/** 打完一个网址再按空格 → 变链接（Notion 同款）；`www.` 开头的补 `https://`。 */
+function linkRule(): InputRule {
+  return new InputRule(/(?:^|\s)((?:https?:\/\/|www\.)[^\s]+)\s$/, (state, match, _start, end) => {
+    const url = match[1]
+    if (!url) return null
+    const $from = state.selection.$from
+    // leafText 跟 inputrules 内部那份一致：行内原子各占一个位置，下标才对得上。
+    const at = $from.parent.textBetween(0, $from.parentOffset, null, '￼').lastIndexOf(url)
+    if (at < 0) return null
+    const href = url.startsWith('www.') ? `https://${url}` : url
+    const tr = state.tr
+    // 规则吃掉了那个空格（`handleTextInput` 不再插），这里补回去，不然打完网址空格消失。
+    tr.insertText(' ', end)
+    tr.addMark($from.start() + at, $from.start() + at + url.length, schema.marks.link.create({ href }))
+    tr.removeStoredMark(schema.marks.link)
     return tr
   })
 }

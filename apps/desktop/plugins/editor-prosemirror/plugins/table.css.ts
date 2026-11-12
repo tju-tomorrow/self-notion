@@ -71,3 +71,61 @@ globalStyle('.column-resize-handle', {
 })
 
 globalStyle('.ProseMirror.resize-cursor', { cursor: 'col-resize' })
+
+// 光标在表格里时浮出来的那排按钮（`plugins/table.ts` 的 `tableBarPlugin`）。
+globalStyle('.sn-table-bar', {
+  position: 'fixed',
+  zIndex: 40,
+  display: 'flex',
+  alignItems: 'center',
+  gap: 2,
+  padding: 2,
+  borderRadius: 6,
+  border: '1px solid var(--sn-line, rgba(0, 0, 0, .1))',
+  background: 'var(--sn-bg, #fff)',
+  boxShadow: '0 4px 14px rgba(0, 0, 0, .12)',
+})
+
+globalStyle('.sn-table-bar[hidden]', { display: 'none' })
+
+globalStyle('.sn-table-bar-btn', {
+  padding: '3px 7px',
+  border: 'none',
+  borderRadius: 4,
+  background: 'transparent',
+  color: 'var(--sn-text, #333)',
+  font: 'inherit',
+  fontSize: 12,
+  lineHeight: 1.4,
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+})
+
+globalStyle('.sn-table-bar-btn:hover', { background: 'var(--sn-hover, rgba(0, 0, 0, .07))' })
+
+// 行 / 列拖动的小手柄（`plugins/table.ts` 悬浮计算位置）和落点线。
+globalStyle('.sn-table-grip', {
+  position: 'fixed',
+  zIndex: 41,
+  width: 16,
+  height: 16,
+  borderRadius: 3,
+  border: '1px solid var(--sn-line, rgba(0, 0, 0, .15))',
+  background: 'var(--sn-bg, #fff)',
+  cursor: 'grab',
+  opacity: 0.85,
+})
+
+globalStyle('.sn-table-grip-row', { cursor: 'row-resize' })
+globalStyle('.sn-table-grip-col', { cursor: 'col-resize' })
+globalStyle('.sn-table-grip[hidden]', { display: 'none' })
+
+globalStyle('.sn-table-drop', {
+  position: 'fixed',
+  zIndex: 50,
+  borderRadius: 1,
+  background: 'var(--sn-accent, #1e96eb)',
+  pointerEvents: 'none',
+})
+
+globalStyle('.sn-table-drop[hidden]', { display: 'none' })

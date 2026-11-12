@@ -7,6 +7,15 @@
 import { useSyncExternalStore } from 'react'
 import type { Comment } from '../../src/kernel/contract'
 
+/** 还没发出去的那一条。写了字才进库。 */
+export interface CommentDraft {
+  kind: 'inline' | 'block'
+  blockId: string
+  index: number
+  length: number
+  quote: string
+}
+
 export interface CommentUiState {
   docId: string | null
   /** 评论层开着没有。关着的时候 `doc.aside` 那个组件返回 null，那一列宽度是 0，
@@ -17,6 +26,10 @@ export interface CommentUiState {
   spot: { id: string; at: number } | null
   /** 打开着回复框的是哪条。 */
   replyTo: string | null
+  /** 展开着的那一条。其余收成一行（点正文高亮或点那一行再展开）。 */
+  expanded: string | null
+  /** 点了「评论」还没写字。不进库，关掉就当没发生。 */
+  draft: CommentDraft | null
   /** 已解决的也画出来没有（D-0172）。默认不画 —— 正文旁边只留还没了结的事。 */
   showResolved: boolean
   error: string
@@ -28,6 +41,8 @@ const EMPTY: CommentUiState = {
   comments: [],
   spot: null,
   replyTo: null,
+  expanded: null,
+  draft: null,
   showResolved: false,
   error: '',
 }
@@ -76,6 +91,37 @@ export function groupThreads(comments: readonly Comment[]): Thread[] {
   }
   for (const t of threads) t.replies.sort((a, b) => a.createdAt - b.createdAt)
   return threads.sort((a, b) => a.root.createdAt - b.root.createdAt)
+}
+
+/**
+ * 原文已经不在的根评论。回复跟着父评论走，不单列。
+ * 页面级没有「那一段原文」。还没写进正文的草稿（`pending`）先留着。
+ */
+export function lostRoots(
+  comments: readonly Comment[],
+  pending: ReadonlySet<string>,
+  live: { inlineIds: readonly string[]; blockIds: readonly string[] },
+): string[] {
+  const inline = new Set(live.inlineIds)
+  const blocks = new Set(live.blockIds)
+  const lost: string[] = []
+  for (const c of comments) {
+    if (c.parentId !== null || pending.has(c.id) || c.anchor === 'page') continue
+    if (c.anchor === 'inline' && !inline.has(c.id)) lost.push(c.id)
+    else if (c.anchor === 'block' && c.blockId !== null && !blocks.has(c.blockId)) lost.push(c.id)
+  }
+  return lost
+}
+
+/** 正文里还挂着、库里已经没有的锚点（撤销把字带回来时，评论不跟着复活）。 */
+export function strayAnchors(
+  comments: readonly Comment[],
+  pending: ReadonlySet<string>,
+  inlineIds: readonly string[],
+): string[] {
+  const known = new Set(pending)
+  for (const c of comments) known.add(c.id)
+  return inlineIds.filter((id) => !known.has(id))
 }
 
 /** 正文里要打高亮的条数 —— 回复不算，未解决的才算。 */

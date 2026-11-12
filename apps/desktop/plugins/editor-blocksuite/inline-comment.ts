@@ -167,12 +167,12 @@ class InlineCommentElement extends ShadowlessElement {
     }
 
     inline-comment.unresolved {
-      background-color: var(--affine-v2-block-comment-highlightDefault, #1e96eb14);
-      border-bottom: 2px solid var(--affine-v2-block-comment-highlightUnderline, #1e96ebb2);
+      background-color: var(--affine-v2-block-comment-highlightDefault, #f0c14b6b);
+      border-radius: 2px;
     }
 
     inline-comment.highlighted {
-      background-color: var(--affine-v2-block-comment-highlightActive, #1e96eb4d);
+      background-color: var(--affine-v2-block-comment-highlightActive, #f0c14bad);
     }
   `
 

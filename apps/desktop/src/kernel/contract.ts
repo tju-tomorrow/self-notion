@@ -149,6 +149,15 @@ export interface EditorService {
    */
   commentLayout(ids: readonly string[]): CommentLayout | null
   /**
+   * 正文里还在的评论锚点。行内 = mark 上的 id；块 = 还在的块 id。
+   * 这篇的视图还没挂上 → null（调用方什么都别删）。
+   */
+  commentAnchors(docId: string): { inlineIds: string[]; blockIds: string[] } | null
+  /** 摘掉这篇正文里这些评论锚点。视图没挂上就什么都不做。 */
+  stripCommentAnchors(docId: string, ids: readonly string[]): void
+  /** 还没打上 mark 的草稿，卡片对齐用的 Y。量不到 → null。 */
+  commentAnchorTop(docId: string, blockId: string, index: number): number | null
+  /**
    * 浮卡挂点：正文滚动区里的一个零尺寸层。
    *
    * ★ 它在**滚动区里面**，所以卡片跟着内容一起滚 —— 不用每帧跟着 `scroll` 重算，

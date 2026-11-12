@@ -10,7 +10,7 @@ import type { Comment, CommentTarget, EditorService } from '../../src/kernel/con
 import type { Context } from 'cordis'
 import { reportError } from '../../src/kernel/errors'
 import { confirmDialog } from '../../src/ui/confirm'
-import { getCommentState, setCommentState } from './state'
+import { getCommentState, lostRoots, setCommentState, strayAnchors, type CommentDraft } from './state'
 
 /** 选中正文后要建的那种锚点。 */
 export type Selection = {
@@ -24,44 +24,149 @@ export type Selection = {
 /** 还没写正文的评论 → 它的锚点。空草稿不往正文里写高亮（D-0067 的欠账）。 */
 const pendingAnchors = new Map<string, CommentTarget>()
 
+/** 草稿的锚点。摆卡片用 —— 这时正文里还没有 mark，按 id 去量会得到 0，卡就钉在顶上。 */
+export function pendingTarget(id: string): CommentTarget | undefined {
+  return pendingAnchors.get(id)
+}
+
+/** 这篇的评论列表已经从库里读回来了。没读回来之前不能拿「锚点不在」当删除依据。 */
+let readyDoc: string | null = null
+let sweeping = false
+let sweepAgain = false
+
 export async function setDoc(ctx: Context, docId: string | null): Promise<void> {
-  setCommentState({ docId, comments: [], spot: null, replyTo: null, error: '' })
+  readyDoc = null
+  setCommentState({ docId, comments: [], spot: null, replyTo: null, expanded: null, draft: null, error: '' })
   // 没文档了也要推一次：正文里的高亮得跟着撤掉。
   if (docId === null) {
     pendingAnchors.clear()
     return pushStates(ctx, [])
   }
   await load(ctx)
+  if (getCommentState().docId !== docId) return
+  readyDoc = docId
+  await dropOrphans(ctx)
 }
 
 export async function openPanel(ctx: Context, id?: string): Promise<void> {
-  setCommentState({ open: true, error: '', spot: id ? { id, at: Date.now() } : null })
-  if (id !== undefined) await callEditor(ctx, (e) => e.revealComment(id))
+  const cur = getCommentState()
+  // 再点同一条高亮 = 收起。没点到具体的一条（顶栏那颗）就维持现在展开的。
+  const expanded = id === undefined ? cur.expanded : cur.expanded === id ? null : id
+  setCommentState({
+    open: true,
+    error: '',
+    expanded,
+    replyTo: expanded === null ? null : cur.replyTo,
+    spot: id ? { id, at: Date.now() } : cur.spot,
+  })
+  if (id !== undefined && expanded !== null) await callEditor(ctx, (e) => e.revealComment(id))
 }
 
 export function closePanel(): void {
   setCommentState({ open: false })
 }
 
-export async function commentOnSelection(ctx: Context, sel: Selection): Promise<boolean> {
+/**
+ * 原文没了，评论一起删（连带回复）。
+ * 行内：mark 不在了。块级：那个块不在了。页面级不动。
+ * 撤销把字带回来时，评论不复活 —— 锚点再擦掉，免得留一截没有评论的高亮。
+ */
+export async function dropOrphans(ctx: Context): Promise<void> {
   const docId = getCommentState().docId
-  if (docId === null) return false
+  if (docId === null || readyDoc !== docId) return
+  if (sweeping) {
+    sweepAgain = true
+    return
+  }
+  sweeping = true
+  try {
+    do {
+      sweepAgain = false
+      await sweepOnce(ctx)
+    } while (sweepAgain && getCommentState().docId === docId)
+  } finally {
+    sweeping = false
+  }
+}
+
+async function sweepOnce(ctx: Context): Promise<void> {
+  const st = getCommentState()
+  const docId = st.docId
+  if (docId === null || readyDoc !== docId) return
+  let live: { inlineIds: string[]; blockIds: string[] } | null = null
+  try {
+    await ctx.editor.ready()
+    if (getCommentState().docId !== st.docId) return
+    live = ctx.editor.commentAnchors(docId)
+  } catch (err) {
+    reportError('comment', err)
+    return
+  }
+  // 视图还没挂上：null 不是「一篇空文」，什么都别删。
+  if (live === null) return
+  const pending = new Set(pendingAnchors.keys())
+  const lost = lostRoots(st.comments, pending, live)
+  const stray = strayAnchors(st.comments, pending, live.inlineIds)
+  if (lost.length === 0 && stray.length === 0) return
+  try {
+    for (const id of lost) {
+      await ctx.rpc.call('comment:remove', { id })
+      pendingAnchors.delete(id)
+    }
+    if (getCommentState().docId !== docId) return
+    if (stray.length > 0) {
+      await callEditor(ctx, (e) => e.stripCommentAnchors(docId, stray))
+    }
+    if (lost.length > 0) {
+      const now = getCommentState()
+      const patch: Partial<ReturnType<typeof getCommentState>> = {}
+      if (now.spot && lost.includes(now.spot.id)) patch.spot = null
+      if (now.replyTo && lost.includes(now.replyTo)) patch.replyTo = null
+      if (now.expanded && lost.includes(now.expanded)) patch.expanded = null
+      if (patch.spot !== undefined || patch.replyTo !== undefined || patch.expanded !== undefined) {
+        setCommentState(patch)
+      }
+      await load(ctx)
+    }
+  } catch (err) {
+    reportError('comment', err)
+  }
+}
+
+/** 点「评论」只打开输入框。一个字没写就不进库。 */
+export function commentOnSelection(_ctx: Context, sel: Selection): void {
+  if (getCommentState().docId === null) return
+  const draft: CommentDraft =
+    sel.kind === 'inline'
+      ? { kind: 'inline', blockId: sel.blockId, index: sel.index, length: sel.length, quote: sel.quote }
+      : { kind: 'block', blockId: sel.blockId, index: 0, length: 0, quote: sel.quote }
+  setCommentState({ open: true, draft, replyTo: null, error: '' })
+}
+
+/** 草稿里按下回车才建评论，并补上锚点。 */
+export async function commitDraft(ctx: Context, body: string): Promise<boolean> {
+  const docId = getCommentState().docId
+  const draft = getCommentState().draft
+  if (docId === null || draft === null || body.trim() === '') return false
   try {
     const made = await ctx.rpc.call<Comment>('comment:create', {
       docId,
-      anchor: sel.kind,
-      blockId: sel.blockId,
-      quote: sel.quote,
+      anchor: draft.kind,
+      blockId: draft.blockId,
+      quote: draft.quote,
+      body,
     })
     const at: CommentTarget =
-      sel.kind === 'inline'
-        ? { kind: 'inline', blockId: sel.blockId, index: sel.index, length: sel.length }
-        : { kind: 'block', blockId: sel.blockId }
-    // 先不写正文：一个字没写就切走的草稿会在正文里留一个空高亮。存着，
-    // 等第一次存下正文（`updateBody`）时再补上。
-    pendingAnchors.set(made.id, at)
-    // 正文是空串 = 草稿态，面板里那条的输入框要拿到焦点。
-    setCommentState({ open: true, spot: { id: made.id, at: Date.now() }, replyTo: null, error: '' })
+      draft.kind === 'inline'
+        ? { kind: 'inline', blockId: draft.blockId, index: draft.index, length: draft.length }
+        : { kind: 'block', blockId: draft.blockId }
+    await callEditor(ctx, (e) => e.addCommentAnchor(made.id, at))
+    setCommentState({
+      draft: null,
+      expanded: made.id,
+      spot: { id: made.id, at: Date.now() },
+      error: '',
+    })
     await load(ctx)
     return true
   } catch (err) {
@@ -74,7 +179,7 @@ export async function commentOnPage(ctx: Context, body: string): Promise<boolean
   if (docId === null || body.trim() === '') return false
   try {
     const made = await ctx.rpc.call<Comment>('comment:create', { docId, anchor: 'page', body })
-    setCommentState({ spot: { id: made.id, at: Date.now() }, error: '' })
+    setCommentState({ expanded: made.id, spot: { id: made.id, at: Date.now() }, error: '' })
     await load(ctx)
     return true
   } catch (err) {
@@ -141,8 +246,13 @@ export async function removeComment(ctx: Context, id: string, confirm: boolean):
     pendingAnchors.delete(id)
     await callEditor(ctx, (e) => e.removeCommentAnchor(id))
     const st = getCommentState()
-    if (st.spot?.id === id) setCommentState({ spot: null })
-    if (st.replyTo === id) setCommentState({ replyTo: null })
+    const patch: Partial<ReturnType<typeof getCommentState>> = {}
+    if (st.spot?.id === id) patch.spot = null
+    if (st.replyTo === id) patch.replyTo = null
+    if (st.expanded === id) patch.expanded = null
+    if (patch.spot !== undefined || patch.replyTo !== undefined || patch.expanded !== undefined) {
+      setCommentState(patch)
+    }
     await load(ctx)
     return true
   } catch (err) {
@@ -154,9 +264,20 @@ async function load(ctx: Context): Promise<void> {
   const docId = getCommentState().docId
   if (docId === null) return
   try {
-    const comments = await ctx.rpc.call<Comment[]>('comment:list', { docId })
-    // 切文档途中回来的包丢掉，否则新文档的面板里会冒出上一篇的评论。
+    let comments = await ctx.rpc.call<Comment[]>('comment:list', { docId })
     if (getCommentState().docId !== docId) return
+    // 以前点一下「评论」就会落一条空的。正文是空的不算评论，清掉。
+    const empties = comments.filter((c) => c.parentId === null && c.body.trim() === '')
+    if (empties.length > 0) {
+      for (const c of empties) {
+        await ctx.rpc.call('comment:remove', { id: c.id })
+        pendingAnchors.delete(c.id)
+        await callEditor(ctx, (e) => e.removeCommentAnchor(c.id))
+      }
+      if (getCommentState().docId !== docId) return
+      comments = await ctx.rpc.call<Comment[]>('comment:list', { docId })
+      if (getCommentState().docId !== docId) return
+    }
     setCommentState({ comments, error: '' })
     await pushStates(ctx, comments)
   } catch (err) {

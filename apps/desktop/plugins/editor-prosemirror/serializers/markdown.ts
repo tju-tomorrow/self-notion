@@ -138,7 +138,7 @@ function inlineOf(node: PMNode): PMNode[] {
       const text = child.text ?? ''
       if (text) out.push(schema.text(text, ourMarks(child.marks)))
     } else if (child.type.name === 'hardbreak') {
-      out.push(schema.text('\n'))
+      out.push(schema.nodes.hardBreak.create())
     }
   })
   return out
@@ -146,12 +146,18 @@ function inlineOf(node: PMNode): PMNode[] {
 
 function pushImage(node: PMNode, out: PMNode[], range: SourceRange): void {
   const src = String(node.attrs.src ?? '')
+  const alt = String(node.attrs.alt ?? '').trim()
   if (src.startsWith(BLOB_PREFIX)) {
-    out.push(container(schema.nodes.image.create({ blobId: src.slice(BLOB_PREFIX.length) }), [], range))
+    out.push(
+      container(
+        schema.nodes.image.create({ blobId: src.slice(BLOB_PREFIX.length), caption: alt }),
+        [],
+        range,
+      ),
+    )
     return
   }
   // 不是 blob（外链图）：留一行 alt，不把字丢了
-  const alt = String(node.attrs.alt ?? '').trim()
   if (alt) out.push(container(schema.nodes.paragraph.create(null, schema.text(alt)), [], range))
 }
 
@@ -186,7 +192,7 @@ function convertParagraph(node: PMNode, out: PMNode[], range: SourceRange): void
       const text = child.text ?? ''
       if (text) buf.push(schema.text(text, ourMarks(child.marks)))
     } else if (child.type.name === 'hardbreak') {
-      buf.push(schema.text('\n'))
+      buf.push(schema.nodes.hardBreak.create())
     }
   })
   flush()
@@ -579,7 +585,7 @@ function renderContent(state: MarkdownSerializerState, node: PMNode): void {
       state.closeBlock(node)
       return
     case 'image':
-      state.write(`![](${blobUrl(String(node.attrs.blobId ?? ''))})`)
+      state.write(`![${state.esc(String(node.attrs.caption ?? ''))}](${blobUrl(String(node.attrs.blobId ?? ''))})`)
       state.closeBlock(node)
       return
     case 'quote':
@@ -665,6 +671,15 @@ const serializer = new MarkdownSerializer(
     mention: (state, node) => {
       const id = String(node.attrs.docId ?? '')
       state.write(`[${id || '@'}](${DOC_PREFIX}${id})`)
+    },
+    // markdown 的硬换行（`\` + 换行）；末尾那一个不写，不然会多一条悬空的 `\`。
+    hardBreak: (state, node, parent, index) => {
+      for (let i = index + 1; i < parent.childCount; i += 1) {
+        if (parent.child(i).type !== node.type) {
+          state.write('\\\n')
+          return
+        }
+      }
     },
     inlineEquation: (state, node) => state.write(`$${String(node.attrs.tex ?? '')}$`),
     // `renderInline` 会连 text 也走一遍 render（不是内置处理）—— 少了它就 throw。

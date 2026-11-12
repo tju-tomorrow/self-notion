@@ -7,8 +7,8 @@
  */
 import { createElement } from 'react'
 import type { Context } from 'cordis'
-import { CLOSE_ALL, OPEN_DOC, SHOW_LIST, type OpenDocEvent } from '../../src/kernel/contract'
-import { commentOnSelection, openPanel, setDoc } from './actions'
+import { CLOSE_ALL, COMMENT_LAYOUT, OPEN_DOC, SHOW_LIST, type OpenDocEvent } from '../../src/kernel/contract'
+import { commentOnSelection, dropOrphans, openPanel, setDoc } from './actions'
 import { CommentHeader } from './header'
 import { CommentLayer } from './layer'
 
@@ -23,14 +23,15 @@ export function apply(ctx: Context) {
   ctx.on(OPEN_DOC, open)
   ctx.on(CLOSE_ALL, close)
   ctx.on(SHOW_LIST, close)
+  // 正文一改（删字、删块）就对一下锚点。几何变化也会来，对不上就什么都不删。
+  ctx.on(COMMENT_LAYOUT, () => void dropOrphans(ctx))
 
   ctx.effect(() => [
     // 软依赖的另一端：编辑器点正文里的高亮时调这个（拿不到就只是点不动）。
     ctx.provide('comment', {
       open: (id?: string) => void openPanel(ctx, id),
-      // 工具条上那颗「评论」点了（D-0079）。文字选区那份编号由编辑器量好递过来，
-      // 这里只补一个 `kind` —— 建锚点、开面板那套跟以前一样，一个字没改。
-      onSelection: (at) => void commentOnSelection(ctx, { kind: 'inline', ...at }),
+      // 工具条上那颗「评论」点了：只打开输入框，写了字才进库。
+      onSelection: (at) => commentOnSelection(ctx, { kind: 'inline', ...at }),
     }),
     ctx.slot.register('doc.aside', () => createElement(CommentLayer, { ctx })),
     // ★ 入口在顶栗那一行的**最右端**（D-0070）—— 原来挂在 `doc.header` 里，

@@ -12,12 +12,15 @@ import { blockAt } from './block'
 import { newBlockId } from './id'
 import { liftOut } from './move'
 
-/** 回车续出来的下一块是什么：列表 / 待办续同类；标题 / 引用只当一行，落到段落。 */
+/** 回车续出来的下一块是什么：列表 / 待办 / 引用 / 标注续同类；标题只当一行，落到段落。 */
 function continuation(content: PMNode): { type: NodeType; attrs: Attrs | null } {
   const name = content.type.name
-  if (name === 'bulletedListItem' || name === 'numberedListItem') return { type: content.type, attrs: null }
+  if (name === 'bulletedListItem' || name === 'numberedListItem' || name === 'quote') {
+    return { type: content.type, attrs: null }
+  }
   // 待办续出来的新块一定是没勾的
   if (name === 'todoItem') return { type: content.type, attrs: { checked: false } }
+  if (name === 'callout') return { type: content.type, attrs: { icon: content.attrs.icon ?? '' } }
   return { type: schema.nodes.paragraph, attrs: null }
 }
 

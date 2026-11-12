@@ -94,7 +94,9 @@ globalStyle('.sn-toggle[data-open="false"] + div', { display: 'none' })
 /* ── image ── */
 
 globalStyle('.sn-image', {
-  display: 'block',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-start',
   maxWidth: '100%',
   margin: '2px 0',
   borderRadius: 4,
@@ -102,11 +104,80 @@ globalStyle('.sn-image', {
   outlineOffset: 2,
 })
 
+globalStyle('.sn-image[data-align="center"]', { alignItems: 'center' })
+globalStyle('.sn-image[data-align="right"]', { alignItems: 'flex-end' })
+
+globalStyle('.sn-image-shell', { position: 'relative', maxWidth: '100%' })
+
 globalStyle('.sn-image-img', {
   display: 'block',
   maxWidth: '100%',
   height: 'auto',
   borderRadius: 4,
+})
+
+// 工具栏与右下角的拖宽把手只在悬停 / 选中时露出来。
+globalStyle('.sn-image-bar', {
+  display: 'flex',
+  gap: 2,
+  marginBottom: 2,
+  opacity: 0,
+  transition: 'opacity .12s',
+})
+
+globalStyle('.sn-image:hover .sn-image-bar, .sn-image.ProseMirror-selectednode .sn-image-bar', { opacity: 1 })
+
+globalStyle('.sn-image-align', {
+  width: 20,
+  height: 18,
+  padding: 0,
+  border: 'none',
+  borderRadius: 3,
+  background: 'transparent',
+  color: 'var(--sn-muted, #8a8a8a)',
+  font: 'inherit',
+  fontSize: 12,
+  cursor: 'pointer',
+})
+
+globalStyle('.sn-image-align:hover', { background: WASH, color: 'var(--sn-text, #333)' })
+
+globalStyle('.sn-image-grip', {
+  position: 'absolute',
+  right: -4,
+  bottom: -4,
+  width: 12,
+  height: 12,
+  borderRadius: 3,
+  border: `1px solid ${LINE}`,
+  background: 'var(--sn-bg, #fff)',
+  cursor: 'nwse-resize',
+  opacity: 0,
+  transition: 'opacity .12s',
+})
+
+globalStyle('.sn-image:hover .sn-image-grip, .sn-image.ProseMirror-selectednode .sn-image-grip', { opacity: 1 })
+
+globalStyle('.sn-image-caption', {
+  width: '100%',
+  marginTop: 4,
+  padding: 0,
+  border: 'none',
+  outline: 'none',
+  background: 'transparent',
+  color: 'var(--sn-muted, #8a8a8a)',
+  font: 'inherit',
+  fontSize: 13,
+  textAlign: 'left',
+  opacity: 0,
+  transition: 'opacity .12s',
+})
+
+globalStyle('.sn-image[data-align="center"] .sn-image-caption', { textAlign: 'center' })
+globalStyle('.sn-image[data-align="right"] .sn-image-caption', { textAlign: 'right' })
+
+globalStyle('.sn-image:hover .sn-image-caption, .sn-image-caption:focus, .sn-image-caption:not(:placeholder-shown)', {
+  opacity: 1,
 })
 
 globalStyle('.sn-image.ProseMirror-selectednode', { outline: `2px solid ${ACCENT}` })

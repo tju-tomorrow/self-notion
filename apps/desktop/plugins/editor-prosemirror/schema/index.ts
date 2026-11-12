@@ -85,14 +85,35 @@ const nodes: Record<string, NodeSpec> = {
     content: 'blockContent blockGroup?',
     group: 'blockNode',
     defining: true,
-    attrs: { id: { default: '' } },
+    // `color` / `bg` 是块级文字色与背景色（`⋮⋮` 菜单里那两排）。空串 = 跟随主题。
+    attrs: { id: { default: '' }, color: { default: '' }, bg: { default: '' } },
     // 反解这一层（跨文档贴块）；id 读回来**只是形状**，换新归粘贴那一侧（`plugins/paste.ts` 的
     // `transformPasted`）—— 这里保持纯映射，同一个 HTML 解两次得同一份，schema 不该有身份副作用。
     parseDOM: [
-      { tag: 'div.sn-block', getAttrs: (el) => ({ id: (el as HTMLElement).dataset.id ?? '' }) },
+      {
+        tag: 'div.sn-block',
+        getAttrs: (el) => {
+          const dom = el as HTMLElement
+          return {
+            id: dom.dataset.id ?? '',
+            color: dom.dataset.color ?? '',
+            bg: dom.dataset.bg ?? '',
+          }
+        },
+      },
     ],
     // 命中靠 data-id 兜底，不靠 posAtDOM 猜（架构 §4.1）。
-    toDOM: (node) => ['div', { class: 'sn-block', 'data-id': node.attrs.id }, 0],
+    toDOM: (node) => {
+      const attrs: Record<string, string> = { class: 'sn-block', 'data-id': node.attrs.id }
+      const color = String(node.attrs.color ?? '')
+      const bg = String(node.attrs.bg ?? '')
+      // 颜色只画在「这块自己的内容」上（CSS 读自定义属性），别让嵌套的子块跟着染色。
+      if (color) attrs['data-color'] = color
+      if (bg) attrs['data-bg'] = bg
+      if (color) attrs.style = `--sn-block-color:${color}`
+      if (bg) attrs.style = `${attrs.style ? `${attrs.style};` : ''}--sn-block-bg:${bg}`
+      return ['div', attrs, 0]
+    },
   },
 
   paragraph: content(
@@ -180,21 +201,34 @@ const nodes: Record<string, NodeSpec> = {
   image: content(
     {
       atom: true,
-      // 持久化就是 `blobId`（+ 可选 width）—— 字节走 `self-notion://blob/<id>`，URL 是现算的，不进 JSON。
-      attrs: { blobId: { default: '' }, width: { default: null } },
+      // 持久化就是 `blobId`（+ 可选 width / caption / align）—— 字节走 `self-notion://blob/<id>`，URL 是现算的，不进 JSON。
+      attrs: {
+        blobId: { default: '' },
+        width: { default: null },
+        caption: { default: '' },
+        align: { default: '' },
+      },
       parseDOM: [
         {
           tag: 'img[src^="self-notion://blob/"]',
           getAttrs: (el) => {
-            const src = (el as HTMLImageElement).getAttribute('src') ?? ''
-            const width = (el as HTMLImageElement).getAttribute('width')
-            return { blobId: src.slice('self-notion://blob/'.length), width: width ? Number(width) : null }
+            const img = el as HTMLImageElement
+            const src = img.getAttribute('src') ?? ''
+            const width = img.getAttribute('width')
+            return {
+              blobId: src.slice('self-notion://blob/'.length),
+              width: width ? Number(width) : null,
+              caption: img.dataset.caption ?? '',
+              align: img.dataset.align ?? '',
+            }
           },
         },
       ],
       toDOM: (node) => {
         const attrs: Record<string, string> = { src: `self-notion://blob/${node.attrs.blobId}` }
         if (typeof node.attrs.width === 'number') attrs.width = String(node.attrs.width)
+        if (node.attrs.caption) attrs['data-caption'] = String(node.attrs.caption)
+        if (node.attrs.align) attrs['data-align'] = String(node.attrs.align)
         return ['img', attrs]
       },
     }),
@@ -314,6 +348,15 @@ const nodes: Record<string, NodeSpec> = {
   table_header: snClass(tableSpecs.table_header, 'sn-table-cell sn-table-header'),
 
   /* ─────────────────────────── 行内（group 'inline'）─────────────────────────── */
+
+  // Shift+Enter。markdown 里是两个空格 + 换行（`serializers/markdown.ts` 那条）。
+  hardBreak: {
+    group: 'inline',
+    inline: true,
+    selectable: false,
+    parseDOM: [{ tag: 'br' }],
+    toDOM: () => ['br'],
+  },
 
   // @提及。inline atom：一个 docId，出链来源之一（DocLink.kind = 'mention'）。
   mention: {

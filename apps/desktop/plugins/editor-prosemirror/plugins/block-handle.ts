@@ -15,15 +15,17 @@ import { Decoration, DecorationSet } from 'prosemirror-view'
 import type { EditorView } from 'prosemirror-view'
 
 import { groupChildren } from '../commands/block'
+import { duplicateBlock } from '../commands/duplicate'
 import { schema } from '../schema'
 import { BlockSelection, findBlock, selectBlockRange, selectedBlockIds } from './block-selection'
+import { COLORS, TURN_INTO } from './inline-toolbar'
 import './block-handle.css'
 
 /** 左边给手柄留的那条槽，跟 `block-handle.css.ts` 里那个数必须一样。 */
-const GUTTER = 40
-/** 手柄自己那一格的高度 —— 同样跟 `block-handle.css.ts` 的 `height: 22` 绑在一起。 */
-const HANDLE_H = 22
-/** 每层缩进量 —— 跟 `editor.css.ts` 那条嵌套规则（`paddingLeft: 64` = 40 + 24）是**同一个数**，一起改。 */
+const GUTTER = 44
+/** 手柄自己那一格的高度 —— 同样跟 `block-handle.css.ts` 的 `height: 24` 绑在一起。 */
+const HANDLE_H = 24
+/** 每层缩进量 —— 跟 `editor.css.ts` 的 `.sn-block > .sn-group { paddingLeft: 24 }` 是同一个数。 */
 const INDENT = 24
 
 /** 一次嵌套落点：嵌进哪个块（文档位置），以及那条线画在哪（视口坐标）。 */
@@ -48,9 +50,19 @@ function selectionDecos(state: EditorState): DecorationSet {
   const want = new Set(ids)
   const decos: Decoration[] = []
   state.doc.descendants((node, pos) => {
-    if (node.type.name === 'blockContainer' && want.has(String(node.attrs.id))) {
-      decos.push(Decoration.node(pos, pos + node.nodeSize, { class: 'sn-block-selected' }))
-    }
+    if (node.type.name !== 'blockContainer') return
+    if (!want.has(String(node.attrs.id))) return
+    // 相邻的选中块把接缝那对圆角抹平，整段看起来是一条，而不是一摞圆角卡片。
+    const $pos = state.doc.resolve(pos)
+    const parent = $pos.parent
+    const index = $pos.index()
+    const joinedTop = index > 0 && want.has(String(parent.child(index - 1).attrs.id))
+    const joinedBottom =
+      index + 1 < parent.childCount && want.has(String(parent.child(index + 1).attrs.id))
+    const cls = ['sn-block-selected']
+    if (joinedTop) cls.push('sn-block-selected-top')
+    if (joinedBottom) cls.push('sn-block-selected-bottom')
+    decos.push(Decoration.node(pos, pos + node.nodeSize, { class: cls.join(' ') }))
   })
   return DecorationSet.create(state.doc, decos)
 }
@@ -72,15 +84,17 @@ class BlockHandle {
   private nested: NestedTarget | null = null
   /** 我们是否把 `dropCursor` 那条线藏起来了（还原时只认自己藏的那一次）。 */
   private cursorMuted = false
+  /** `⋮⋮` / 右键弹出来的块菜单（同一时间只开一个）。 */
+  private menu: HTMLDivElement | null = null
 
   constructor(private readonly view: EditorView) {
     this.dom = document.createElement('div')
     this.dom.className = 'sn-block-handle'
     this.dom.hidden = true
-    this.addBtn = makeButton('+')
+    this.addBtn = makeButton(PLUS_ICON, 'sn-block-btn sn-block-add')
     this.dragBtn = document.createElement('div')
     this.dragBtn.className = 'sn-block-btn sn-block-drag'
-    this.dragBtn.textContent = '⋮⋮'
+    this.dragBtn.innerHTML = GRIP_ICON
     this.dragBtn.draggable = true
     this.dom.append(this.addBtn, this.dragBtn)
     this.line = document.createElement('div')
@@ -95,7 +109,8 @@ class BlockHandle {
     this.dragBtn.addEventListener('dragstart', this.onDragStart)
     this.dragBtn.addEventListener('dragend', this.onDragEnd)
     document.addEventListener('mousemove', this.onMouseMove, true)
-    document.addEventListener('scroll', this.hide, true)
+    document.addEventListener('scroll', this.onScroll, true)
+    this.view.dom.addEventListener('contextmenu', this.onContextMenu)
     window.addEventListener('resize', this.onResize)
     // 挂在 document 的冒泡段：`dropCursor` 的监听在 `view.dom`，冒泡到这里时它已经画完了 ——
     // 我们要在它之后把线让开 / 摆正。挂 view.dom 上会反着来。
@@ -128,11 +143,13 @@ class BlockHandle {
 
   destroy(): void {
     document.removeEventListener('mousemove', this.onMouseMove, true)
-    document.removeEventListener('scroll', this.hide, true)
+    document.removeEventListener('scroll', this.onScroll, true)
+    this.view.dom.removeEventListener('contextmenu', this.onContextMenu)
     window.removeEventListener('resize', this.onResize)
     document.removeEventListener('dragover', this.onDragOver)
     this.clearGhost()
     this.hideLine()
+    this.closeMenu()
     this.dom.remove()
     this.line.remove()
     // 拖到编辑器外面松手时 PM 收不到 drop，`dragging` 就留在那儿了。
@@ -246,7 +263,8 @@ class BlockHandle {
     this.dom.hidden = false
     // 手柄站在**版心左侧的留白**里（`left = 块左缘 - GUTTER`）—— 不占正文的宽度，
     // 正文的文字和标题一样从版心左缘开始。窗口极窄时它会被 4px 兜住、贴到窗口左边（还能用）。
-    this.dom.style.left = `${Math.max(4, rect.left - GUTTER + 1)}px`
+    // 离正文再退 3px：两个图标贴在字边上时看着很挤。
+    this.dom.style.left = `${Math.max(4, rect.left - GUTTER - 2)}px`
     this.dom.style.top = `${Math.max(host.top + 1, this.anchorTop(hover.el, rect))}px`
   }
 
@@ -257,9 +275,17 @@ class BlockHandle {
       const r = row.getBoundingClientRect()
       if (r.height > 0) return r.top + Math.min(r.height, 32) / 2 - HANDLE_H / 2
     }
-    const line = parseFloat(getComputedStyle(el).lineHeight)
-    const first = Number.isFinite(line) && line > 0 ? Math.min(line, rect.height) : Math.min(24, rect.height)
-    return rect.top + first / 2 - HANDLE_H / 2
+    // 用**内容元素**的盒子量第一行：块自己有 padding / 段落有 margin，量块会把图标抬高一截。
+    const content = el.firstElementChild
+    if (content instanceof HTMLElement) {
+      const box = content.getBoundingClientRect()
+      if (box.height > 0) {
+        const line = parseFloat(getComputedStyle(content).lineHeight)
+        const first = Number.isFinite(line) && line > 0 ? Math.min(line, box.height) : Math.min(24, box.height)
+        return box.top + first / 2 - HANDLE_H / 2
+      }
+    }
+    return rect.top + Math.min(24, rect.height) / 2 - HANDLE_H / 2
   }
 
   /** 窗口尺寸一变，块的左缘 / 高度跟着变 —— 重新摆（只在手柄正亮着的时候有用）。 */
@@ -270,16 +296,207 @@ class BlockHandle {
     this.dom.hidden = true
   }
 
-  /** 点手柄 = 选中这块；⇧ 点 = 从上一块选到这块（块级多选靠它）。 */
+  private onScroll = (): void => {
+    this.hide()
+    this.closeMenu()
+  }
+
+  /** 点手柄 = 选中这块并弹出菜单；⇧ 点 = 从上一块选到这块（块级多选靠它）。 */
   private onHandleClick = (e: MouseEvent): void => {
     const hover = this.hover
     if (!hover) return
     if (e.shiftKey && this.anchorId !== null && this.anchorId !== hover.id) {
       selectBlockRange(this.view, this.anchorId, hover.id)
+      this.closeMenu()
     } else {
       this.anchorId = hover.id
       selectBlockRange(this.view, hover.id)
+      this.openMenu([hover.id], hover.el)
     }
+    this.view.focus()
+  }
+
+  private onContextMenu = (e: MouseEvent): void => {
+    const el = e.target instanceof Element ? e.target.closest('.sn-block') : null
+    if (!(el instanceof HTMLElement) || !this.view.dom.contains(el)) return
+    const id = el.getAttribute('data-id') ?? ''
+    if (id === '') return
+    e.preventDefault()
+    const ids = selectedBlockIds(this.view.state)
+    const targets = ids.includes(id) ? ids : [id]
+    if (!ids.includes(id)) selectBlockRange(this.view, id)
+    this.openMenu(targets, el)
+  }
+
+  private menuDown = (e: MouseEvent): void => {
+    const target = e.target
+    if (target instanceof Node && this.menu?.contains(target)) {
+      e.preventDefault()
+      return
+    }
+    if (target instanceof Node && this.dom.contains(target)) return
+    this.closeMenu()
+  }
+
+  private menuKey = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') this.closeMenu()
+  }
+
+  private closeMenu(): void {
+    if (this.menu === null) return
+    document.removeEventListener('mousedown', this.menuDown, true)
+    document.removeEventListener('keydown', this.menuKey, true)
+    this.menu.remove()
+    this.menu = null
+  }
+
+  private openMenu(ids: readonly string[], blockEl: HTMLElement): void {
+    this.closeMenu()
+    if (ids.length === 0) return
+    const menu = document.createElement('div')
+    menu.className = 'sn-block-menu'
+    const button = (text: string, cls: string, run: () => void): HTMLButtonElement => {
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.tabIndex = -1
+      btn.textContent = text
+      btn.className = cls
+      btn.addEventListener('click', () => {
+        this.closeMenu()
+        run()
+      })
+      return btn
+    }
+    const item = (text: string, run: () => void): HTMLElement => {
+      const btn = button(text, 'sn-block-menu-item', run)
+      menu.appendChild(btn)
+      return btn
+    }
+    const label = (text: string): void => {
+      const el = document.createElement('div')
+      el.className = 'sn-block-menu-label'
+      el.textContent = text
+      menu.appendChild(el)
+    }
+
+    item('删除', () => this.deleteBlocks(ids))
+    item('创建副本', () => this.duplicateBlocks(ids))
+
+    label('转化为')
+    const grid = document.createElement('div')
+    grid.className = 'sn-block-menu-grid'
+    for (const turn of TURN_INTO) {
+      grid.appendChild(button(turn.label, 'sn-block-menu-item sn-block-menu-cell', () => this.turnBlocks(ids, turn)))
+    }
+    menu.appendChild(grid)
+
+    label('文字色')
+    menu.appendChild(this.swatches(ids, 'color', COLORS.textColor))
+    label('背景色')
+    menu.appendChild(this.swatches(ids, 'bg', COLORS.highlight))
+
+    document.body.appendChild(menu)
+    this.menu = menu
+    // 优先摆到版心右边那条留白里（一个字都不挡）；窄窗口再退到这块下面，不压住这一行的字。
+    const box = this.anchorBox(blockEl)
+    const menuRect = menu.getBoundingClientRect()
+    let left = box.left - 2
+    let top = box.bottom + 6
+    if (box.right + 12 + menuRect.width <= window.innerWidth - 8) {
+      left = box.right + 12
+      top = Math.max(8, Math.min(box.top, window.innerHeight - menuRect.height - 8))
+    } else if (top + menuRect.height > window.innerHeight - 8) {
+      top = box.top - menuRect.height - 6
+    }
+    if (top < 8) top = Math.max(8, window.innerHeight - menuRect.height - 8)
+    left = Math.max(8, Math.min(left, window.innerWidth - menuRect.width - 8))
+    menu.style.left = `${left}px`
+    menu.style.top = `${top}px`
+    document.addEventListener('mousedown', this.menuDown, true)
+    document.addEventListener('keydown', this.menuKey, true)
+  }
+
+  private swatches(ids: readonly string[], key: 'color' | 'bg', colors: readonly string[]): HTMLElement {
+    const row = document.createElement('div')
+    row.className = 'sn-block-menu-swatches'
+    const first = findBlock(this.view.state.doc, ids[0])
+    const current = first ? String(first.node.attrs[key] ?? '') : ''
+    for (const color of colors) {
+      const sw = document.createElement('button')
+      sw.type = 'button'
+      sw.tabIndex = -1
+      sw.className = color ? 'sn-block-menu-swatch' : 'sn-block-menu-swatch sn-block-menu-swatch-none'
+      if (color) sw.style.background = color
+      if (color === current) sw.dataset.on = 'true'
+      sw.addEventListener('click', () => {
+        this.closeMenu()
+        this.paintBlocks(ids, key, color)
+      })
+      row.appendChild(sw)
+    }
+    return row
+  }
+
+  private deleteBlocks(ids: readonly string[]): void {
+    const tr = this.view.state.tr
+    // 边删边找：删掉的可能是某个 children 组里最后一个孩子，那要把整层组一起收掉
+    // （`blockGroup` 内容是 `blockContainer+`，空组是非法的，PM 会当场抛）。
+    for (const id of ids) {
+      const hit = findBlock(tr.doc, id)
+      if (!hit) continue
+      const $pos = tr.doc.resolve(hit.at)
+      const parent = $pos.parent
+      if (parent.type.name === 'blockGroup' && parent.childCount === 1) {
+        const owner = $pos.node($pos.depth - 1)
+        if (owner.type.name === 'blockContainer') {
+          // 嵌套里的最后一棵：整层 children 收掉。
+          const from = $pos.before($pos.depth)
+          tr.delete(from, from + parent.nodeSize)
+        } else {
+          // 文档里最后一块：换成空段落（`doc` 必须有一个 blockGroup，不能全删）。
+          tr.replaceWith(
+            hit.at,
+            hit.at + hit.node.nodeSize,
+            schema.nodes.blockContainer.create({ id: newBlockId() }, schema.nodes.paragraph.create()),
+          )
+        }
+      } else {
+        tr.delete(hit.at, hit.at + hit.node.nodeSize)
+      }
+    }
+    if (!tr.docChanged) return
+    this.view.dispatch(tr.scrollIntoView())
+    this.view.focus()
+  }
+
+  private duplicateBlocks(ids: readonly string[]): void {
+    selectBlockRange(this.view, ids[0], ids[ids.length - 1])
+    duplicateBlock(this.view.state, this.view.dispatch, this.view)
+    this.view.focus()
+  }
+
+  private turnBlocks(ids: readonly string[], turn: { type: string; attrs?: Record<string, unknown> }): void {
+    const type = schema.nodes[turn.type]
+    if (!type) return
+    const tr = this.view.state.tr
+    for (const id of ids) {
+      const hit = findBlock(tr.doc, id)
+      const content = hit?.node.firstChild
+      if (!hit || !content?.isTextblock) continue
+      if (turn.type === 'codeBlock' && !plainText(content)) continue
+      tr.setNodeMarkup(hit.at + 1, type, turn.attrs ?? null)
+    }
+    if (tr.docChanged) this.view.dispatch(tr)
+    this.view.focus()
+  }
+
+  private paintBlocks(ids: readonly string[], key: 'color' | 'bg', color: string): void {
+    const tr = this.view.state.tr
+    for (const id of ids) {
+      const hit = findBlock(tr.doc, id)
+      if (hit) tr.setNodeMarkup(hit.at, undefined, { ...hit.node.attrs, [key]: color })
+    }
+    if (tr.docChanged) this.view.dispatch(tr)
     this.view.focus()
   }
 
@@ -475,11 +692,24 @@ class BlockHandle {
   }
 }
 
-function makeButton(label: string): HTMLButtonElement {
+function plainText(node: PMNode): boolean {
+  let plain = true
+  node.forEach((child) => {
+    if (!child.isText) plain = false
+  })
+  return plain
+}
+
+const PLUS_ICON =
+  '<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3.4v9.2M3.4 8h9.2"/></svg>'
+const GRIP_ICON =
+  '<svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor"><circle cx="5.7" cy="4.5" r="1.1"/><circle cx="10.3" cy="4.5" r="1.1"/><circle cx="5.7" cy="8" r="1.1"/><circle cx="10.3" cy="8" r="1.1"/><circle cx="5.7" cy="11.5" r="1.1"/><circle cx="10.3" cy="11.5" r="1.1"/></svg>'
+
+function makeButton(html: string, cls = ''): HTMLButtonElement {
   const btn = document.createElement('button')
   btn.type = 'button'
-  btn.className = 'sn-block-btn'
-  btn.textContent = label
+  btn.className = `sn-block-btn ${cls}`.trim()
+  btn.innerHTML = html
   return btn
 }
 

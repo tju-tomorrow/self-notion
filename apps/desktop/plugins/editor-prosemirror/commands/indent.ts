@@ -25,12 +25,16 @@ function unindentInCode(
   return true
 }
 
+/** Notion 只让这几种块有 children —— 段落的 Tab 什么也不做（但仍要吃掉这个键，不然焦点跑了）。 */
+const NESTABLE = new Set(['bulletedListItem', 'numberedListItem', 'todoItem', 'toggle'])
+
 export const indent: Command = (state, dispatch) => {
   if (!(state.selection instanceof TextSelection)) return false
   const $pos = state.selection.$from
   const block = blockAt($pos)
   if (!block || $pos.depth !== block.depth + 1) return false
   if (block.content.type.name === 'codeBlock') return indentInCode(state, dispatch)
+  if (!NESTABLE.has(block.content.type.name)) return true
 
   const tr = indentInto(state, $pos, block)
   if (!tr) return false

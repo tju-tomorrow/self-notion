@@ -9,13 +9,13 @@ import { globalStyle } from '@vanilla-extract/css'
 // ★ 两个类都由 decoration 挂。mark 自己那层 `span.sn-comment` 不画东西 —— 它只是锚点（`data-ids`）。
 
 globalStyle('.sn-comment-unresolved', {
-  backgroundColor: 'var(--affine-v2-block-comment-highlightDefault, #1e96eb14)',
-  borderBottom: '2px solid var(--affine-v2-block-comment-highlightUnderline, #1e96ebb2)',
+  backgroundColor: 'var(--affine-v2-block-comment-highlightDefault, #f0c14b6b)',
+  borderRadius: '2px',
 })
 
 // 面板里点一条评论时，正文里那一闪（1.6 秒后自己灭）。
 globalStyle('.sn-comment-active', {
-  backgroundColor: 'var(--affine-v2-block-comment-highlightActive, #1e96eb4d)',
+  backgroundColor: 'var(--affine-v2-block-comment-highlightActive, #f0c14bad)',
 })
 
 /* ── 卡片那一层（D-0172） ──

@@ -6,12 +6,15 @@
  */
 import { globalStyle } from '@vanilla-extract/css'
 
-// 暗色纸面上 .1 的蓝底几乎看不见。左边一条实色，底再浅一点，选中块才分得出来。
+// 选中态只铺一层很淡的中性灰 —— 别用蓝底蓝框，那个一眼就像 Windows 的选框。
 globalStyle('.sn-block-selected', {
-  borderRadius: 4,
-  backgroundColor: 'color-mix(in srgb, var(--sn-accent, #2383e2) 16%, transparent)',
-  boxShadow: 'inset 3px 0 0 var(--sn-accent, #2383e2)',
+  borderRadius: 6,
+  backgroundColor: 'color-mix(in srgb, currentColor 6%, transparent)',
 })
+
+// 上下相邻的选中块共享一段：接缝处不留圆角。
+globalStyle('.sn-block-selected-top', { borderTopLeftRadius: 0, borderTopRightRadius: 0 })
+globalStyle('.sn-block-selected-bottom', { borderBottomLeftRadius: 0, borderBottomRightRadius: 0 })
 
 // 框是我们画的，浏览器那层原生文本高亮叠上来就是两层蓝。
 globalStyle('.sn-block-selected ::selection', { background: 'transparent' })

@@ -23,7 +23,7 @@ const GAP = 8
 const ROOM = 52
 
 type MarkName = 'bold' | 'italic' | 'underline' | 'strike' | 'code'
-type ColorKind = 'highlight' | 'textColor'
+export type ColorKind = 'highlight' | 'textColor'
 
 const TEXT_MARKS: ReadonlyArray<{ name: MarkName; text: string; cls: string }> = [
   { name: 'bold', text: 'B', cls: 'sn-itb-b' },
@@ -41,8 +41,8 @@ const MARK_TITLES: Readonly<Record<MarkName, string>> = {
   code: '行内代码',
 }
 
-/** 色板：Notion 那套默认色，空串 = 默认（等于清除）。 */
-const COLORS: Readonly<Record<ColorKind, readonly string[]>> = {
+/** 色板：Notion 那套默认色，空串 = 默认（等于清除）。块菜单位置那边也用这份。 */
+export const COLORS: Readonly<Record<ColorKind, readonly string[]>> = {
   textColor: ['', '#e03e3e', '#d9730d', '#dfab01', '#0f7b6c', '#0b6e99', '#6940a5', '#ad1a72', '#64473a', '#9b9a97'],
   highlight: ['', '#ffe2dd', '#fadec9', '#fdecc8', '#dbeddb', '#d3e5ef', '#e8deee', '#f5e0e9', '#e3e2e0'],
 }
@@ -69,8 +69,8 @@ function readLastColor(): { kind: ColorKind; color: string } | undefined {
 
 let lastColor = readLastColor()
 
-/** 选区里的正文块能就地换成这些。表格 / 分割线会把字弄没，不放进来。 */
-const TURN_INTO: readonly { id: string; label: string; type: string; attrs?: Record<string, unknown> }[] = [
+/** 选区里的正文块能就地换成这些。表格 / 分割线会把字弄没，不放进来。块菜单也用这份。 */
+export const TURN_INTO: readonly { id: string; label: string; type: string; attrs?: Record<string, unknown> }[] = [
   { id: 'paragraph', label: '文本', type: 'paragraph' },
   { id: 'h1', label: '标题 1', type: 'heading', attrs: { level: 1 } },
   { id: 'h2', label: '标题 2', type: 'heading', attrs: { level: 2 } },
@@ -103,18 +103,37 @@ export function inlineToolbarPlugin(
   onComment?: (at: CommentAnchor) => void,
   onRead?: (range: { from: number; to: number }) => void,
 ): Plugin {
+  let bar: ReturnType<typeof createBar> | null = null
   return new Plugin({
     props: {
-      // ⌘⇧H / Ctrl+⇧H：抄 Notion 的「上次用过的颜色」。没选中文字就不认，交回给别的处理者
-      // （这个键位在浏览器里另有含义，别抢）。
-      handleKeyDown: (view, e) =>
-        e.key.toLowerCase() === 'h' && e.shiftKey && (e.metaKey || e.ctrlKey) && lastColorShortcut(view),
+      handleKeyDown: (view, e) => {
+        const mod = e.metaKey || e.ctrlKey
+        if (!mod) return false
+        const key = e.key.toLowerCase()
+        // ⌘K / ⌘⇧M：不自己建面板，借工具条那两格（面板本来就在选区上飘着）。
+        if (key === 'k' && !e.shiftKey && !e.altKey) {
+          if (!canFormat(view.state)) return false
+          bar?.showLink()
+          return true
+        }
+        if (key === 'm' && e.shiftKey && onComment) {
+          const at = selectionAnchor(view.state)
+          if (!at) return false
+          bar?.close()
+          onComment(at)
+          return true
+        }
+        // ⌘⇧H：抄 Notion 的「上次用过的颜色」。没选中文字就不认，交回给别的处理者
+        // （这个键位在浏览器里另有含义，别抢）。
+        return key === 'h' && e.shiftKey && lastColorShortcut(view)
+      },
     },
     view: (view) => {
-      const bar = createBar(view, onComment, onRead)
-      document.body.appendChild(bar.el)
-      bar.sync()
-      return { update: () => bar.schedule(), destroy: () => bar.destroy() }
+      bar = createBar(view, onComment, onRead)
+      const created = bar
+      document.body.appendChild(created.el)
+      created.sync()
+      return { update: () => created.schedule(), destroy: () => created.destroy() }
     },
   })
 }
@@ -378,6 +397,8 @@ function createBar(
     el: root,
     sync,
     schedule,
+    showLink,
+    close: closePopovers,
     destroy(): void {
       if (raf) cancelAnimationFrame(raf)
       window.removeEventListener('scroll', schedule, true)

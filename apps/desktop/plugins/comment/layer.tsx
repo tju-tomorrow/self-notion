@@ -16,18 +16,23 @@ import { createPortal } from 'react-dom'
 import type { Context } from 'cordis'
 import { COMMENT_LAYOUT, type CommentLayout } from '../../src/kernel/contract'
 import { reportError } from '../../src/kernel/errors'
-import { PAGE_ID, ThreadCard, WriteCard, type Refs } from './cards'
-import { GAP } from './size'
+import { pendingTarget } from './actions'
+import { DRAFT_ID, DraftCard, PAGE_ID, ThreadCard, type Refs } from './cards'
+import { CARD_W, GAP } from './size'
 import { groupThreads, useCommentState } from './state'
 import * as s from './comment.css'
 
 export function CommentLayer({ ctx }: { ctx: Context }) {
   const st = useCommentState()
   const refs: Refs = { cards: useRef(new Map()), leads: useRef(new Map()) }
+  const boxRef = useRef<HTMLDivElement>(null)
   const [layout, setLayout] = useState<CommentLayout | null>(null)
   const [host, setHost] = useState<HTMLElement | null>(null)
 
-  const threads = useMemo(() => groupThreads(st.comments), [st.comments])
+  const threads = useMemo(
+    () => groupThreads(st.comments.filter((c) => c.parentId !== null || c.body.trim() !== '')),
+    [st.comments],
+  )
   const shown = useMemo(() => {
     const open = threads.filter((t) => !t.root.resolved)
     if (!st.showResolved) return open
@@ -35,10 +40,11 @@ export function CommentLayer({ ctx }: { ctx: Context }) {
   }, [threads, st.showResolved])
 
   // 要摆位的只有**有正文锚点**的那些 —— 页面级 / 块级量不出 Y，排在末尾。
-  const ids = useMemo(
-    () => shown.filter((t) => t.root.anchor === 'inline').map((t) => t.root.id),
-    [shown],
-  )
+  const ids = useMemo(() => {
+    const inline = shown.filter((t) => t.root.anchor === 'inline').map((t) => t.root.id)
+    // 有输入框也要把右侧留白打开，不然它只能退到窄栏里。
+    return st.draft ? [...inline, DRAFT_ID] : inline
+  }, [shown, st.draft])
 
   const open = st.open
   useEffect(() => {
@@ -76,7 +82,23 @@ export function CommentLayer({ ctx }: { ctx: Context }) {
       for (const el of leads.values()) el.style.display = 'none'
       return
     }
-    const entries = shown.map((t) => ({ id: t.root.id, y: layout.tops[t.root.id] as number | undefined }))
+    const docId = st.docId
+    const entries = shown.map((t) => {
+      let y = layout.tops[t.root.id] as number | undefined
+      // 草稿还没 mark，tops 里没有它，不补就会被当成 0 钉在右上角。
+      if (y === undefined && docId !== null) {
+        const at = pendingTarget(t.root.id)
+        if (at) {
+          const index = at.kind === 'inline' ? at.index : 0
+          y = ctx.editor.commentAnchorTop(docId, at.blockId, index) ?? undefined
+        }
+      }
+      return { id: t.root.id, y }
+    })
+    if (st.draft && docId !== null) {
+      const y = ctx.editor.commentAnchorTop(docId, st.draft.blockId, st.draft.index) ?? undefined
+      entries.push({ id: DRAFT_ID, y })
+    }
     entries.sort((a, b) => (a.y ?? Number.POSITIVE_INFINITY) - (b.y ?? Number.POSITIVE_INFINITY))
 
     let cursor = Number.NEGATIVE_INFINITY
@@ -100,6 +122,17 @@ export function CommentLayer({ ctx }: { ctx: Context }) {
       const floor = Number.isFinite(cursor) ? cursor + GAP : 0
       write.style.top = `${Math.max(layout.contentHeight + 24, floor)}px`
     }
+
+    // 卡片贴着版心右缘，不贴窗口右缘。版心是居中的，贴窗口就会飘在老远。
+    const box = boxRef.current
+    const pane = host?.parentElement
+    const col = pane?.querySelector<HTMLElement>('.sn-block, .sn-pm-title')
+    if (box && pane && col) {
+      const paneBox = pane.getBoundingClientRect()
+      const beside = paneBox.right - col.getBoundingClientRect().right - GAP - CARD_W
+      const room = paneBox.width - CARD_W - 12
+      box.style.right = `${Math.max(0, Math.min(room, beside))}px`
+    }
   })
 
   if (!open || st.docId === null) return null
@@ -109,16 +142,21 @@ export function CommentLayer({ ctx }: { ctx: Context }) {
       {/* 出错那句话只在窄栏里占位 —— 浮卡那一层是绝对定位的，塞一段静态文字进去会和卡片叠上。
           浮卡模式下这条错误走 `reportError`（右上角那几条，AGENTS.md §3 的正路）。 */}
       {st.error && !float ? <p className={s.error}>{st.error}</p> : null}
-      {shown.length === 0 ? <p className={s.empty}>{ctx.i18n.t('comment.empty')}</p> : null}
+      {shown.length === 0 && !st.draft ? <p className={s.empty}>{ctx.i18n.t('comment.empty')}</p> : null}
+      {st.draft ? <DraftCard ctx={ctx} dock={!float} refs={refs} /> : null}
       {shown.map((t) => (
         <ThreadCard key={t.root.id} ctx={ctx} thread={t} dock={!float} refs={refs} />
       ))}
-      <WriteCard ctx={ctx} refs={refs} dock={!float} />
     </>
   )
 
   if (float && host) {
-    return createPortal(<div className={s.float}>{cards}</div>, host)
+    return createPortal(
+      <div ref={boxRef} className={s.float}>
+        {cards}
+      </div>,
+      host,
+    )
   }
   return (
     <aside className={s.dock}>

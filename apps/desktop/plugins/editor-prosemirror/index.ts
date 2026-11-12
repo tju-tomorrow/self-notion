@@ -181,6 +181,10 @@ export function apply(ctx: Context) {
       setCommentStates: (list: readonly CommentState[]) => mod?.pushCommentStates(list),
       commentLayout: (ids: readonly string[]) => mod?.commentCardLayout(ids) ?? null,
       commentLayer: () => mod?.commentCardLayer() ?? null,
+      commentAnchors: (docId: string) => mod?.commentAnchorsOf(docId) ?? null,
+      stripCommentAnchors: (docId: string, ids: readonly string[]) => mod?.stripCommentAnchors(docId, ids),
+      commentAnchorTop: (docId: string, blockId: string, index: number) =>
+        mod?.commentAnchorTop(docId, blockId, index) ?? null,
 
       /** 内存监控（D-0088）。没装载过编辑器就是空表 —— 那是实话（这会儿确实没有文档在内存里）。 */
       stats: () => mod?.memoryStats() ?? [],
