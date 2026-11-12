@@ -10,8 +10,9 @@
 import type { Node as PMNode } from 'prosemirror-model'
 import type { NodeViewConstructor } from 'prosemirror-view'
 
+import { selectBlockRange } from '../plugins/block-selection'
 import { asString, asWidth } from './attrs'
-import { DRAG_SLOP, openLightbox } from './lightbox'
+import { openLightbox } from './lightbox'
 
 const BLOB_PREFIX = 'self-notion://blob/'
 const MIN_WIDTH = 40
@@ -124,20 +125,29 @@ export const imageView: NodeViewConstructor = (node, view, getPos) => {
     }
   })
 
-  // 拖图片也会走到 click —— 按下的位置记一笔，移动超过 `DRAG_SLOP` 就不当点击。
-  let down: { x: number; y: number } | null = null
-  img.addEventListener('mousedown', (e) => {
-    down = { x: e.clientX, y: e.clientY }
-  })
+  // 图片首先是个块：单击选中它（能 Tab 缩进 / 用块手柄），双击才放大。
   img.addEventListener('click', (e) => {
-    const moved =
-      down !== null && (Math.abs(e.clientX - down.x) > DRAG_SLOP || Math.abs(e.clientY - down.y) > DRAG_SLOP)
-    down = null
-    // 带修饰键的点击是选块（⇧ 扩选 / ⌘ 多选），别抢。
-    if (moved || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+    // 带修饰键的点击是 PM 原生那套（⌘ 多选 / ⇧ 扩选），别抢。
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+    const pos = getPos()
+    if (pos === undefined) return
+    const $pos = view.state.doc.resolve(pos)
+    for (let d = $pos.depth; d > 0; d -= 1) {
+      const node = $pos.node(d)
+      if (node.type.name !== 'blockContainer') continue
+      e.preventDefault()
+      selectBlockRange(view, String(node.attrs.id))
+      view.focus()
+      return
+    }
+  })
+
+  img.addEventListener('dblclick', (e) => {
     // 还没落上 blobId 的占位（`img.src = ''` 会解析成页面自己的 URL，所以读属性不读 `.src`）。
     const src = img.getAttribute('src')
-    if (src) openLightbox(src)
+    if (!src) return
+    e.preventDefault()
+    openLightbox(src)
   })
 
   return {

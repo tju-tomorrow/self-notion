@@ -147,8 +147,16 @@ const nodes: Record<string, NodeSpec> = {
   numberedListItem: content(
     {
       content: 'inline*',
-      parseDOM: [{ tag: 'div.sn-numbered' }, { tag: 'ol > li' }],
-      toDOM: () => ['div', { class: 'sn-numbered' }, 0],
+      // `start` 只有「这一串有序列表的第一项」会被读：敲 `2. ` 就从 2 开始数（Notion / markdown 同款）。
+      attrs: { start: { default: 1 } },
+      parseDOM: [
+        {
+          tag: 'div.sn-numbered',
+          getAttrs: (el) => ({ start: Math.max(1, Number((el as HTMLElement).dataset.start) || 1) }),
+        },
+        { tag: 'ol > li' },
+      ],
+      toDOM: (node) => ['div', { class: 'sn-numbered', 'data-start': String(node.attrs.start ?? 1) }, 0],
     }),
   todoItem: content(
     {

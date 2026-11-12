@@ -6,6 +6,7 @@ import type { Node as PMNode, ResolvedPos } from 'prosemirror-model'
 import { TextSelection } from 'prosemirror-state'
 import type { EditorState, Transaction } from 'prosemirror-state'
 
+import { BlockSelection } from '../plugins/block-selection'
 import { schema } from '../schema'
 import { groupChildren, prevSibling, type BlockRef } from './block'
 
@@ -23,8 +24,13 @@ export function indentInto(state: EditorState, $pos: ResolvedPos, block: BlockRe
 
   const tr = state.tr.replaceWith(prev.pos, prev.pos + prev.node.nodeSize + block.node.nodeSize, nested)
   // 光标跟着块走：块在新位置里相对自己起点的偏移不变，光标也是。
+  // 整块选中（图片这种原子块）没有「正文里的光标」，落回选中这个块本身。
   const movedStart = prev.pos + 1 + prevContent.nodeSize + 1 + (prevGroup ? prevGroup.nodeSize - 2 : 0)
-  tr.setSelection(TextSelection.create(tr.doc, movedStart + (state.selection.from - block.pos)))
+  if (state.selection instanceof TextSelection) {
+    tr.setSelection(TextSelection.create(tr.doc, movedStart + (state.selection.from - block.pos)))
+  } else {
+    tr.setSelection(BlockSelection.create(tr.doc, movedStart, movedStart + block.node.nodeSize))
+  }
   return tr
 }
 
@@ -48,6 +54,13 @@ export function liftOut(state: EditorState, $pos: ResolvedPos, block: BlockRef):
   const lifted = schema.nodes.blockContainer.create(parent.attrs, kids)
 
   const tr = state.tr.replaceWith(parentPos, parentPos + parent.nodeSize, [lifted, block.node])
-  tr.setSelection(TextSelection.create(tr.doc, parentPos + lifted.nodeSize + (state.selection.from - block.pos)))
+  if (state.selection instanceof TextSelection) {
+    tr.setSelection(
+      TextSelection.create(tr.doc, parentPos + lifted.nodeSize + (state.selection.from - block.pos)),
+    )
+  } else {
+    const at = parentPos + lifted.nodeSize
+    tr.setSelection(BlockSelection.create(tr.doc, at, at + block.node.nodeSize))
+  }
   return tr
 }

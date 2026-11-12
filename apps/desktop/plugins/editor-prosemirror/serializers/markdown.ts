@@ -46,7 +46,7 @@ const mdNodes: Record<string, NodeSpec> = {
   hardbreak: { atom: true, inline: true, group: 'inline' },
   mdQuote: { content: 'mdBlock+', group: 'mdBlock' },
   bulletList: { content: 'listItem+', group: 'mdBlock' },
-  orderedList: { content: 'listItem+', group: 'mdBlock' },
+  orderedList: { content: 'listItem+', group: 'mdBlock', attrs: { start: { default: 1 } } },
   listItem: { content: 'mdBlock+' },
   text: { group: 'inline' },
 }
@@ -78,7 +78,10 @@ const parser = new MarkdownParser(mdSchema, defaultMarkdownParser.tokenizer, {
   },
   blockquote: { block: 'mdQuote' },
   bullet_list: { block: 'bulletList' },
-  ordered_list: { block: 'orderedList' },
+  ordered_list: {
+    block: 'orderedList',
+    getAttrs: (tok) => ({ start: Math.max(1, Number(tok.attrGet('start')) || 1) }),
+  },
   list_item: { block: 'listItem' },
   hr: { node: 'divider' },
   image: {
@@ -215,7 +218,11 @@ function convertQuote(node: PMNode, out: PMNode[], range: SourceRange): void {
 /** Notion 导出的待办就是 `- [ ]` / `- [x]`（import-notion 的写法和它一致）。 */
 const TODO_PREFIX = /^\[([ xX])\]\s+/
 
-function listItemContent(kind: 'bulletedListItem' | 'numberedListItem', head: PMNode): PMNode {
+function listItemContent(
+  kind: 'bulletedListItem' | 'numberedListItem',
+  head: PMNode,
+  start = 1,
+): PMNode {
   const inline = inlineOf(head)
   const first = inline[0]
   if (kind === 'bulletedListItem' && first && first.isText) {
@@ -226,7 +233,7 @@ function listItemContent(kind: 'bulletedListItem' | 'numberedListItem', head: PM
       return schema.nodes.todoItem.create({ checked: match[1] !== ' ' }, tail)
     }
   }
-  return schema.nodes[kind].create(null, inline)
+  return schema.nodes[kind].create(kind === 'numberedListItem' ? { start } : null, inline)
 }
 
 /** 列表项：第一个块是列表项本身，往后的块（含嵌套列表）落成它的 children —— 正好对上 Tab 缩进那套模型。 */
@@ -234,6 +241,7 @@ function convertListItem(
   item: PMNode,
   kind: 'bulletedListItem' | 'numberedListItem',
   range: SourceRange,
+  start = 1,
 ): PMNode {
   const parts: PMNode[] = []
   item.forEach((child) => parts.push(child))
@@ -241,9 +249,9 @@ function convertListItem(
   const kids: PMNode[] = []
   let content: PMNode
   if (head && head.type.name === 'paragraph') {
-    content = listItemContent(kind, head)
+    content = listItemContent(kind, head, start)
   } else {
-    content = schema.nodes[kind].create()
+    content = schema.nodes[kind].create(kind === 'numberedListItem' ? { start } : null)
     if (head) convertBlock(head, kids, NO_RANGE)
   }
   for (const rest of parts) convertBlock(rest, kids, NO_RANGE)
@@ -289,11 +297,14 @@ function convertBlock(node: PMNode, out: PMNode[], range: SourceRange): void {
         out.push(convertListItem(item, 'bulletedListItem', range.children[i] ?? NO_RANGE)),
       )
       return
-    case 'orderedList':
+    case 'orderedList': {
+      // 起点只在第一项上写（后面几项顺着数）。
+      const start = Math.max(1, Number(node.attrs.start) || 1)
       node.forEach((item, _off, i) =>
-        out.push(convertListItem(item, 'numberedListItem', range.children[i] ?? NO_RANGE)),
+        out.push(convertListItem(item, 'numberedListItem', range.children[i] ?? NO_RANGE, i === 0 ? start : 1)),
       )
       return
+    }
     default: {
       // 认不出（表格 / html）：能掏文字就留一个段落，掏不出就丢
       const text = node.textContent.trim()
@@ -555,7 +566,10 @@ export function docFromRaw(markdown: string): RawDoc {
 
 const blobUrl = (id: string): string => BLOB_PREFIX + id
 
-/** 有序列表的序号：往前数连续的 numberedListItem（跟 PM 的 render(node, parent, index) 那条对齐）。 */
+/**
+ * 有序列表的序号：往前数连续的 numberedListItem（跟 PM 的 render(node, parent, index) 那条对齐），
+ * 起点取这一串第一项的 `start`（`2. ` 起头就写 2、3…）。
+ */
 function numberedAt(parent: PMNode, index: number): number {
   let n = 1
   for (let i = index - 1; i >= 0; i--) {
@@ -563,7 +577,9 @@ function numberedAt(parent: PMNode, index: number): number {
     if (!content || content.type.name !== 'numberedListItem') break
     n++
   }
-  return n
+  const head = parent.child(index - n + 1).firstChild
+  const base = Math.max(1, Number(head?.attrs.start) || 1)
+  return base + n - 1
 }
 
 /** 渲染一个块的内容节点。列表 / 待办的标记由 blockContainer 先写，这里只管内容。 */

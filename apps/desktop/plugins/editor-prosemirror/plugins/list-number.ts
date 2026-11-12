@@ -13,6 +13,7 @@ export function listNumberPlugin(): Plugin {
         state.doc.descendants((node, pos) => {
           if (node.isLeaf || node.isTextblock) return false
           let run = 0
+          let base = 1
           node.forEach((child, offset) => {
             // 普通块是 blockContainer 包着的；表格单元格里直接是 textblock。
             // blockContainer 自己的正文子节点跳过 —— 它已经被上一层数过了。
@@ -23,9 +24,11 @@ export function listNumberPlugin(): Plugin {
               run = 0
               return
             }
+            // 只有一串里的**第一项**的 `start` 生效（`2. ` 起的头）。
+            if (run === 0) base = Math.max(1, Number(content.attrs.start) || 1)
             run++
             const start = pos + 1 + offset + (box ? 1 : 0)
-            decos.push(Decoration.node(start, start + content.nodeSize, { 'data-num': String(run) }))
+            decos.push(Decoration.node(start, start + content.nodeSize, { 'data-num': String(base + run - 1) }))
           })
         })
         return DecorationSet.create(state.doc, decos)

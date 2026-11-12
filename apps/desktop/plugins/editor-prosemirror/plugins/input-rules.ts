@@ -23,7 +23,10 @@ function buildRules(): InputRule[] {
     // `# ` `## ` `### ` —— Notion 只有三级，多的落 h3（schema 的 clampLevel 兜）。
     textblockTypeInputRule(/^(#{1,3})\s$/, n.heading, (x) => ({ level: x[1].length })),
     textblockTypeInputRule(/^\s*([-*+])\s$/, n.bulletedListItem),
-    textblockTypeInputRule(/^\s*(\d+)[.)]\s$/, n.numberedListItem),
+    // 敲几号就从几号开始数（`2. ` 起点是 2，不是永远 1）。
+    textblockTypeInputRule(/^\s*(\d+)[.)]\s$/, n.numberedListItem, (x) => ({
+      start: Math.max(1, Number(x[1]) || 1),
+    })),
     // `[] ` / `[ ] ` 都认（Notion 两种都吃）。
     textblockTypeInputRule(/^\s*\[\s?\]\s$/, n.todoItem),
     textblockTypeInputRule(/^\s*>\s$/, n.toggle, () => ({ open: true })),
