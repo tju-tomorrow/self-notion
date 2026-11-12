@@ -145,10 +145,13 @@ class BlockHandle {
     if (!(target instanceof Element)) return
     // 鼠标压在手柄自己身上时别动它 —— 一动就刚好从指尖底下溜走。
     if (this.dom.contains(target)) return
-    if (!this.view.dom.contains(target)) return this.hide()
 
-    const el = target.closest('.sn-block')
-    if (!(el instanceof HTMLElement) || !this.view.dom.contains(el)) return this.hide()
+    const el = this.blockAt(e.clientX, e.clientY)
+    if (!el) {
+      // 块和手柄之间那条缝不在块里面。离开块就藏，手就永远点不着 +。
+      if (this.hover && this.overLane(e.clientX, e.clientY)) return
+      return this.hide()
+    }
     const id = el.getAttribute('data-id') ?? ''
     if (id === '') return this.hide()
 
@@ -156,10 +159,87 @@ class BlockHandle {
     this.place()
   }
 
+  /**
+   * 鼠标下的那一块。版心左边的槽不在块里，改到版心左缘去探（Notion 的槽也算这块）。
+   * 表顶上面那条缝算这张表，手柄才出在表旁边，而不是悬在上一行。
+   */
+  private blockAt(x: number, y: number): HTMLElement | null {
+    const host = this.view.dom.getBoundingClientRect()
+    if (x < host.left - GUTTER - 28 || x > host.right + 8 || y < host.top - 28 || y > host.bottom + 8) return null
+    const inGutter = x < host.left + 4
+    const probeX = inGutter ? Math.min(host.right - 2, host.left + 16) : x
+    const hit = document.elementFromPoint(probeX, y)
+    const direct = hit instanceof Element ? hit.closest('.sn-block') : null
+    let block = direct instanceof HTMLElement && this.view.dom.contains(direct) ? direct : this.nearestBlock(y)
+    const table = this.tableAbove(y)
+    if (table && (!block || block.getBoundingClientRect().bottom <= y + 2)) block = table
+    return block
+  }
+
+  /** 缝比 28px 还宽就不认，免得隔空吸到远处的块。 */
+  private nearestBlock(y: number): HTMLElement | null {
+    let best: HTMLElement | null = null
+    let bestDist = 28
+    for (const node of this.view.dom.querySelectorAll('.sn-block')) {
+      if (!(node instanceof HTMLElement)) continue
+      const r = node.getBoundingClientRect()
+      if (r.height < 1) continue
+      const dist = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0
+      if (dist < bestDist) {
+        bestDist = dist
+        best = node
+      }
+    }
+    return best
+  }
+
+  /** 指针在表的上沿之上、还没进到上一块里：这张表。 */
+  private tableAbove(y: number): HTMLElement | null {
+    let best: HTMLElement | null = null
+    let dist = 32
+    for (const node of this.view.dom.querySelectorAll('.sn-block')) {
+      if (!(node instanceof HTMLElement)) continue
+      const table = this.tableEl(node)
+      if (!table) continue
+      const top = table.getBoundingClientRect().top
+      if (y <= top && top - y < dist) {
+        dist = top - y
+        best = node
+      }
+    }
+    return best
+  }
+
+  /** 从这块挪到手柄要经过的那条槽（含手柄自己）。 */
+  private overLane(x: number, y: number): boolean {
+    const el = this.hover?.el
+    if (!el?.isConnected) return false
+    const rect = this.anchorBox(el)
+    const handle = this.dom.getBoundingClientRect()
+    const left = Math.min(handle.left, rect.left) - 12
+    const right = Math.max(handle.right, rect.left + 8)
+    return x >= left && x <= right && y >= Math.min(handle.top, rect.top) - 8 && y <= rect.bottom + 8
+  }
+
+  private tableEl(el: HTMLElement): HTMLElement | null {
+    const table = el.querySelector(':scope > .sn-table-wrap, :scope > table')
+    return table instanceof HTMLElement ? table : null
+  }
+
+  /** 表格用可见的那张表，不用外面那层可能带出空档的块盒子。 */
+  private anchorBox(el: HTMLElement): DOMRect {
+    const table = this.tableEl(el)
+    if (table) {
+      const r = table.getBoundingClientRect()
+      if (r.width > 0 && r.height > 0) return r
+    }
+    return el.getBoundingClientRect()
+  }
+
   private place(): void {
     const hover = this.hover
     if (!hover || !hover.el.isConnected) return this.hide()
-    const rect = hover.el.getBoundingClientRect()
+    const rect = this.anchorBox(hover.el)
     const host = this.view.dom.getBoundingClientRect()
     // 滚出编辑区就别赖在边上 —— 手柄的好处是「指着哪块就是哪块」。
     if (rect.bottom < host.top || rect.top > host.bottom) return this.hide()
@@ -167,11 +247,19 @@ class BlockHandle {
     // 手柄站在**版心左侧的留白**里（`left = 块左缘 - GUTTER`）—— 不占正文的宽度，
     // 正文的文字和标题一样从版心左缘开始。窗口极窄时它会被 4px 兜住、贴到窗口左边（还能用）。
     this.dom.style.left = `${Math.max(4, rect.left - GUTTER + 1)}px`
-    // ★ 竖着对齐块里**第一行**文字的中线（Notion 就是这样）：普通段落行高 24，落点跟原来「块顶 +1」一样；
-    //   标题行高大得多，按块顶对齐手柄就飘到字的上面去了。
-    const line = parseFloat(getComputedStyle(hover.el).lineHeight)
+    this.dom.style.top = `${Math.max(host.top + 1, this.anchorTop(hover.el, rect))}px`
+  }
+
+  /** 表格对齐第一行格子的中线；别的块对齐第一行文字（标题行高，按块顶对齐会飘到字上面）。 */
+  private anchorTop(el: HTMLElement, rect: DOMRect): number {
+    const row = this.tableEl(el)?.querySelector('tr')
+    if (row instanceof HTMLElement) {
+      const r = row.getBoundingClientRect()
+      if (r.height > 0) return r.top + Math.min(r.height, 32) / 2 - HANDLE_H / 2
+    }
+    const line = parseFloat(getComputedStyle(el).lineHeight)
     const first = Number.isFinite(line) && line > 0 ? Math.min(line, rect.height) : Math.min(24, rect.height)
-    this.dom.style.top = `${Math.max(host.top + 1, rect.top + first / 2 - HANDLE_H / 2)}px`
+    return rect.top + first / 2 - HANDLE_H / 2
   }
 
   /** 窗口尺寸一变，块的左缘 / 高度跟着变 —— 重新摆（只在手柄正亮着的时候有用）。 */

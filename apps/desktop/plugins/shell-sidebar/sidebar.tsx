@@ -576,6 +576,7 @@ export function Sidebar({ ctx }: { ctx: Context }) {
           >
             <SearchIcon width={ICON} height={ICON} />
             <span className={s.searchText}>{ctx.i18n.t('search.placeholder')}</span>
+            <span className="sn-kbd">⌘K</span>
           </button>
           <button
             type="button"

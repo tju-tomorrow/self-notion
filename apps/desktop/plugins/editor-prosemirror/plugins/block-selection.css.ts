@@ -6,12 +6,11 @@
  */
 import { globalStyle } from '@vanilla-extract/css'
 
-// 淡蓝底，**每块各自一块**圆角高亮，不描边。
-// ★ 浓度只到「看得出来」为止：.18 那档用户说「太沉、太实心」，退回 .1
-//   ——这层底是压在正文上的，字要被它衬托，不能被它盖住。
+// 暗色纸面上 .1 的蓝底几乎看不见。左边一条实色，底再浅一点，选中块才分得出来。
 globalStyle('.sn-block-selected', {
   borderRadius: 4,
-  backgroundColor: 'rgba(35, 131, 226, .1)',
+  backgroundColor: 'color-mix(in srgb, var(--sn-accent, #2383e2) 16%, transparent)',
+  boxShadow: 'inset 3px 0 0 var(--sn-accent, #2383e2)',
 })
 
 // 框是我们画的，浏览器那层原生文本高亮叠上来就是两层蓝。

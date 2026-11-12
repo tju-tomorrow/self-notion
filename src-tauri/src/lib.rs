@@ -42,7 +42,9 @@ pub fn run() {
     // setup 钩子里 `exit(0)`，plugin setup 先于 app setup），所以这次 `Db::open` 不会跑第二遍。
     // 回调跑在**先起的那个进程**里：把已有窗口提到前台，让「再点一次图标」有反馈。
     builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-        if let Some(w) = app.get_webview_window("main") {
+        // 不用 get_webview_window：子 webview（网页版 AI）一挂上，那个查找就认定主窗口不是
+        // 「纯 webview 窗口」，返回 None —— 再点一次图标就唤不回来。
+        if let Some(w) = app.get_window("main") {
             let _ = w.unminimize();
             let _ = w.set_focus();
         }
@@ -168,9 +170,10 @@ pub fn run() {
 /// `label` = 调 `boot:ready` 的那个窗口（多开出来的窗口也得自己露出来，不能只认 `main`）。
 pub fn reveal(app: &tauri::AppHandle, label: Option<&str>) -> Result<(), String> {
     let want = label.unwrap_or("main");
-    // ★ 报错要带上是**哪个** label 没找到 —— 日志里那句干巴巴的「窗口不见了」查不出是哪条路
-    //   （`errors.log` 里它已经攒了几十条，全是同一个谜）。
-    let w = app.get_webview_window(want).ok_or(format!("窗口不见了：{want}"))?;
+    // ★ 报错要带上是**哪个** label 没找到 —— 日志里那句干巴巴的「窗口不见了」查不出是哪条路。
+    // ★ 不用 get_webview_window：网页版 AI 的子 webview 挂上之后，它要求「窗口里每个 webview
+    //   都跟窗口同名」才算找到。主窗口因此变成 None，热更新重跑 boot:ready 就报「窗口不见了：main」。
+    let w = app.get_window(want).ok_or(format!("窗口不见了：{want}"))?;
     w.show().map_err(|e| e.to_string())?;
     let _ = w.set_focus();
     Ok(())

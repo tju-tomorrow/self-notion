@@ -54,7 +54,7 @@ export const tab = style({
 /** 当前激活的标签 —— AFFiNE 用一圈内描边，而不是把底色拉开。 */
 export const tabActive = style({
   background: 'var(--affine-v2-tab-tabBackground-active)',
-  boxShadow: '0 0 0 1px var(--affine-v2-button-innerBlackBorder)',
+  boxShadow: '0 0 0 1px var(--sn-tab-ring, var(--affine-v2-button-innerBlackBorder))',
   color: 'var(--affine-v2-text-primary)',
 })
 

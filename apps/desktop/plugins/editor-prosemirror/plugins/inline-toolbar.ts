@@ -2,15 +2,19 @@
  * 选中文字时浮出的行内格式工具栏（P1-6）：B / I / U / S / 行内代码 / 链接 / 高亮 / 字色 / 评论。
  *
  * 定位自己算（`view.coordsAtPos`），不引第三方浮层库（CONVENTIONS §6.7）。
- * 没有文字选区就整体藏起来 —— 选块（图片那种 NodeSelection）不走这条。样式在同目录的 `.css.ts`。
+ * 没有文字选区就整体藏起来 —— 选块（图片那种 NodeSelection）不走这条。
+ * 格子多选（CellSelection）要出：加粗和字色得能刷到选中的那些格。
+ * 选中文字时还可以「转换」成有序列表 / 标题这些块（Notion 的 Turn into），字留着。样式在同目录的 `.css.ts`。
  */
 import { toggleMark } from 'prosemirror-commands'
-import type { MarkType } from 'prosemirror-model'
+import type { MarkType, Node as PMNode } from 'prosemirror-model'
 import { Plugin, TextSelection } from 'prosemirror-state'
 import type { EditorState } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
+import { CellSelection } from 'prosemirror-tables'
 
 import { selectionAnchor } from '../comment'
+import { BlockSelection } from './block-selection'
 import { schema } from '../schema'
 import './inline-toolbar.css'
 
@@ -65,6 +69,21 @@ function readLastColor(): { kind: ColorKind; color: string } | undefined {
 
 let lastColor = readLastColor()
 
+/** 选区里的正文块能就地换成这些。表格 / 分割线会把字弄没，不放进来。 */
+const TURN_INTO: readonly { id: string; label: string; type: string; attrs?: Record<string, unknown> }[] = [
+  { id: 'paragraph', label: '文本', type: 'paragraph' },
+  { id: 'h1', label: '标题 1', type: 'heading', attrs: { level: 1 } },
+  { id: 'h2', label: '标题 2', type: 'heading', attrs: { level: 2 } },
+  { id: 'h3', label: '标题 3', type: 'heading', attrs: { level: 3 } },
+  { id: 'todoItem', label: '待办', type: 'todoItem', attrs: { checked: false } },
+  { id: 'bulletedListItem', label: '无序列表', type: 'bulletedListItem' },
+  { id: 'numberedListItem', label: '有序列表', type: 'numberedListItem' },
+  { id: 'toggle', label: '折叠列表', type: 'toggle', attrs: { open: true } },
+  { id: 'quote', label: '引用', type: 'quote' },
+  { id: 'callout', label: '标注', type: 'callout', attrs: { icon: '💡' } },
+  { id: 'codeBlock', label: '代码', type: 'codeBlock', attrs: { language: '' } },
+]
+
 const LINK_ICON =
   '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M6.6 9.4 9.4 6.6"/><path d="M7 4.4 8.2 3.2a2.5 2.5 0 0 1 3.6 3.6L10.6 8"/><path d="M9 11.6 7.8 12.8a2.5 2.5 0 0 1-3.6-3.6L5.4 8"/></svg>'
 
@@ -107,6 +126,11 @@ function createBar(
 ) {
   const root = document.createElement('div')
   root.className = 'sn-itb'
+
+  const turnBtn = mkButton('转换<span class="sn-itb-chev">▾</span>', 'sn-itb-turn')
+  turnBtn.title = '转换成'
+  const turnSep = mkSeparator()
+  root.append(turnBtn, turnSep)
 
   const markBtns = new Map<MarkName, HTMLButtonElement>()
   for (const { name, text, cls } of TEXT_MARKS) {
@@ -165,6 +189,24 @@ function createBar(
   palette.className = 'sn-itb-palette'
   root.appendChild(palette)
 
+  const turnMenu = document.createElement('div')
+  turnMenu.className = 'sn-itb-menu'
+  const turnItemBtns = new Map<string, HTMLButtonElement>()
+  for (const item of TURN_INTO) {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.tabIndex = -1
+    btn.textContent = item.label
+    btn.addEventListener('click', () => {
+      turnInto(view, item)
+      closePopovers()
+      after()
+    })
+    turnMenu.appendChild(btn)
+    turnItemBtns.set(item.id, btn)
+  }
+  root.appendChild(turnMenu)
+
   const linkRow = document.createElement('div')
   linkRow.className = 'sn-itb-linkrow'
   const input = document.createElement('input')
@@ -180,12 +222,13 @@ function createBar(
     if (e.target !== input) e.preventDefault()
   })
 
-  let open: 'link' | ColorKind | null = null
+  let open: 'link' | 'turn' | ColorKind | null = null
 
   function closePopovers(): void {
     open = null
     palette.style.display = 'none'
     linkRow.style.display = 'none'
+    turnMenu.dataset.open = 'false'
   }
 
   function showPalette(kind: ColorKind): void {
@@ -224,6 +267,21 @@ function createBar(
     input.select()
   }
 
+  function showTurn(): void {
+    if (textBlocks(view.state).length === 0) return
+    if (open === 'turn') {
+      closePopovers()
+      view.focus()
+      return
+    }
+    closePopovers()
+    open = 'turn'
+    const kinds = new Set(textBlocks(view.state).map((b) => blockKind(b.node)))
+    for (const [id, btn] of turnItemBtns) btn.dataset.on = String(kinds.size === 1 && kinds.has(id))
+    turnMenu.dataset.open = 'true'
+  }
+
+  turnBtn.addEventListener('click', showTurn)
   linkBtn.addEventListener('click', showLink)
   hlBtn.addEventListener('click', () => (open === 'highlight' ? closePopovers() : showPalette('highlight')))
   colorBtn.addEventListener('click', () => (open === 'textColor' ? closePopovers() : showPalette('textColor')))
@@ -252,30 +310,34 @@ function createBar(
 
   function sync(): void {
     const { state } = view
-    const sel = state.selection
-    const text = sel instanceof TextSelection && state.doc.textBetween(sel.from, sel.to)
-    if (!(sel instanceof TextSelection) || sel.empty || !text || !view.hasFocus()) return hide()
+    const box = view.hasFocus() && canFormat(state) ? selectionBox(view) : null
+    if (!box) return hide()
 
     root.classList.add('sn-itb-on')
-    const start = view.coordsAtPos(sel.from)
-    const end = view.coordsAtPos(sel.to)
-    const half = root.offsetWidth / 2
-    const mid = (start.left + end.left) / 2
-    const left = Math.min(window.innerWidth - half - 4, Math.max(half + 4, mid))
-    const above = start.top > ROOM
-
-    root.style.left = `${left}px`
-    root.style.top = above ? `${start.top - GAP}px` : `${start.bottom + GAP}px`
-    root.style.transform = above ? 'translate(-50%, -100%)' : 'translateX(-50%)'
+    const above = box.top > ROOM
+    // 块选中时工具条靠块的左缘，给中间那颗「评论此块」让开。
+    if (box.align === 'start') {
+      const width = root.offsetWidth
+      const left = Math.min(window.innerWidth - width - 4, Math.max(4, box.mid))
+      root.style.left = `${left}px`
+      root.style.transform = above ? 'translateY(-100%)' : ''
+    } else {
+      const half = root.offsetWidth / 2
+      const left = Math.min(window.innerWidth - half - 4, Math.max(half + 4, box.mid))
+      root.style.left = `${left}px`
+      root.style.transform = above ? 'translate(-50%, -100%)' : 'translateX(-50%)'
+    }
+    root.style.top = above ? `${box.top - GAP}px` : `${box.bottom + GAP}px`
     refresh(state)
   }
 
   function refresh(state: EditorState): void {
-    const { from, to } = state.selection
+    const blocks = textBlocks(state)
+    turnBtn.hidden = turnSep.hidden = blocks.length === 0
     for (const [name, btn] of markBtns) {
-      btn.dataset.active = String(state.doc.rangeHasMark(from, to, schema.marks[name]))
+      btn.dataset.active = String(markActive(state, schema.marks[name]))
     }
-    linkBtn.dataset.active = String(state.doc.rangeHasMark(from, to, schema.marks.link))
+    linkBtn.dataset.active = String(markActive(state, schema.marks.link))
     // 没上色时显示 ⌘⇧H 会刷的那个色，不然看不出快捷键的默认色变成了什么。
     const hl = activeColor(state, schema.marks.highlight)
     hlBtn.dataset.active = String(hl !== null)
@@ -293,9 +355,11 @@ function createBar(
 
   function setLink(target: EditorView, href: string): void {
     const mark = schema.marks.link
-    const { from, to } = target.state.selection
-    const tr = target.state.tr.removeMark(from, to, mark)
-    if (href) tr.addMark(from, to, mark.create({ href }))
+    const tr = target.state.tr
+    for (const { $from, $to } of target.state.selection.ranges) {
+      tr.removeMark($from.pos, $to.pos, mark)
+      if (href) tr.addMark($from.pos, $to.pos, mark.create({ href }))
+    }
     target.dispatch(tr)
     after()
   }
@@ -353,9 +417,11 @@ function setColor(target: EditorView, kind: ColorKind, color: string): void {
     }
   }
   const mark = schema.marks[kind]
-  const { from, to } = target.state.selection
-  const tr = target.state.tr.removeMark(from, to, mark)
-  if (color) tr.addMark(from, to, mark.create({ color }))
+  const tr = target.state.tr
+  for (const { $from, $to } of target.state.selection.ranges) {
+    tr.removeMark($from.pos, $to.pos, mark)
+    if (color) tr.addMark($from.pos, $to.pos, mark.create({ color }))
+  }
   target.dispatch(tr)
 }
 
@@ -365,8 +431,7 @@ function setColor(target: EditorView, kind: ColorKind, color: string): void {
  * 一次都还没用过色 → 落到默认黄底（Notion 的默认高亮色）。没选中文字就什么都不做。
  */
 function lastColorShortcut(view: EditorView): boolean {
-  const sel = view.state.selection
-  if (!(sel instanceof TextSelection) || sel.empty) return false
+  if (!canFormat(view.state)) return false
   const pick = lastColor ?? { kind: 'highlight' as ColorKind, color: COLORS.highlight[3] ?? '' }
   if (!pick.color) return false
   const now = activeColor(view.state, schema.marks[pick.kind])
@@ -374,26 +439,160 @@ function lastColorShortcut(view: EditorView): boolean {
   return true
 }
 
+interface TurnItem {
+  id: string
+  label: string
+  type: string
+  attrs?: Record<string, unknown>
+}
+
+/** 选区碰到的正文块（块容器里那层文字）。表格格子不是块，转不了。 */
+function textBlocks(state: EditorState): { pos: number; node: PMNode }[] {
+  const { from, to } = state.selection
+  const out: { pos: number; node: PMNode }[] = []
+  state.doc.nodesBetween(from, to, (node, pos) => {
+    if (node.type.name !== 'blockContainer') return
+    const child = node.firstChild
+    if (!child?.isTextblock) return
+    const textFrom = pos + 2
+    const textTo = pos + 1 + child.nodeSize - 1
+    if (textTo <= from || textFrom >= to) return
+    out.push({ pos: pos + 1, node: child })
+  })
+  return out
+}
+
+function blockKind(node: PMNode): string {
+  return node.type.name === 'heading' ? `h${node.attrs.level ?? 1}` : node.type.name
+}
+
+/** 就地换块类型。代码块只收纯文字，带提及的那块跳过，免得换型把文档弄坏。 */
+function turnInto(view: EditorView, item: TurnItem): void {
+  const targets = textBlocks(view.state)
+  if (!targets.length) return
+  const type = schema.nodes[item.type]
+  if (!type) return
+  const tr = view.state.tr
+  for (const hit of targets) {
+    const pos = tr.mapping.map(hit.pos)
+    const node = tr.doc.nodeAt(pos)
+    if (!node?.isTextblock) continue
+    const attrs = turnAttrs(item, node)
+    if (item.type === 'codeBlock') {
+      let plain = true
+      node.forEach((child) => {
+        if (!child.isText) plain = false
+      })
+      if (!plain) continue
+      const text = node.textContent
+      tr.replaceWith(pos, pos + node.nodeSize, type.create(attrs, text ? schema.text(text) : undefined))
+    } else {
+      tr.setNodeMarkup(pos, type, attrs)
+    }
+  }
+  if (tr.docChanged) view.dispatch(tr)
+}
+
+function turnAttrs(item: TurnItem, node: PMNode): Record<string, unknown> | null {
+  if (item.type === 'todoItem') return { checked: node.type.name === 'todoItem' ? node.attrs.checked : false }
+  if (item.type === 'toggle') return { open: node.type.name === 'toggle' ? node.attrs.open : true }
+  if (item.type === 'callout') {
+    const icon = node.type.name === 'callout' ? String(node.attrs.icon ?? '') : ''
+    return { icon: icon || '💡' }
+  }
+  if (item.type === 'codeBlock') return { language: node.type.name === 'codeBlock' ? node.attrs.language : '' }
+  return item.attrs ?? null
+}
+
+/** 文字选区、格子多选，或整块选中。空光标 / 选中整块图片不出。 */
+function canFormat(state: EditorState): boolean {
+  const sel = state.selection
+  if (sel instanceof BlockSelection) return sel.nodes.length > 0
+  if (sel instanceof CellSelection) return true
+  return sel instanceof TextSelection && !sel.empty && state.doc.textBetween(sel.from, sel.to).length > 0
+}
+
+/** 工具条摆在选区上方用的盒子。格子多选要把每一格都算进去；整块选中靠块的 DOM，别用缝里的光标坐标。 */
+function selectionBox(view: EditorView): { top: number; bottom: number; mid: number; align: 'center' | 'start' } | null {
+  const sel = view.state.selection
+  if (sel instanceof BlockSelection) {
+    const ids = new Set(sel.nodes.map((node) => String(node.attrs.id ?? '')))
+    let top = Infinity
+    let bottom = -Infinity
+    let left = Infinity
+    for (const el of view.dom.querySelectorAll<HTMLElement>('.sn-block')) {
+      if (!ids.has(el.dataset.id ?? '')) continue
+      const r = el.getBoundingClientRect()
+      if (r.height <= 0) continue
+      top = Math.min(top, r.top)
+      bottom = Math.max(bottom, r.bottom)
+      left = Math.min(left, r.left)
+    }
+    if (!Number.isFinite(top)) return null
+    return { top, bottom, mid: left, align: 'start' }
+  }
+  try {
+    let top = Infinity
+    let bottom = -Infinity
+    let left = Infinity
+    let right = -Infinity
+    for (const range of sel.ranges) {
+      const a = view.coordsAtPos(range.$from.pos)
+      const b = view.coordsAtPos(range.$to.pos)
+      top = Math.min(top, a.top, b.top)
+      bottom = Math.max(bottom, a.bottom, b.bottom)
+      left = Math.min(left, a.left, b.left)
+      right = Math.max(right, a.right, b.right)
+    }
+    if (!Number.isFinite(top)) return null
+    return { top, bottom, mid: (left + right) / 2, align: 'center' }
+  } catch {
+    return null
+  }
+}
+
+/** 有文字的每一段都带着这个 mark 才算按下。格子多选不能只看第一格。 */
+function markActive(state: EditorState, mark: MarkType): boolean {
+  let saw = false
+  for (const { $from, $to } of state.selection.ranges) {
+    if (state.doc.textBetween($from.pos, $to.pos).length === 0) continue
+    saw = true
+    if (!state.doc.rangeHasMark($from.pos, $to.pos, mark)) return false
+  }
+  return saw
+}
+
 /** 整个选区共用同一种颜色才算「激活」，否则返回 null。 */
 function activeColor(state: EditorState, mark: MarkType): string | null {
-  const { from, to } = state.selection
   const seen = new Set<string>()
-  state.doc.nodesBetween(from, to, (node) => {
-    if (!node.isText) return
-    for (const m of node.marks) if (m.type === mark) seen.add(String(m.attrs.color ?? ''))
-  })
-  return seen.size === 1 ? [...seen][0] : null
+  let sawText = false
+  for (const { $from, $to } of state.selection.ranges) {
+    state.doc.nodesBetween($from.pos, $to.pos, (node) => {
+      if (!node.isText) return
+      sawText = true
+      const hit = node.marks.find((m) => m.type === mark)
+      if (hit) seen.add(String(hit.attrs.color ?? ''))
+      else seen.add('')
+    })
+  }
+  if (!sawText || seen.size !== 1) return null
+  const only = [...seen][0]
+  return only ? only : null
 }
 
 /** 选区里那条链接的 href（同一条才算），没有则 null。 */
 function linkHref(state: EditorState): string | null {
-  const { from, to } = state.selection
   const seen = new Set<string>()
-  state.doc.nodesBetween(from, to, (node) => {
-    if (!node.isText) return
-    for (const m of node.marks) if (m.type === schema.marks.link) seen.add(String(m.attrs.href ?? ''))
-  })
-  return seen.size === 1 ? [...seen][0] : null
+  for (const { $from, $to } of state.selection.ranges) {
+    state.doc.nodesBetween($from.pos, $to.pos, (node) => {
+      if (!node.isText) return
+      const hit = node.marks.find((m) => m.type === schema.marks.link)
+      seen.add(hit ? String(hit.attrs.href ?? '') : '')
+    })
+  }
+  if (seen.size !== 1) return null
+  const only = [...seen][0]
+  return only ? only : null
 }
 
 /** 评论锚点的换算在 `comment.ts` 里（`selectionAnchor`）—— 别在这儿再抄一份，会漂。 */

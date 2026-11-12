@@ -111,8 +111,14 @@ export function AppShell({ ctx }: { ctx: Context }) {
     window.addEventListener('pointerup', up)
   }, [width])
 
+  // `data-sn-shell` / `data-collapsed` 只给 Notion 主题把侧栏拉到窗口顶，原版不读。
   return (
-    <div className={`${s.root} ${motion.fadeIn}`} style={{ '--shell-sidebar-w': `${width}px` } as CSSProperties}>
+    <div
+      className={`${s.root} ${motion.fadeIn}`}
+      data-sn-shell=""
+      data-collapsed={collapsed ? '1' : '0'}
+      style={{ '--shell-sidebar-w': `${width}px` } as CSSProperties}
+    >
       <TitleBar ctx={ctx} collapsed={collapsed} onToggle={() => setCollapsed((v) => !v)} />
       <div className={s.body}>
         <aside className={collapsed ? `${s.sidebar} ${s.sidebarCollapsed}` : s.sidebar}>

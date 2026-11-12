@@ -223,6 +223,8 @@ function Mine({ ctx }: { ctx: Context }) {
           bgStrength: raw.bgStrength,
           bgSize: raw.bgSize,
           bgPos: raw.bgPos,
+          tone: raw.tone === 'notion' ? 'notion' : undefined,
+          css: typeof raw.css === 'string' ? raw.css : undefined,
           user: true,
         }
         ctx.settings.set(USERS_KEY, [...listThemes(ctx).filter((x) => x.user), theme])

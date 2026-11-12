@@ -131,6 +131,8 @@ export function saveUser(ctx: Context, patch: { name: string }): Theme {
     bgStrength: live.bgStrength,
     bgSize: live.bgSize,
     bgPos: live.bgPos,
+    tone: live.tone,
+    css: live.css,
     user: true,
   }
   const rest = users(ctx).filter((t) => t.id !== theme.id)

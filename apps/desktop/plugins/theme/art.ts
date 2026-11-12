@@ -118,7 +118,8 @@ export function artVars(
   const pct = clamp(theme.bgStrength ?? BG_STRENGTH_DEFAULT)
   const pos = theme.bgPos ?? BG_POS_DEFAULT
   return {
-    '--sn-art-bg': theme.background ?? scene(seeds),
+    // 浓度 0 就别再生成那幅夜空 —— Notion 要的是一块平的画布。
+    '--sn-art-bg': theme.background ?? (pct === 0 ? 'none' : scene(seeds)),
     '--sn-bg-dim': String(100 - pct),
     '--sn-bg-size': SIZE_CSS[theme.bgSize ?? 'cover'],
     '--sn-bg-pos': `${pos.x}% ${pos.y}%`,

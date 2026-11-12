@@ -68,6 +68,47 @@ globalStyle('.sn-itb-bar', {
 
 globalStyle('.sn-itb-sep', { width: 1, height: 18, margin: '0 2px', background: LINE })
 
+globalStyle('.sn-itb-turn', {
+  width: 'auto',
+  padding: '0 8px',
+  gap: 4,
+  fontSize: 13,
+})
+
+globalStyle('.sn-itb-chev', { fontSize: 9, opacity: 0.7 })
+
+globalStyle('.sn-itb-menu', {
+  position: 'absolute',
+  top: 'calc(100% + 6px)',
+  left: 0,
+  display: 'none',
+  flexDirection: 'column',
+  minWidth: 132,
+  padding: 4,
+  border: `0.5px solid ${LINE}`,
+  borderRadius: 8,
+  background: BG,
+  boxShadow: SHADOW,
+})
+
+globalStyle('.sn-itb-menu[data-open="true"]', { display: 'flex' })
+
+globalStyle('.sn-itb-menu button', {
+  height: 28,
+  padding: '0 8px',
+  border: 'none',
+  borderRadius: 6,
+  background: 'transparent',
+  color: TEXT,
+  font: 'inherit',
+  fontSize: 13,
+  textAlign: 'left',
+  cursor: 'pointer',
+})
+
+globalStyle('.sn-itb-menu button:hover', { background: HOVER })
+globalStyle('.sn-itb-menu button[data-on="true"]', { color: ACCENT })
+
 // 色板 / 链接输入都从工具条下沿展开（相对 root 绝对定位）。
 globalStyle('.sn-itb-palette', {
   position: 'absolute',

@@ -28,11 +28,11 @@ export const search = style({
   display: 'flex',
   alignItems: 'center',
   gap: 8,
-  height: 30,
+  height: 'var(--sn-search-h, 30px)',
   padding: '0 10px 0 8px',
   border: 'none',
-  borderRadius: 4,
-  background: 'transparent',
+  borderRadius: 'var(--sn-search-radius, 4px)',
+  background: 'var(--sn-search-bg, transparent)',
   color: 'var(--affine-v2-text-tertiary)',
   font: 'inherit',
   fontSize: 14,
@@ -52,11 +52,11 @@ export const addPage = style({
   alignItems: 'center',
   justifyContent: 'center',
   border: 'none',
-  borderRadius: 8,
-  background: 'var(--affine-v2-button-iconButtonSolid)',
+  borderRadius: 'var(--sn-add-radius, 8px)',
+  background: 'var(--sn-add-bg, var(--affine-v2-button-iconButtonSolid))',
   color: 'var(--affine-v2-icon-primary)',
   cursor: 'pointer',
-  selectors: { '&:hover': { color: 'var(--affine-primary-color)' } },
+  selectors: { '&:hover': { color: 'var(--sn-add-hover, var(--affine-primary-color))' } },
 })
 
 /** AFFiNE 的 `MenuItem`：最小 30 高 / 圆角 4 / 图标 20。 */
@@ -69,7 +69,7 @@ export const navItem = style({
   width: '100%',
   padding: '0 6px',
   border: 'none',
-  borderRadius: 4,
+  borderRadius: 'var(--sn-row-radius, 4px)',
   background: 'transparent',
   color: 'var(--affine-v2-text-primary)',
   font: 'inherit',
@@ -79,11 +79,12 @@ export const navItem = style({
   selectors: { '&:hover': { background: 'var(--affine-v2-layer-background-hoverOverlay)' } },
 })
 
-/** 当前停留的页面：左侧竖条 + 主色文字，**不铺底色** —— 底色留给「正在看的那篇文档」，
- *  两种选中态长得一样时，视线分不清主区到底在哪。 */
+/** 当前停留的导航：默认左侧竖条 + 主色，不铺底（底色留给正在看的那篇）。
+ *  Notion 把 `--sn-nav-on-bar` 收成 0、改铺一层灰。 */
 export const navItemOn = style({
-  color: 'var(--affine-primary-color)',
+  color: 'var(--sn-nav-on, var(--affine-primary-color))',
   fontWeight: 500,
+  background: 'var(--sn-nav-on-bg, transparent)',
   selectors: {
     '&::before': {
       content: '""',
@@ -91,15 +92,17 @@ export const navItemOn = style({
       left: 0,
       top: 6,
       bottom: 6,
-      width: 2,
+      width: 'var(--sn-nav-on-bar, 2px)',
       borderRadius: 1,
-      background: 'var(--affine-primary-color)',
+      background: 'var(--sn-nav-on, var(--affine-primary-color))',
     },
   },
 })
 
 // 图标 span 自带颜色，选中态要盖过去；VE 不收 `& > span` 这种后代选择器，只能走 globalStyle。
-globalStyle(`${navItemOn} > span:first-child`, { color: 'var(--affine-primary-color)' })
+globalStyle(`${navItemOn} > span:first-child`, {
+  color: 'var(--sn-nav-on, var(--affine-primary-color))',
+})
 
 /** 图标统一 20px，颜色比文字淡一档（AFFiNE 的 `icon/primary`）。 */
 export const navIcon = style({
@@ -137,7 +140,7 @@ export const row = style({
   gap: 4,
   minHeight: 30,
   padding: '0 6px',
-  borderRadius: 4,
+  borderRadius: 'var(--sn-row-radius, 4px)',
   fontSize: 14,
   cursor: 'default',
   // 拖拽的插入线是绝对定位在这一行上的。
@@ -267,7 +270,7 @@ export const sectionHeader = style({
   justifyContent: 'space-between',
   height: 20,
   padding: '0 6px',
-  borderRadius: 4,
+  borderRadius: 'var(--sn-row-radius, 4px)',
   fontSize: 12,
   lineHeight: '20px',
   fontWeight: 500,
@@ -359,3 +362,6 @@ export const emptyText = style({
   color: 'var(--affine-v2-text-tertiary)',
   userSelect: 'none',
 })
+
+// 搜索行右侧的快捷键。默认不画 —— Notion 主题的附加表把它打开。
+globalStyle('.sn-kbd', { display: 'none' })

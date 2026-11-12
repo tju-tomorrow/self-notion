@@ -43,7 +43,7 @@ export function installTheme(ctx: Context): () => void {
     if (theme.scheme && theme.scheme !== ctx.theme.scheme) return
 
     const vars = {
-      ...expand(theme.seeds),
+      ...expand(theme.seeds, theme.tone),
       ...artVars(theme.seeds, theme),
     }
     for (const [key, value] of Object.entries(vars)) {

@@ -179,6 +179,7 @@ pub fn dispatch(
         "aiweb:voice-hide" => aiweb_call(app, win, crate::aiweb::voice_hide),
 
         // 朗读（Edge TTS，`src/tts.rs`）。划线读 / 全篇读都是一句一句来。
+        "read:warm" => crate::tts::warm(),
         "read:speak" => {
             let h = app.ok_or_else(|| ApiError::new("no_app", "这条命令需要窗口句柄"))?;
             crate::tts::speak(h, args)

@@ -16,9 +16,9 @@ import { KbSection } from './view'
 
 export const name = 'kb'
 
-// rpc：全部 `kb:*` 命令。i18n / slot：设置页那一段。
+// rpc：全部 `kb:*` 命令。settings：自动整理开关。i18n / slot：设置页那一段。
 // ★ `tools` 是软依赖（`ctx.get('tools')`），**不写进 inject** —— 漏了 rpc 才是永久 PENDING（D-0045）。
-export const inject = ['rpc', 'i18n', 'slot']
+export const inject = ['rpc', 'settings', 'i18n', 'slot']
 
 export function apply(ctx: Context) {
   ctx.effect(() => ctx.provide('kb', makeKbService(ctx)))

@@ -262,7 +262,7 @@ function buildPlugins(parts: {
     mentionPlugin(),
     // ★ 表格必须在 notionKeymap **之前**：`tableEditing` 靠 handleKeyDown 接管表格内的方向键和
     //   Backspace（删单元格选区），排在后面会被 notionKeymap 的 backspace 先吃掉。
-    tablePlugin(),
+    ...tablePlugin(),
     keymap(notionKeymap),
     inputRulesPlugin(),
     // 工具条那颗「评论」→ 把量好的选区交给评论插件（D-0079）。软依赖，没接上就不建那颗按钮。

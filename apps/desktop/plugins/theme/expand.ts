@@ -9,6 +9,7 @@
  *   写错一个字母 → `var()` 落空 → 整条声明作废（`shell.css.ts` 顶上那条警告）。
  * ★ 只写**项目真的引用过**的键（65 个，实测 grep）+ 自己那层 `--sn-*` 钩子。
  */
+import { notionVars } from './notion'
 import type { Seeds } from './types'
 
 /** 带透明度的染色：`on('#fff', 8)` = 8% 的白。 */
@@ -20,7 +21,7 @@ const blend = (a: string, pct: number, b: string) => `color-mix(in srgb, ${a} ${
 /** 影子统一偏靛黑，压在靛蓝画布上不发灰。 */
 const INK = '#05060f'
 
-export function expand(seeds: Seeds | null): Record<string, string> {
+export function expand(seeds: Seeds | null, tone?: 'notion'): Record<string, string> {
   if (!seeds) return {}
 
   const { canvas, sidebar, surface, accent, text, border } = seeds
@@ -34,7 +35,7 @@ export function expand(seeds: Seeds | null): Record<string, string> {
   const iconTertiary = blend(text, 42, canvas)
   const raise = on(text, 8) // 抬起（按钮底、内描边）
 
-  return {
+  const vars = {
     // ── 层：画布 / 卡片 / 浮层 ──────────────────────────────────────────────
     '--affine-v2-layer-background-primary': canvas,
     '--affine-background-primary-color': canvas,
@@ -130,6 +131,7 @@ export function expand(seeds: Seeds | null): Record<string, string> {
     // 纸面「跟随主题」时落到这儿 —— 于是那个选项从此真的跟随当前主题（D-0148）
     '--sn-paper-default': canvas,
   }
+  return tone === 'notion' ? { ...vars, ...notionVars(seeds) } : vars
 }
 
 /** 变量表 → 内联样式串。`;` 收尾 + 末尾空格，拼在 style 属性里是合法的。 */

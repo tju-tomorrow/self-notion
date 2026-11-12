@@ -10,9 +10,18 @@ import { globalStyle } from '@vanilla-extract/css'
 const BORDER = 'color-mix(in srgb, currentColor 34%, transparent)'
 const SELECT = 'var(--affine-primary-color, #1e96eb)'
 
+// 滚动条只出在表格这一块上。版心本身不跟着变宽（Notion 同款）。
+globalStyle('.sn-table-wrap', {
+  maxWidth: '100%',
+  overflowX: 'auto',
+  overflowY: 'hidden',
+  overscrollBehaviorX: 'contain',
+})
+
 globalStyle('.sn-table', {
   borderCollapse: 'collapse',
   tableLayout: 'fixed',
+  // 没拖过时铺满版心；拖过之后宽度写在行内 style 上，比这条优先。
   width: '100%',
   overflow: 'hidden',
 })
@@ -23,9 +32,10 @@ globalStyle('.sn-table-cell', {
   verticalAlign: 'middle',
   textAlign: 'left',
   boxSizing: 'border-box',
-  minWidth: 40,
+  minWidth: 48,
   padding: '7px 10px',
   lineHeight: 1.5,
+  overflowWrap: 'break-word',
   border: `1px solid ${BORDER}`,
 })
 
@@ -47,3 +57,17 @@ globalStyle('.sn-table-cell.selectedCell::after', {
   opacity: 0.16,
   pointerEvents: 'none',
 })
+
+// 鼠标贴着列边时官方插件塞进来的那根线。点不着，拖拽命中靠格子边缘那几像素。
+globalStyle('.column-resize-handle', {
+  position: 'absolute',
+  right: 0,
+  top: 0,
+  bottom: 0,
+  width: 2,
+  zIndex: 20,
+  background: SELECT,
+  pointerEvents: 'none',
+})
+
+globalStyle('.ProseMirror.resize-cursor', { cursor: 'col-resize' })
