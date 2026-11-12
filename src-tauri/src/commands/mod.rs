@@ -399,6 +399,11 @@ pub fn dispatch(
             let a: DocId = parse(args)?;
             blob::url(c, &a.id)
         }),
+        // 只回 mime / 大小，不回字节 —— 内置助手据它决定这张图要不要读。
+        "blob:meta" => call(db, |c| {
+            let a: DocId = parse(args)?;
+            blob::info(c, &a.id)
+        }),
 
         // ── 评论（D-0067）─────────────────────────────────────────────────────
         "comment:list" => call(db, |c| {

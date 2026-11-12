@@ -199,10 +199,19 @@ struct Msg {
     role: String,
     #[serde(default)]
     content: String,
+    /// 跟文字一起发的图（裸 base64）。拼成 OpenAI 那种 data URL 的 content parts。
+    #[serde(default)]
+    images: Vec<Img>,
     #[serde(default)]
     tool_calls: Vec<MsgCall>,
     #[serde(default)]
     tool_call_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct Img {
+    mime: String,
+    data: String,
 }
 
 #[derive(Deserialize)]
@@ -247,7 +256,24 @@ fn wire(m: &Msg) -> Value {
             };
             json!({ "role": "assistant", "content": content, "tool_calls": calls })
         }
-        _ => json!({ "role": m.role, "content": m.content }),
+        _ => {
+            if m.images.is_empty() {
+                return json!({ "role": m.role, "content": m.content });
+            }
+            // 带图的 user 消息：OpenAI 兼容的 content parts。tool 回执仍然只发文字
+            // （多数网关不收图片），图由前端补一条 user 消息带过来。
+            let mut parts: Vec<Value> = Vec::with_capacity(m.images.len() + 1);
+            parts.push(json!({ "type": "text", "text": m.content }));
+            for img in &m.images {
+                parts.push(json!({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": format!("data:{};base64,{}", img.mime, img.data)
+                    }
+                }));
+            }
+            json!({ "role": m.role, "content": Value::Array(parts) })
+        }
     }
 }
 

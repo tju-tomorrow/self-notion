@@ -1,8 +1,8 @@
 /**
  * `ctx.tools` —— agent 的工具面（D-0042 / D-0087）。
  *
- * **六条**：读三条（`vfs_list` / `vfs_grep` / `vfs_read`）+ 写三条（`doc_create` /
- * `doc_append` / `doc_replace`）。`ToolSpec.parameters` 就是给模型看的 JSON Schema ——
+ * **七条**：读三条（`vfs_list` / `vfs_grep` / `vfs_read`）+ 写四条（`doc_create` /
+ * `doc_append` / `doc_replace` / `doc_blocks`）。`ToolSpec.parameters` 就是给模型看的 JSON Schema ——
  * **一份定义**，唯一的消费者是 `plugin-ai`（D-0084 把 MCP 改成进程外只读 bin 之后，
  * 「一个定义两处导出」那句作废了）。见 `docs/ai.md` 第三节。
  *
@@ -25,6 +25,7 @@ import type {
   ToolSpec,
   ToolsService,
 } from '../../src/kernel/contract'
+import { readWithImages } from './media'
 
 export const name = 'plugin-tools'
 
@@ -66,6 +67,7 @@ export function apply(ctx: Context) {
   add(createTool(ctx))
   add(appendTool(ctx))
   add(replaceTool(ctx))
+  add(blocksTool(ctx))
 }
 
 /* ─────────────────────────── 读 ─────────────────────────── */
@@ -112,7 +114,8 @@ function readTool(ctx: Context): ToolSpec {
   return {
     name: 'vfs_read',
     description:
-      '读一个文件的正文（Markdown）。长文档用 offset / limit 分页读，别一次灌满上下文。',
+      '读一个文件的正文（Markdown）。长文档用 offset / limit 分页读，别一次灌满上下文。' +
+      '笔记里的图片会作为图片一起给你，正文里对应 [图片 N]。',
     parameters: {
       type: 'object',
       properties: {
@@ -126,7 +129,8 @@ function readTool(ctx: Context): ToolSpec {
       const a = obj(args)
       const offset = num(a, 'offset')
       const limit = num(a, 'limit')
-      return needVfs(ctx).read(str(a, 'path'), { offset, limit })
+      const text = await needVfs(ctx).read(str(a, 'path'), { offset, limit })
+      return readWithImages(ctx, text)
     },
   }
 }
@@ -136,12 +140,18 @@ function readTool(ctx: Context): ToolSpec {
 function createTool(ctx: Context): ToolSpec {
   return {
     name: 'doc_create',
-    description: '新建一篇文档。markdown 是正文，可以不给（先建个空页）。返回新文档的 id。',
+    description:
+      '新建一篇文档。正文可以给 markdown，也可以给 blocks（结构化块，优先）；都不给就先建个空页。返回新文档的 id。',
     parameters: {
       type: 'object',
       properties: {
         title: { type: 'string', description: '文档标题' },
         markdown: { type: 'string', description: '正文（Markdown）' },
+        blocks: {
+          type: 'array',
+          items: { type: 'object' },
+          description: '结构化块数组（写法同 doc_blocks）；给了它就忽略 markdown',
+        },
       },
       required: ['title'],
     },
@@ -149,7 +159,7 @@ function createTool(ctx: Context): ToolSpec {
       const a = obj(args)
       const groupId = needGroup(a)
       const doc = await write()
-      return doc.create(ctx, str(a, 'title'), str(a, 'markdown'), groupId)
+      return doc.create(ctx, str(a, 'title'), str(a, 'markdown'), groupId, a['blocks'])
     },
   }
 }
@@ -215,6 +225,50 @@ function replaceTool(ctx: Context): ToolSpec {
       const found = given.length ? given : await doc.findByQuote(ctx, id, str(a, 'quote'))
       if (!found.length) throw new Error('doc_replace：没说清要换哪一段（blockIds 或 quote 给一个）')
       return doc.replace(ctx, id, found, markdown, groupId)
+    },
+  }
+}
+
+function blocksTool(ctx: Context): ToolSpec {
+  return {
+    name: 'doc_blocks',
+    description:
+      '按块结构写笔记 —— 能用 Markdown 表达不了的块：callout / 折叠 / 公式 / 分栏 / 表格 / 块颜色 / 子页面卡片。' +
+      '不给 blockIds / quote 就追加到末尾；给了就换掉那一段。块写法看系统提示。',
+    parameters: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: '文档 id；也可以给 "/tree/某某.md" 路径' },
+        blocks: {
+          type: 'array',
+          items: { type: 'object' },
+          description: '块数组，每项有 type 和它自己的字段（text / children / rows / columns…）',
+        },
+        blockIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '要替换掉的块 id（不给就是追加）',
+        },
+        quote: { type: 'string', description: '要替换掉的那段原文里的一句话（替代 blockIds）' },
+      },
+      required: ['id', 'blocks'],
+    },
+    async run(args) {
+      const a = obj(args)
+      const spec = a['blocks']
+      if (!Array.isArray(spec) || spec.length === 0) throw new Error('doc_blocks：blocks 是空的')
+      const id = await resolve(ctx, str(a, 'id'))
+      const groupId = needGroup(a)
+      const doc = await write()
+      const given = strs(a, 'blockIds')
+      const quote = str(a, 'quote')
+      let target: string[] | undefined
+      if (given.length) target = given
+      else if (quote) {
+        target = await doc.findByQuote(ctx, id, quote)
+        if (!target.length) throw new Error('doc_blocks：没找到包含这句话的块（quote）')
+      }
+      return doc.blocks(ctx, id, spec, groupId, target)
     },
   }
 }

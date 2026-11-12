@@ -728,6 +728,14 @@ export function schemaOf(): unknown {
 /** 契约 `docFromMarkdown`：markdown → 整篇 doc JSON。解析器在 serializers 那一侧。 */
 export { docFromMarkdown } from './serializers/markdown'
 
+/** 契约 `docToMarkdown`：整篇 doc JSON → markdown。 */
+export function markdownOfJson(content: string): string {
+  return docToMarkdown(schema.nodeFromJSON(JSON.parse(content)))
+}
+
+/** 契约 `docFromBlocks`：块 DSL → 整篇 doc JSON。 */
+export { docFromBlocks } from './serializers/blocks'
+
 /* ── 评论（D-0067）：机制在 `comment.ts`（架构 §3.2：锚点是 `comment` mark），这里只转一道。 ── */
 
 /** 评论那一套。`connectDocs` 时会按 wiring 重建一次（hooks 要拿到评论插件）。 */

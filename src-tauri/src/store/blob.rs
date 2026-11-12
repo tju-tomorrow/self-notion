@@ -32,6 +32,22 @@ pub fn put(conn: &Connection, bytes: &[u8], mime: &str) -> ApiResult<BlobMeta> {
     Ok(BlobMeta { id, mime: mime.to_string(), size: bytes.len() as i64, dedup: dup })
 }
 
+/// 附件元数据。内置助手先看 mime / 大小，决定要不要把字节读出来。
+#[derive(Debug, Serialize)]
+pub struct BlobInfo {
+    pub id: String,
+    pub mime: String,
+    pub size: i64,
+}
+
+pub fn info(conn: &Connection, id: &str) -> ApiResult<Option<BlobInfo>> {
+    conn.query_row("SELECT id, mime, size FROM blob WHERE id = ?1", [id], |r| {
+        Ok(BlobInfo { id: r.get(0)?, mime: r.get(1)?, size: r.get(2)? })
+    })
+    .optional()
+    .map_err(db_err)
+}
+
 /// 只回 URL，不回字节。
 pub fn url(conn: &Connection, id: &str) -> ApiResult<String> {
     if !exists(conn, id)? {

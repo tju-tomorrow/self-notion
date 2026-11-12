@@ -113,6 +113,10 @@ export interface EditorService {
    *  别处再抄一份就会漂。拿到的整篇 doc JSON 里 `content[0]` 是那个 `blockGroup`，
    *  它的 children 就是块数组。 */
   docFromMarkdown(markdown: string): string
+  /** 正文（整篇 PM doc JSON 字符串）→ markdown。写工具落库时的投影用它，别拿纯文本顶。 */
+  docToMarkdown(content: string): string
+  /** 块 DSL（`doc_blocks` / `doc_create.blocks`）→ 整篇 doc JSON 字符串。 */
+  docFromBlocks(blocks: unknown): string
   /**
    * 这一篇**活文档**的正文（纯文本，按块树顺序摊平）。没打开过 → null。
    *
@@ -893,9 +897,17 @@ export interface DocWriteService {
   replaceAll(id: string, markdown: string, groupId: string, title?: string): Promise<AgentWriteResult>
 }
 
+/** 消息里附带的一张图。`data` 是裸 base64（不带 `data:` 前缀），Rust 那边拼成 data URL。 */
+export interface AiImage {
+  mime: string
+  data: string
+}
+
 export interface AiMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content: string
+  /** 跟文字一起发过去的图片（工具读到图时补一条 user 消息带上）。 */
+  images?: AiImage[]
   /**
    * 这条 assistant 消息要求调的**工具**。
    *

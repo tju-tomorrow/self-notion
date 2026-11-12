@@ -15,7 +15,14 @@
  */
 import type { Context } from 'cordis'
 
-import type { AiMessage, AiService, AiToolCall, ToolSpec, VersionMeta } from '../../src/kernel/contract'
+import type {
+  AiImage,
+  AiMessage,
+  AiService,
+  AiToolCall,
+  ToolSpec,
+  VersionMeta,
+} from '../../src/kernel/contract'
 import { DOCS_CHANGED } from '../../src/kernel/contract'
 import { reportError, reportNote } from '../../src/kernel/errors'
 import {
@@ -23,6 +30,7 @@ import {
   type AssistantTurn,
   type HarnessTool,
   type StreamTurn,
+  type ToolOutput,
 } from './harness'
 import { whereNow } from './place'
 import {
@@ -41,12 +49,19 @@ import { estimateTokens, requestTokens } from './tokens'
 const MAX_ROUNDS = 6
 
 /** 写工具的名字 —— 只有它们会动库（进撤销条），也只有它们不许和别的调用并发。 */
-const WRITES = new Set(['doc_create', 'doc_append', 'doc_replace'])
+const WRITES = new Set(['doc_create', 'doc_append', 'doc_replace', 'doc_blocks'])
 
 const BASE_PROMPT = [
   '你是这个笔记应用里的助手。你能读（vfs_list / vfs_grep / vfs_read）也能写（doc_create / doc_append / doc_replace）。',
   '读写都走一棵虚拟目录：先看 /index.md 拿全局地图，用 vfs_grep 定位，再 vfs_read 读正文（长文用 offset / limit 分页，别一次灌满）。',
+  '笔记里的图片会随 vfs_read 一起给你，正文里对应 [图片 N] —— 看得到内容，别再说图片读不了。',
   '要写就用 Markdown：新建一篇用 doc_create，往已有的末尾加用 doc_append，改一小段用 doc_replace。',
+  '结构化块用 doc_blocks（或 doc_create 的 blocks）：每项 {type, text, …}。' +
+    'type = paragraph / heading(level 1-3) / quote / callout(icon) / codeBlock(language) / equation(tex) / divider / ' +
+    'bulletedListItem / numberedListItem(start) / todoItem(checked) / toggle(open) / table(rows，第一行表头) / ' +
+    'image(blobId,caption) / video|audio|file(blobId,name) / subpage(docId) / columnList(columns，每列一个块数组) / ' +
+    'tableOfContents / breadcrumb。text 支持行内 markdown（**粗体** *斜体* `代码` [链接](url)），' +
+    'children 是嵌套块，color / bg 是块级文字色和背景色。',
   '不要尝试删除文档 —— 没有这个工具。回答用用户提问的语言，简短。',
 ].join('\n')
 
@@ -184,7 +199,7 @@ function toolsFor(specs: readonly ToolSpec[], groupId: string, written: Set<stri
         const result = await spec.run({ ...parseArgs(call.args), groupId })
         const id = (result as { id?: unknown } | null)?.id
         if (WRITES.has(spec.name) && typeof id === 'string') written.add(id)
-        return typeof result === 'string' ? result : JSON.stringify(result)
+        return asToolOutput(result)
       } catch (err) {
         // 工具失败是常态（模型给错参数），不当故障报 —— 但得能查到（AGENTS.md §3）。
         reportNote('ai', `工具 ${spec.name} 失败：${message(err)}`)
@@ -192,6 +207,17 @@ function toolsFor(specs: readonly ToolSpec[], groupId: string, written: Set<stri
       }
     },
   }))
+}
+
+/** 读工具可以带回图片（`{ text, images }`）；其余结果照旧序列化成一句话。 */
+function asToolOutput(result: unknown): string | ToolOutput {
+  if (result && typeof result === 'object' && 'text' in result) {
+    const { text, images } = result as { text?: unknown; images?: unknown }
+    if (typeof text === 'string') {
+      return { text, images: Array.isArray(images) ? (images as AiImage[]) : [] }
+    }
+  }
+  return typeof result === 'string' ? result : JSON.stringify(result)
 }
 
 /** 模型给的参数是**一段 JSON 文本**。不合法就响亮报错，让它自己重来。 */

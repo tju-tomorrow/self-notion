@@ -370,6 +370,17 @@ function toDocJson(blocks: readonly PMNode[]): string {
   return JSON.stringify(schema.nodes.doc.create({ title: '' }, group).toJSON())
 }
 
+/** 块 DSL 的 `text`：一小段行内 markdown → 行内节点。解不出来就当纯文本。 */
+export function inlineFromMarkdown(text: string): PMNode[] {
+  if (text === '') return []
+  try {
+    const first = parser.parse(text).firstChild
+    return first ? inlineOf(first) : [schema.text(text)]
+  } catch {
+    return [schema.text(text)]
+  }
+}
+
 /** markdown → 整篇 doc JSON 字符串。坏输入降级成「一个空段落块」，别让调用方拿到半个文档。 */
 export function docFromMarkdown(markdown: string): string {
   const blocks: PMNode[] = []

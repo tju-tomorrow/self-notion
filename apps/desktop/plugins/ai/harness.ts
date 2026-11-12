@@ -21,7 +21,7 @@
  *   4. **每轮上限**：模型绕圈时有个硬收口（pi 靠 `finishTurn` / `terminate` 收，我们面向单人、
  *      只有「中断」这一个出口，所以留一条硬上限）。
  */
-import type { AiMessage, AiToolCall } from '../../src/kernel/contract'
+import type { AiImage, AiMessage, AiToolCall } from '../../src/kernel/contract'
 
 /** 定稿的一条 assistant。`stop` = 这一轮为什么停（就是 `AiChunk` 里 `end.reason` 那个值）。 */
 export interface AssistantTurn extends AiMessage {
@@ -32,13 +32,19 @@ export interface AssistantTurn extends AiMessage {
 /** 一次模型往返：键在**流**里（自己往界面上推增量），回一条定稿的 turn。 */
 export type StreamTurn = (messages: readonly AiMessage[], signal: AbortSignal) => Promise<AssistantTurn>
 
+/** 工具的返回。带图时循环会在这一批工具回执后面补一条 user 消息把图发过去。 */
+export interface ToolOutput {
+  text: string
+  images?: AiImage[]
+}
+
 /** 循环要的一个工具。比契约里的 `ToolSpec` 窄 —— 循环不看 `description` / `parameters`。 */
 export interface HarnessTool {
   name: string
   /** `'sequential'` = 不许和这一批里的别的调用并发。**写工具必须**：两条 `doc_append` 一起跑就是抢同一篇。 */
   executionMode?: 'parallel' | 'sequential'
   /** 回一句给模型看的话。**抛异常也行** —— 循环接着它，当成一次失败的结果回给模型。 */
-  run(call: AiToolCall, signal: AbortSignal): Promise<string>
+  run(call: AiToolCall, signal: AbortSignal): Promise<string | ToolOutput>
 }
 
 export interface HarnessHooks {
@@ -83,8 +89,19 @@ export async function runLoop(
       turn.stop === 'length'
         ? calls.map((call) => truncated(call, hooks))
         : await runTools(calls, hooks, signal)
-    messages.push(...results)
+    messages.push(...results.map((result) => result.message))
+    // 图片不能塞进 tool 回执（多数网关不收），所以一批跑完后补一条 user。
+    const images = results.flatMap((result) => result.images)
+    if (images.length) {
+      messages.push({ role: 'user', content: '（下面是工具读到的图片）', images })
+    }
   }
+}
+
+/** 一次工具回执 + 它顺带捞到的图。 */
+interface ToolResult {
+  message: AiMessage
+  images: AiImage[]
 }
 
 /** 一次工具调用跑完，变成一条 `role: 'tool'` 的回执。`isError` 只给界面看 —— 模型读的是正文。 */
@@ -92,28 +109,32 @@ async function runOne(
   call: AiToolCall,
   hooks: HarnessHooks,
   signal: AbortSignal,
-): Promise<AiMessage> {
+): Promise<ToolResult> {
   const tool = hooks.tools.find((one) => one.name === call.name)
-  const done = (content: string, isError: boolean): AiMessage => {
+  const done = (content: string, isError: boolean, images: AiImage[] = []): ToolResult => {
     hooks.onToolEnd?.(call, isError)
-    return { role: 'tool', toolCallId: call.id, content }
+    return { message: { role: 'tool', toolCallId: call.id, content }, images }
   }
   if (!tool) return done(`没有这个工具：${call.name}`, true)
   if (signal.aborted) return done(`${call.name} 没有执行：这一回合被中断了。`, true)
   try {
-    return done(await tool.run(call, signal), false)
+    const output = await tool.run(call, signal)
+    return typeof output === 'string' ? done(output, false) : done(output.text, false, output.images)
   } catch (err) {
     return done(err instanceof Error ? err.message : String(err), true)
   }
 }
 
 /** 撞了输出上限的那一批 —— 一个都不跑，逐个报一句（见模块头第 3 条）。 */
-function truncated(call: AiToolCall, hooks: HarnessHooks): AiMessage {
+function truncated(call: AiToolCall, hooks: HarnessHooks): ToolResult {
   hooks.onToolEnd?.(call, true)
   return {
-    role: 'tool',
-    toolCallId: call.id,
-    content: `${call.name} 没有执行：这一轮的输出撞到了上限，参数可能被切在半句上。请重新提一次。`,
+    message: {
+      role: 'tool',
+      toolCallId: call.id,
+      content: `${call.name} 没有执行：这一轮的输出撞到了上限，参数可能被切在半句上。请重新提一次。`,
+    },
+    images: [],
   }
 }
 
@@ -121,7 +142,7 @@ async function runTools(
   calls: readonly AiToolCall[],
   hooks: HarnessHooks,
   signal: AbortSignal,
-): Promise<AiMessage[]> {
+): Promise<ToolResult[]> {
   // 有一条必须串行 → **整批**串行（pi 的 `hasSequentialToolCall`）：读和写混在一批时，
   // 让读去等写，比让写互相踩要安全。
   const oneAtATime = calls.some(
@@ -129,7 +150,7 @@ async function runTools(
   )
   if (!oneAtATime) return Promise.all(calls.map((call) => runOne(call, hooks, signal)))
 
-  const out: AiMessage[] = []
+  const out: ToolResult[] = []
   for (const call of calls) {
     if (signal.aborted) break
     out.push(await runOne(call, hooks, signal))

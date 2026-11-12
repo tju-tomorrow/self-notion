@@ -80,11 +80,28 @@ function blockId(): string {
 
 /** markdown → 块数组。`docFromMarkdown` 回的是一整篇 doc：`content[0]` 是那个 `blockGroup`，它的 children 才是块。 */
 function blocksFrom(ctx: Context, schema: Schema, markdown: string): PMNode[] {
-  const whole = JSON.parse(ctx.editor.docFromMarkdown(markdown)) as {
-    content?: { content?: unknown[] }[]
-  }
+  return nodesFrom(ctx, schema, ctx.editor.docFromMarkdown(markdown))
+}
+
+/** 块 DSL → 块数组（结构化写工具）。 */
+function blocksFromSpec(ctx: Context, schema: Schema, spec: unknown): PMNode[] {
+  return nodesFrom(ctx, schema, ctx.editor.docFromBlocks(spec))
+}
+
+function nodesFrom(ctx: Context, schema: Schema, json: string): PMNode[] {
+  const whole = JSON.parse(json) as { content?: { content?: unknown[] }[] }
   const raw = whole.content?.[0]?.content ?? []
   return raw.map((b) => freshIds(PMNode.fromJSON(schema, b)))
+}
+
+/** 结构化写的版本说明：取第一个块的 text，没有就用类型。 */
+function specLabel(spec: unknown, fallback: string): string {
+  if (Array.isArray(spec)) {
+    const first = spec[0] as { text?: unknown; type?: unknown } | undefined
+    if (typeof first?.text === 'string' && first.text.trim()) return first.text.trim().slice(0, 60)
+    if (typeof first?.type === 'string') return first.type
+  }
+  return fallback
 }
 
 /** 给插入的子树换一批新块 id —— id 是评论 / 拖拽 / 落库对齐的唯一锚点，重复的 id 会让定位对不上。 */
@@ -112,24 +129,21 @@ async function commit(
   label: string,
 ): Promise<string> {
   const title = String(doc.attrs.title ?? '')
+  const content = JSON.stringify(doc.toJSON())
   await ctx.rpc.call('doc:apply', {
     id,
-    content: JSON.stringify(doc.toJSON()),
+    content,
     origin: 'ai',
     groupId,
     label,
     title,
-    md: textOf(doc),
+    // 投影必须是 markdown：`vfs_read` / `notes_read` 与下一次写都读它，纯文本会把结构弄丢。
+    md: ctx.editor.docToMarkdown(content),
   })
   await ctx.editor.reload(id)
   // 标题 / 更新时间可能变了 —— 侧栏、标签条、首页靠这条事件重取（D-0073）。
   ctx.emit(DOCS_CHANGED)
   return title
-}
-
-/** 正文投影（纯文本，按块树顺序摊平）—— Rust 拿它喂 FTS / 首页摘要（`doc_text`）。 */
-function textOf(doc: PMNode): string {
-  return doc.textBetween(0, doc.content.size, '\n\n')
 }
 
 /* ─────────────────────────── 三个动作 ─────────────────────────── */
@@ -140,19 +154,22 @@ export async function create(
   title: string,
   markdown: string,
   groupId: string,
+  spec?: unknown,
 ): Promise<WriteResult> {
   try {
     const meta = await ctx.rpc.call<DocMeta>('doc:create', { title })
-    if (!markdown.trim()) {
+    if (!markdown.trim() && spec === undefined) {
       // 空文档也要说一声 —— 侧栏 / 首页靠这条事件重取列表，不然新建的那篇看不见。
       ctx.emit(DOCS_CHANGED)
       return { id: meta.id, title, blocks: 0 }
     }
     await ctx.editor.ready()
     const schema = ctx.editor.schema() as Schema
-    const blocks = blocksFrom(ctx, schema, markdown)
+    const blocks =
+      spec !== undefined ? blocksFromSpec(ctx, schema, spec) : blocksFrom(ctx, schema, markdown)
+    const label = spec !== undefined ? specLabel(spec, title) : labelOf(markdown, title)
     // 正文顶上那个大标题就是这篇的名字（D-0073）—— 标题是 doc 的 attr（架构 §3.3），和正文一起落库。
-    await commit(ctx, meta.id, makeDoc(schema, title, blocks), groupId, labelOf(markdown, title))
+    await commit(ctx, meta.id, makeDoc(schema, title, blocks), groupId, label)
     return { id: meta.id, title, blocks: blocks.length }
   } catch (err) {
     reportError('tools', err)
@@ -208,6 +225,39 @@ export async function replace(
 
     const title = await commit(ctx, id, tr.doc ?? doc, groupId, labelOf(markdown, ''))
     return { id, title, blocks: blocks.length }
+  } catch (err) {
+    reportError('tools', err)
+    throw err
+  }
+}
+
+/**
+ * 结构化追加 / 替换（`doc_blocks`）。`target` 为空 = 追加到末尾；给了块 id = 换掉那几块。
+ */
+export async function blocks(
+  ctx: Context,
+  id: string,
+  spec: unknown,
+  groupId: string,
+  target?: string[],
+): Promise<WriteResult> {
+  try {
+    const { doc, schema } = await loadDoc(ctx, id)
+    const added = blocksFromSpec(ctx, schema, spec)
+    const tr = new Transform(doc)
+    let at = doc.content.size - 1
+    if (target?.length) {
+      const hits = collectBlocks(doc, target)
+      if (!hits.length) throw new Error('doc_blocks：这些块 id 一个都不在这篇里')
+      // 从后往前删，hits[0].pos 删完还是那个锚点（同 `replace`）。
+      for (let i = hits.length - 1; i >= 0; i--) {
+        tr.delete(hits[i].pos, hits[i].pos + hits[i].node.nodeSize)
+      }
+      at = hits[0].pos
+    }
+    tr.insert(at, added)
+    const title = await commit(ctx, id, tr.doc ?? doc, groupId, specLabel(spec, ''))
+    return { id, title, blocks: added.length }
   } catch (err) {
     reportError('tools', err)
     throw err

@@ -390,6 +390,14 @@ function rows(lines: Line[]): ReactNode[] {
       )
       continue
     }
+    if (line.role === 'ai') {
+      out.push(
+        <div key={i} className={s.bubbleAi}>
+          <Markdown text={line.text} />
+        </div>,
+      )
+      continue
+    }
     if (!line.tool) {
       // 老会话里工具行没有 `tool`（D-0097 之前存的）—— 当一句淡字画出来。
       out.push(

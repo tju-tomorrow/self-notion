@@ -197,6 +197,18 @@ export function apply(ctx: Context) {
         return mod.docFromMarkdown(markdown)
       },
 
+      /** 整篇 doc JSON → markdown（契约 `docToMarkdown`）：写工具落库的投影，别丢结构。 */
+      docToMarkdown(content: string): string {
+        if (mod === null) throw new Error('编辑器还没装载：先 await ctx.editor.ready()')
+        return mod.markdownOfJson(content)
+      },
+
+      /** 块 DSL → 整篇 doc JSON（契约 `docFromBlocks`）：结构化写工具的入口。 */
+      docFromBlocks(blocks: unknown): string {
+        if (mod === null) throw new Error('编辑器还没装载：先 await ctx.editor.ready()')
+        return mod.docFromBlocks(blocks)
+      },
+
       /** 还没装载过 = 一篇都没打开过 → null。 */
       text: (id: string) => mod?.liveText(id) ?? null,
 
