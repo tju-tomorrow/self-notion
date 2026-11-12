@@ -29,6 +29,7 @@ import {
   TagIcon,
 } from '@blocksuite/icons/rc'
 import { DOCS_CHANGED, OPEN_DOC, type DocMeta } from '../kernel/contract'
+import { nextCopyTitle, retitleDocJson } from '../kernel/doc-name'
 import { reportError } from '../kernel/errors'
 import { copyText } from './clipboard'
 import { confirmDialog } from './confirm'
@@ -90,14 +91,24 @@ function copyLink(id: string): Promise<void> {
  *  副本留在**原文档同一层**（parentId 跟着源走），不是每次都甩到顶层。 */
 async function duplicate(ctx: Context, doc: DocMeta): Promise<void> {
   const title = doc.title || ctx.i18n.t('doc.untitled')
+  // `(1) (2) (3)…` 只在**同一层**里排，取已有最大编号 + 1。
+  const all = await ctx.rpc.call<DocMeta[]>('doc:list', { includeTrashed: false })
+  const copyTitle = nextCopyTitle(title, doc.parentId, all)
   const src = await ctx.rpc.call<{ content: string | null }>('doc:open', {
     id: doc.id,
   })
   const made = await ctx.rpc.call<DocMeta>('doc:create', {
     parentId: doc.parentId,
-    title: `${title} ${ctx.i18n.t('doc.copySuffix')}`,
+    title: copyTitle,
+    icon: doc.icon ?? undefined,
   })
-  if (src.content !== null) await ctx.rpc.call('doc:apply', { id: made.id, content: src.content })
+  if (src.content !== null) {
+    await ctx.rpc.call('doc:apply', {
+      id: made.id,
+      content: retitleDocJson(src.content, copyTitle),
+      title: copyTitle,
+    })
+  }
   ctx.emit(DOCS_CHANGED)
   ctx.emit(OPEN_DOC, { id: made.id })
 }

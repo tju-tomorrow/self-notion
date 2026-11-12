@@ -94,6 +94,35 @@ pub fn api(
     out
 }
 
+/// 慢命令（联网 / 拉模型 / 起进程）走这条：async 命令不在主线程上跑，再扔进阻塞池。
+///
+/// ★ 普通 `api` 是**同步命令**，Tauri 把它放在主线程执行 —— `backup:now` 一次 5–8 秒的
+///   GitHub 往返会把窗口帧一起冻住（perf.log 里每条 `freeze-begin` 的 `in_flight` 都是它）。
+///   前端按方法名前缀选这条（`plugins/plugin-rpc/index.ts` 的 `SLOW`）。
+#[tauri::command]
+pub async fn api_bg(
+    app: tauri::AppHandle,
+    window: tauri::Window,
+    state: tauri::State<'_, std::sync::Arc<Db>>,
+    req: Request,
+) -> ApiResult<Value> {
+    let Request { method, args } = req;
+    let label = window.label().to_string();
+    let db = std::sync::Arc::clone(state.inner());
+    drop(state);
+    let at = std::time::Instant::now();
+    crate::perf::rpc_begin(&label, &method);
+    let task_label = label.clone();
+    let task_method = method.clone();
+    let out = tauri::async_runtime::spawn_blocking(move || {
+        dispatch(Some(&app), Some(task_label.as_str()), &db, &task_method, args)
+    })
+    .await
+    .map_err(|e| ApiError::new("join", e.to_string()))?;
+    crate::perf::rpc_end(&label, &method, at.elapsed().as_millis() as u64);
+    out
+}
+
 /// `"命名空间:方法名"` → 一个 match 分支。
 ///
 /// `app` 是 `Option`：碰 SQL 的那些分支不看它，只有 `aiweb:*`（要操作窗口 / 子 webview）才要。

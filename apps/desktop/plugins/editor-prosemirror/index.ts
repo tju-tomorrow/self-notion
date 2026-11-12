@@ -19,10 +19,11 @@ import {
   type CommentTarget,
   type DocMeta,
 } from '../../src/kernel/contract'
+import { nextCopyTitle, retitleDocJson } from '../../src/kernel/doc-name'
 import { reportError } from '../../src/kernel/errors'
 import { setLoadBacklinks } from './backlinks'
 import { setPutBlob } from './blob'
-import { setCreateDoc, setDocs, setLoadDoc, setOpenDoc } from './doc-meta'
+import { allDocs, setCreateDoc, setDocs, setLoadDoc, setOpenDoc } from './doc-meta'
 import { setSyncApi } from './sync'
 import { setScheme as setMermaidScheme } from './nodes/mermaid'
 import { FindPanel, type FindApi } from './find-panel'
@@ -32,6 +33,19 @@ import { registerEditorView, reloadDoc } from './view'
 type EditorModule = typeof import('./editor')
 
 export const name = 'editor-prosemirror'
+
+/** 刚建出来、还没进 `allDocs()` 的副本名 —— 连着复制两次也不会都叫 (1)。 */
+const reservedCopies: { title: string; parentId: string | null }[] = []
+
+function namePool(): { title: string; parentId: string | null }[] {
+  const docs = allDocs().map((d) => ({ title: d.title, parentId: d.parentId }))
+  const live = new Set(docs.map((d) => `${d.parentId ?? ''}\u0000${d.title}`))
+  for (let i = reservedCopies.length - 1; i >= 0; i -= 1) {
+    const r = reservedCopies[i]
+    if (live.has(`${r.parentId ?? ''}\u0000${r.title}`)) reservedCopies.splice(i, 1)
+  }
+  return [...docs, ...reservedCopies]
+}
 
 // 硬依赖（CONVENTIONS §6.4）：docs 没就位就不装载 —— 与其给一个打不开文档的编辑器，不如没有编辑器。
 // rpc：栏头的页名要 `doc:list`（跟标签条同一条路）。
@@ -70,6 +84,46 @@ export function apply(ctx: Context) {
         saved: (docId) => ctx.emit(DOC_SAVED, { id: docId }),
         // 标题变了 → 广播，让标签条 / 侧栏 / 面包屑重取（rename 那条路也是这么做的）。
         docsChanged: () => ctx.emit(DOCS_CHANGED),
+        // 正文里的 subpage 卡片被粘 / 拖进别篇 → 库里的 parent_id 跟着走（面包屑读它）。
+        moveSubpage: (childId, parentId) => {
+          const byId = new Map(allDocs().map((d) => [d.id, d]))
+          if (byId.get(childId)?.parentId === parentId) return
+          // 不许把页面挪到自己的子孙下面（库那边不校验，这里先挡）。
+          let cursor: string | null = parentId
+          for (let guard = 0; cursor !== null && guard < 512; guard += 1) {
+            if (cursor === childId) return
+            cursor = byId.get(cursor)?.parentId ?? null
+          }
+          void ctx.rpc
+            .call('doc:move', { id: childId, parentId })
+            .then(() => ctx.emit(DOCS_CHANGED))
+            .catch((err: unknown) => reportError('editor-prosemirror', err))
+        },
+        // ⌘C → ⌘V 复制一张子页面卡片：深拷一份新页面（后端没有 duplicate，用 open + create + apply 拼）。
+        duplicateSubpage: async (sourceId, parentId) => {
+          try {
+            const src = allDocs().find((d) => d.id === sourceId)
+            const title = src?.title || ctx.i18n.t('doc.untitled')
+            const copyTitle = nextCopyTitle(title, parentId, namePool())
+            const payload = await ctx.rpc.call<{ content: string | null }>('doc:open', { id: sourceId })
+            const made = await ctx.rpc.call<DocMeta>('doc:create', {
+              parentId,
+              title: copyTitle,
+              icon: src?.icon ?? undefined,
+            })
+            reservedCopies.push({ title: copyTitle, parentId })
+            if (payload.content !== null) {
+              // 正文里也有一份标题（`doc.attrs.title`）—— 两边一起写，否则打开副本又变回原名。
+              const content = retitleDocJson(payload.content, copyTitle)
+              await ctx.rpc.call('doc:apply', { id: made.id, content, title: copyTitle })
+            }
+            ctx.emit(DOCS_CHANGED)
+            return made.id
+          } catch (err) {
+            reportError('editor-prosemirror', err)
+            return null
+          }
+        },
         // 编辑器那层不认识 i18n，占位文案装载时写进去。
         untitled: ctx.i18n.t('doc.untitled'),
         outline: ctx.i18n.t('editor.outline'),

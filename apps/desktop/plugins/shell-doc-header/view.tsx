@@ -37,6 +37,7 @@ import {
   type DocMeta,
   type DocSummary,
 } from '../../src/kernel/contract'
+import { nextCopyTitle, retitleDocJson } from '../../src/kernel/doc-name'
 import { reportError } from '../../src/kernel/errors'
 import { SlotHost } from '../../src/shell/slot-host'
 import { copyText } from '../../src/ui/clipboard'
@@ -636,12 +637,21 @@ async function copyBody(ctx: Context, id: string): Promise<void> {
 
 /** 创建副本：建一篇新的，把源文档的正文灌进去。后端没有 duplicate，用现成的 open + apply 拼。 */
 async function duplicate(ctx: Context, id: string, title: string): Promise<void> {
+  // 这一条把副本放在顶层，编号也按顶层数（`标题 (1) (2) …`）。
+  const all = await ctx.rpc.call<DocMeta[]>('doc:list', { includeTrashed: false })
+  const copyTitle = nextCopyTitle(title, null, all)
   const src = await ctx.rpc.call<{ content: string | null }>('doc:open', { id })
   const made = await ctx.rpc.call<DocMeta>('doc:create', {
     parentId: null,
-    title: `${title} ${ctx.i18n.t('doc.copySuffix')}`,
+    title: copyTitle,
   })
-  if (src.content !== null) await ctx.rpc.call('doc:apply', { id: made.id, content: src.content })
+  if (src.content !== null) {
+    await ctx.rpc.call('doc:apply', {
+      id: made.id,
+      content: retitleDocJson(src.content, copyTitle),
+      title: copyTitle,
+    })
+  }
   ctx.emit(DOCS_CHANGED)
   ctx.emit(OPEN_DOC, { id: made.id })
 }

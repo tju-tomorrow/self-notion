@@ -14,6 +14,7 @@ import {
   type MarkdownSerializerState,
 } from 'prosemirror-markdown'
 import {
+  DOMParser as PMDOMParser,
   Schema,
   type Mark as PMMark,
   type Node as PMNode,
@@ -37,30 +38,80 @@ const DOC_PREFIX = 'self-notion://doc/'
 // 只供解析用的 schema，形状照 markdown（有 bulletList / listItem 这层包装）。marks 只用名字 —— 转的时候重建。
 const mdNodes: Record<string, NodeSpec> = {
   doc: { content: 'mdBlock+' },
-  paragraph: { content: 'inline*', group: 'mdBlock' },
-  heading: { content: 'inline*', group: 'mdBlock', attrs: { level: { default: 1 } } },
-  codeBlock: { content: 'text*', group: 'mdBlock', attrs: { language: { default: '' } } },
-  divider: { atom: true, group: 'mdBlock' },
+  // parseDOM 是给「粘贴 HTML」那条路用的（`blocksFromHtml`）；markdown 解析不吃它。
+  paragraph: { content: 'inline*', group: 'mdBlock', parseDOM: [{ tag: 'p' }] },
+  heading: {
+    content: 'inline*',
+    group: 'mdBlock',
+    attrs: { level: { default: 1 } },
+    parseDOM: [
+      { tag: 'h1', attrs: { level: 1 } },
+      { tag: 'h2', attrs: { level: 2 } },
+      { tag: 'h3', attrs: { level: 3 } },
+      { tag: 'h4', attrs: { level: 4 } },
+      { tag: 'h5', attrs: { level: 5 } },
+      { tag: 'h6', attrs: { level: 6 } },
+    ],
+  },
+  codeBlock: {
+    content: 'text*',
+    group: 'mdBlock',
+    attrs: { language: { default: '' } },
+    parseDOM: [{ tag: 'pre', preserveWhitespace: 'full' }],
+  },
+  divider: { atom: true, group: 'mdBlock', parseDOM: [{ tag: 'hr' }] },
   // 行内图片（markdown 就是这么给的）—— 转的时候按「整段只有图」拆成块。
-  image: { atom: true, inline: true, group: 'inline', attrs: { src: { default: '' }, alt: { default: '' } } },
-  hardbreak: { atom: true, inline: true, group: 'inline' },
-  mdQuote: { content: 'mdBlock+', group: 'mdBlock' },
-  bulletList: { content: 'listItem+', group: 'mdBlock' },
-  orderedList: { content: 'listItem+', group: 'mdBlock', attrs: { start: { default: 1 } } },
-  listItem: { content: 'mdBlock+' },
+  image: {
+    atom: true,
+    inline: true,
+    group: 'inline',
+    attrs: { src: { default: '' }, alt: { default: '' } },
+    parseDOM: [
+      {
+        tag: 'img[src]',
+        getAttrs: (el) => ({
+          src: (el as HTMLImageElement).getAttribute('src') ?? '',
+          alt: (el as HTMLImageElement).getAttribute('alt') ?? '',
+        }),
+      },
+    ],
+  },
+  hardbreak: { atom: true, inline: true, group: 'inline', parseDOM: [{ tag: 'br' }] },
+  mdQuote: { content: 'mdBlock+', group: 'mdBlock', parseDOM: [{ tag: 'blockquote' }] },
+  bulletList: { content: 'listItem+', group: 'mdBlock', parseDOM: [{ tag: 'ul' }] },
+  orderedList: {
+    content: 'listItem+',
+    group: 'mdBlock',
+    attrs: { start: { default: 1 } },
+    parseDOM: [
+      {
+        tag: 'ol',
+        getAttrs: (el) => ({ start: Math.max(1, Number((el as HTMLOListElement).getAttribute('start')) || 1) }),
+      },
+    ],
+  },
+  listItem: { content: 'mdBlock+', parseDOM: [{ tag: 'li' }] },
   text: { group: 'inline' },
 }
 
 const mdSchema = new Schema({
   nodes: mdNodes,
   marks: {
-    bold: {},
-    italic: {},
-    strike: {},
-    underline: {},
-    code: {},
-    link: { attrs: { href: { default: '' } } },
-    highlight: { attrs: { color: { default: '' } } },
+    bold: { parseDOM: [{ tag: 'strong' }, { tag: 'b' }] },
+    italic: { parseDOM: [{ tag: 'em' }, { tag: 'i' }] },
+    strike: { parseDOM: [{ tag: 's' }, { tag: 'del' }, { tag: 'strike' }] },
+    underline: { parseDOM: [{ tag: 'u' }] },
+    code: { parseDOM: [{ tag: 'code' }] },
+    link: {
+      attrs: { href: { default: '' } },
+      parseDOM: [
+        {
+          tag: 'a[href]',
+          getAttrs: (el) => ({ href: (el as HTMLAnchorElement).getAttribute('href') ?? '' }),
+        },
+      ],
+    },
+    highlight: { attrs: { color: { default: '' } }, parseDOM: [{ tag: 'mark' }] },
     textColor: { attrs: { color: { default: '' } } },
   },
 })
@@ -337,6 +388,25 @@ export function blocksFromMarkdown(markdown: string): PMNode[] | null {
   try {
     const blocks: PMNode[] = []
     mdBlocks(markdown, blocks)
+    return blocks.length > 0 ? blocks : null
+  } catch (err) {
+    reportError('editor-prosemirror', err)
+    return null
+  }
+}
+
+/**
+ * HTML → 块数组（粘贴带列表的网页内容）。**必须自己解**：`<li>` 里直接放 `<p>` 时，
+ * PM 按我们的 schema 会把段落甩到列表项外面，一条列表就散成「空条目 + 段落」。
+ * 这里先用按 HTML 形状造的临时 schema 解，再走和 markdown 同一条转换（多出来的段落落成 children）。
+ */
+export function blocksFromHtml(html: string): PMNode[] | null {
+  try {
+    const dom = document.implementation.createHTMLDocument('')
+    dom.body.innerHTML = html
+    const parsed = PMDOMParser.fromSchema(mdSchema).parse(dom.body)
+    const blocks: PMNode[] = []
+    parsed.forEach((child) => convertBlock(child, blocks, NO_RANGE))
     return blocks.length > 0 ? blocks : null
   } catch (err) {
     reportError('editor-prosemirror', err)

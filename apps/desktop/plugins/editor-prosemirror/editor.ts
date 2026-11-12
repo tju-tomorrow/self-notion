@@ -64,6 +64,11 @@ export interface EditorWiring {
   /** **标题变过**了 → 外壳发 `DOCS_CHANGED`：库里的名字变了，标签条 / 侧栏 / 面包屑要重取。
    *  存盘不广播的话，列表永远停在旧名字上（用户 2026-10-08：「不同步了又」）。 */
   docsChanged(): void
+  /** 正文里的 subpage 卡片被粘 / 拖进别篇 → 让库里那条文档的 `parent_id` 跟着走
+   *  （面包屑、侧栏读的都是它）。 */
+  moveSubpage?(childId: string, parentId: string): void
+  /** ⌘C → ⌘V 粘一张子页面卡片：建一份新页面（标题带 `(1)`），返回新 id。 */
+  duplicateSubpage?(sourceId: string, parentId: string): Promise<string | null>
   /** 往评论插件去的两个口子（形状在 `comment.ts`）—— 编辑器这一层不认识 `ctx`。 */
   comment: CommentHooks
   /** 工具条「读」：把选区交给朗读插件。没装上就不响。 */
@@ -285,7 +290,12 @@ function buildPlugins(parts: {
     // 空白处按住拖动 → 划过的块一串选上（跟手柄的 ⇧ 点是同一套块选区）。
     blankDragPlugin(),
     // 粘贴：只接管「剪贴板里有文件」（图片 / 附件），纯文本 / HTML / 块一律交回 PM。
-    pastePlugin(),
+    pastePlugin({
+      docId: parts.docId,
+      moveSubpage: (childId, parentId) => wiring?.moveSubpage?.(childId, parentId),
+      duplicateSubpage: (sourceId, parentId) =>
+        wiring?.duplicateSubpage?.(sourceId, parentId) ?? Promise.resolve(null),
+    }),
     // 拖拽的落点线。不装就没那条线（拖拽本身照样能用）。
     dropCursor({ color: 'var(--sn-accent, #1e96eb)', width: 2 }),
     findPlugin, // 查找命中的高亮（decoration）

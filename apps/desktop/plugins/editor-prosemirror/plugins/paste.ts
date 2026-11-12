@@ -15,10 +15,11 @@ import type { EditorView } from 'prosemirror-view'
 
 import { reportError } from '../../../src/kernel/errors'
 import { putBlob } from '../blob'
-import { blocksFromMarkdown } from '../serializers/markdown'
+import { blocksFromHtml, blocksFromMarkdown } from '../serializers/markdown'
 import { newBlockId } from '../commands'
 import { blockAt, type BlockRef } from '../commands/block'
 import { schema } from '../schema'
+import { findBlock } from './block-selection'
 
 /** 一个待插入的来源（剪贴板里的文件 / HTML 里的 data: URL）—— 都收敛成「能 load 出一个 Blob」。 */
 interface Source {
@@ -35,9 +36,141 @@ interface Targets {
   replace: boolean
 }
 
-export function pastePlugin(): Plugin {
+export interface PasteWiring {
+  docId: string
+  /** 剪切粘贴 / 移动拖放：把该文档的 `parent_id` 挪到这一篇下面。 */
+  moveSubpage?(childId: string, parentId: string): void
+  /** 复制粘贴：深拷一份新页面，返回新 id（卡片随后改指它）。 */
+  duplicateSubpage?(sourceId: string, parentId: string): Promise<string | null>
+}
+
+/** 「刚才剪切的是哪几张卡」—— copy / cut 都是系统剪贴板，区分不开，只能自己记一笔。 */
+const CUT_KEY = 'sn-subpage-cut'
+const CUT_TTL = 120_000
+
+function recordCut(ids: readonly string[]): void {
+  if (ids.length === 0) return
+  try {
+    localStorage.setItem(CUT_KEY, JSON.stringify({ ids, at: Date.now() }))
+  } catch {
+    // 私密模式 / 配额满：退化成「当复制处理」
+  }
+}
+
+function clearCut(): void {
+  try {
+    localStorage.removeItem(CUT_KEY)
+  } catch {
+    // 同上
+  }
+}
+
+/** 剪贴板里这几张卡是不是刚被剪切过 —— 是的话清掉记录（一次剪切只认一次粘贴）。 */
+function takeCut(ids: readonly string[]): boolean {
+  try {
+    const raw = localStorage.getItem(CUT_KEY)
+    if (!raw) return false
+    const v = JSON.parse(raw) as { ids?: unknown; at?: unknown }
+    const saved = Array.isArray(v.ids) ? v.ids.map(String) : []
+    const at = typeof v.at === 'number' ? v.at : 0
+    const ok = saved.length > 0 && Date.now() - at < CUT_TTL && ids.every((id) => saved.includes(id))
+    if (ok) clearCut()
+    return ok
+  } catch {
+    return false
+  }
+}
+
+function subpageIds(frag: Fragment): string[] {
+  const out: string[] = []
+  frag.descendants((node) => {
+    if (node.type.name !== 'subpage') return
+    const id = String(node.attrs.docId ?? '')
+    if (id !== '') out.push(id)
+  })
+  return out
+}
+
+interface CardRef {
+  blockId: string
+  docId: string
+}
+
+/** 正文里所有 subpage 卡片（块 id + 指向的文档 id）。 */
+function cardsIn(doc: PMNode): CardRef[] {
+  const out: CardRef[] = []
+  doc.descendants((node) => {
+    if (node.type.name !== 'blockContainer') return
+    const first = node.firstChild
+    if (first?.type.name !== 'subpage') return
+    out.push({ blockId: String(node.attrs.id ?? ''), docId: String(first.attrs.docId ?? '') })
+  })
+  return out
+}
+
+export function pastePlugin(wire: PasteWiring): Plugin {
+  const docId = wire.docId
+  /** 剪切 / 移动：把库里那条文档的 `parent_id` 挪到这一篇下面（面包屑和侧栏读它）。 */
+  const adopt = (frag: Fragment): void => {
+    if (!wire.moveSubpage) return
+    for (const child of subpageIds(frag)) {
+      if (child !== docId) wire.moveSubpage(child, docId)
+    }
+  }
+
+  /** 复制粘贴：卡片已经插进去了，页面的深拷贝回来后再把卡片改指新页面。 */
+  const copyCards = (view: EditorView, ids: readonly string[], before: ReadonlySet<string>): void => {
+    if (!wire.duplicateSubpage) return
+    const fresh = cardsIn(view.state.doc).filter((c) => !before.has(c.blockId) && ids.includes(c.docId))
+    if (fresh.length === 0) return
+    void (async () => {
+      const made = new Map<string, string>()
+      for (const oldId of new Set(ids)) {
+        const created = await wire.duplicateSubpage?.(oldId, docId)
+        if (created) made.set(oldId, created)
+      }
+      if (made.size === 0) return
+      const tr = view.state.tr
+      for (const card of fresh) {
+        const next = made.get(card.docId)
+        const hit = findBlock(view.state.doc, card.blockId)
+        if (next && hit) tr.setNodeMarkup(hit.at + 1, undefined, { docId: next })
+      }
+      if (tr.docChanged) view.dispatch(tr)
+    })()
+  }
+
+  const insertSlice = (view: EditorView, slice: Slice): void => {
+    view.dispatch(
+      view.state.tr
+        .replaceSelection(slice)
+        .scrollIntoView()
+        .setMeta('paste', true)
+        .setMeta('uiEvent', 'paste'),
+    )
+  }
+
   return new Plugin({
     props: {
+      // 剪切要记一笔：粘贴时才能分清「移动」和「复制」（剪贴板本身不带这个信息）。
+      handleDOMEvents: {
+        cut: (view) => {
+          const sel = view.state.selection
+          const ids: string[] = []
+          view.state.doc.nodesBetween(sel.from, sel.to, (node) => {
+            if (node.type.name === 'subpage') {
+              const id = String(node.attrs.docId ?? '')
+              if (id !== '') ids.push(id)
+            }
+          })
+          recordCut(ids)
+          return false
+        },
+        copy: () => {
+          clearCut()
+          return false
+        },
+      },
       // 跨文档贴块走 PM 默认那一路（我们不拦文本 / HTML），但它会**带着原块 id** ——
       // 插进来就是两个同 id 的块，评论锚点 / 拖拽定位 / `metaOf` 对齐全乱（架构 §3.1）。
       // 这条钩子是 PM 自己调的（`parseFromClipboard` 末尾），所以 PM 默认那条路也管得住。
@@ -45,9 +178,35 @@ export function pastePlugin(): Plugin {
       //   只有「非移动」（真粘贴 / 复制 / 外部拖入）才换新。`view.dragging.move` 就是 PM 说的
       //   「移动 vs 复制」（见 `prosemirror-view` 的 `dragging` 类型注释）。
       transformPasted: (slice, view) => (view.dragging?.move === true ? slice : freshIds(slice)),
-      handlePaste: (view, event) => {
+      // 应用内拖放不走 `transformPasted`：移动就改父级，按住 ⌥ 复制就走「深拷一份新页面」。
+      handleDrop: (view, _event, slice, moved) => {
+        const ids = subpageIds(slice.content)
+        if (ids.length === 0) return false
+        if (moved) {
+          adopt(slice.content)
+          return false
+        }
+        const before = new Set(cardsIn(view.state.doc).map((c) => c.blockId))
+        insertSlice(view, slice)
+        copyCards(view, ids, before)
+        return true
+      },
+      handlePaste: (view, event, slice) => {
         const data = event.clipboardData
         if (!data) return false
+
+        // subpage 卡片：剪切 = 挪父级（交给 PM 插），复制 = 深拷一份新页面再改指向。
+        const ids = subpageIds(slice.content)
+        if (ids.length > 0) {
+          if (takeCut(ids)) {
+            adopt(slice.content)
+            return false
+          }
+          const before = new Set(cardsIn(view.state.doc).map((c) => c.blockId))
+          insertSlice(view, slice)
+          copyCards(view, ids, before)
+          return true
+        }
 
         const html = data.getData('text/html')
         const files = Array.from(data.files)
@@ -56,7 +215,16 @@ export function pastePlugin(): Plugin {
           : imageOnlyHtml(html).map(sourceOfDataUrl)
 
         if (sources.length === 0) {
-          // 带 HTML 的一律让路：那份 HTML 才是原格式，`text/plain` 只是它的降级版（契约 P2）。
+          // 带列表的 HTML 自己解：`<li>` 里放 `<p>` 时 PM 会把段落甩到列表项外面（一条列表散成空条目 + 段落）。
+          // 表格不抢 —— 那份 HTML 里表格的形状我们这边解不出来。
+          if (html && /<(?:ol|ul)[\s>]/i.test(html) && !/<table[\s>]/i.test(html)) {
+            const fromHtml = blocksFromHtml(html)
+            if (fromHtml) {
+              insertBlocks(view, fromHtml)
+              return true
+            }
+          }
+          // 其余带 HTML 的一律让路：那份 HTML 才是原格式，`text/plain` 只是它的降级版（契约 P2）。
           if (html) return false
           const text = data.getData('text/plain')
           // 选中文字后粘一个网址 = 给这段文字加链接（Notion 同款）。

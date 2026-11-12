@@ -140,7 +140,7 @@ pub fn run() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![commands::api])
+        .invoke_handler(tauri::generate_handler![commands::api, commands::api_bg])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         // ★ 有回调才接得到 `RunEvent::Opened`（原来那个 `builder.run(ctx)` 是 `build()?.run(|_,_| {})`，

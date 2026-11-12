@@ -38,12 +38,19 @@ function restore(err: unknown): unknown {
   return err
 }
 
+/**
+ * 会联网 / 拉模型的方法，几秒级。它们必须走 `api_bg`（Rust 侧扔阻塞池）——
+ * 同步的 `api` 在主线程上跑，GitHub 备份那 5–8 秒会把窗口帧一起冻住。
+ */
+const SLOW = /^(?:backup:|kb:|voice:download$|ai:(?:models|summarize|chat)$|agent:pending$)/
+
 export function apply(ctx: Context) {
   const rpc: RpcService = {
     async call<T = unknown>(method: `${string}:${string}`, args?: unknown): Promise<T> {
       const at = performance.now()
       try {
-        return (await invoke('api', { req: { method, args } })) as T
+        const command = SLOW.test(method) ? 'api_bg' : 'api'
+        return (await invoke(command, { req: { method, args } })) as T
       } catch (err) {
         throw restore(err)
       } finally {
