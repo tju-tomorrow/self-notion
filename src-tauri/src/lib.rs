@@ -21,6 +21,7 @@ pub mod mcp;
 mod mem;
 mod perf;
 mod store;
+mod tts;
 mod vfs;
 mod voice;
 mod windows;

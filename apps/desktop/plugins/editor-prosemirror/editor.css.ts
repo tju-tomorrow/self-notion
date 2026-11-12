@@ -410,3 +410,9 @@ globalStyle('.sn-backlinks-item', {
   cursor: 'pointer',
 })
 globalStyle('.sn-backlinks-item:hover', { background: 'var(--affine-hover-color, rgba(127, 127, 127, .12))' })
+
+/** 正在念的那一句。decoration，不进文档。 */
+globalStyle('.sn-read-now', {
+  background: 'color-mix(in srgb, var(--sn-accent, #1e96eb) 32%, transparent)',
+  borderRadius: 2,
+})

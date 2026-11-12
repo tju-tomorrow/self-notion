@@ -80,7 +80,10 @@ const COMMENT_ICON =
  */
 type CommentAnchor = { blockId: string; index: number; length: number; quote: string }
 
-export function inlineToolbarPlugin(onComment?: (at: CommentAnchor) => void): Plugin {
+export function inlineToolbarPlugin(
+  onComment?: (at: CommentAnchor) => void,
+  onRead?: (range: { from: number; to: number }) => void,
+): Plugin {
   return new Plugin({
     props: {
       // ⌘⇧H / Ctrl+⇧H：抄 Notion 的「上次用过的颜色」。没选中文字就不认，交回给别的处理者
@@ -89,7 +92,7 @@ export function inlineToolbarPlugin(onComment?: (at: CommentAnchor) => void): Pl
         e.key.toLowerCase() === 'h' && e.shiftKey && (e.metaKey || e.ctrlKey) && lastColorShortcut(view),
     },
     view: (view) => {
-      const bar = createBar(view, onComment)
+      const bar = createBar(view, onComment, onRead)
       document.body.appendChild(bar.el)
       bar.sync()
       return { update: () => bar.schedule(), destroy: () => bar.destroy() }
@@ -97,7 +100,11 @@ export function inlineToolbarPlugin(onComment?: (at: CommentAnchor) => void): Pl
   })
 }
 
-function createBar(view: EditorView, onComment?: (at: CommentAnchor) => void) {
+function createBar(
+  view: EditorView,
+  onComment?: (at: CommentAnchor) => void,
+  onRead?: (range: { from: number; to: number }) => void,
+) {
   const root = document.createElement('div')
   root.className = 'sn-itb'
 
@@ -125,6 +132,19 @@ function createBar(view: EditorView, onComment?: (at: CommentAnchor) => void) {
   colorBar.className = 'sn-itb-bar'
   colorBtn.appendChild(colorBar)
   root.append(linkBtn, hlBtn, colorBtn)
+
+  if (onRead) {
+    root.appendChild(mkSeparator())
+    const readBtn = mkButton('读', '')
+    readBtn.title = '朗读选中'
+    readBtn.addEventListener('click', () => {
+      const { from, to } = view.state.selection
+      if (from === to) return
+      closePopovers()
+      onRead({ from, to })
+    })
+    root.appendChild(readBtn)
+  }
 
   // 评论：装了回调才在（协调者没接线时点不动，不如不显示）。整条工具条本来就只在有文字选区时出现。
   if (onComment) {

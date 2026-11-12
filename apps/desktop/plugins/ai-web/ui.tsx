@@ -1,5 +1,5 @@
 /**
- * web 版 AI 的两块 UI：顶栏入口（`doc.header.right`）+ 右侧那一列面板（`doc.aside.right`）。
+ * web 版 AI 的两块 UI：顶栏入口（`doc.header.leading`）+ 右侧那一列面板（`doc.aside.right`）。
  *
  * ★ 选中浮出的「问 AI」**已经不在这个文件里**：D-0079 把它挪进了编辑器那条工具条
  *   （跟 B / I / U 同一条），走 `ctx.editor` 的工具栏 action → `ctx.get('webai').askSelection`。
@@ -9,41 +9,16 @@
  */
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react'
 import type { Context } from 'cordis'
-import { ChatWithAiIcon, CloseIcon, OpenInNewIcon, StopIcon, VoiceIcon } from '@blocksuite/icons/rc'
+import { ChatWithAiIcon, CloseIcon, OpenInNewIcon } from '@blocksuite/icons/rc'
 import { reportError } from '../../src/kernel/errors'
 import { readLocal, writeLocal } from '../../src/kernel/local'
 import { Hint } from '../../src/ui/hint'
 import { closePanel, openInBrowser, openPanel, setSite, siteUrl } from './actions'
 import { getWebAiState, SITE_ORDER, SITES, useWebAiState } from './state'
-import { toggleSpeak, useVoicePhase } from './voice'
 import * as watch from './watch'
 import * as s from './ai-web.css'
 
 /* ────────────────────────── 顶栏入口 ────────────────────────── */
-
-/** 朗读那颗（`doc.header.right` 那一格里）。点下去会把右边那一列切到**朗读那个页面**
- *  （D-0113，看得见它在念什么）；那个页面是另一个 webview（`voice.ts`），关掉不丢声音。 */
-export function WebAiHeader({ ctx }: { ctx: Context }) {
-  const st = useWebAiState()
-  const reading = useVoicePhase() === 'running'
-  const label = reading ? ctx.i18n.t('voice.stop') : ctx.i18n.t('voice.start')
-
-  return (
-    <div className={s.entryBar}>
-      <Hint text={label}>
-        <button
-          type="button"
-          className={s.iconButton}
-          aria-label={label}
-          disabled={st.docId === null}
-          onClick={() => toggleSpeak(ctx, st.docId)}
-        >
-          {reading ? <StopIcon width={18} height={18} /> : <VoiceIcon width={18} height={18} />}
-        </button>
-      </Hint>
-    </div>
-  )
-}
 
 /** 网页版 AI 那颗（`doc.header.leading`，动作区**最左端**）。 */
 export function WebAiEntry({ ctx }: { ctx: Context }) {

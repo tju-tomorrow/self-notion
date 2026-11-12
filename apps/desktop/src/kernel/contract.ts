@@ -120,6 +120,12 @@ export interface EditorService {
    *   用的副本（搜索预览 / 首页副标题 / 全文索引），慢一拍、还丢格式 —— 拿它当正文读是错的路子。
    */
   text(id: string): string | null
+  /**
+   * 把这篇切成一句一句，带位置。划线读传选区，全篇读不传。没打开这篇 → null。
+   */
+  readSpans(id: string, range?: { from: number; to: number }): ReadSpan[] | null
+  /** 划上正在念的那句。null = 擦掉。只是装饰，不写进正文。 */
+  paintRead(id: string, range: { from: number; to: number } | null): void
   /* ── 评论：编辑器只给**机制**，UI 和库都在评论插件那边（D-0067 / docs/comment.md） ── */
 
   /** 当前文字选区。没有选区、或选中的不是文字 → null。`rect` 给浮出按钮定位用。 */
@@ -751,6 +757,13 @@ export interface VfsService {
   stat(path: string): Promise<VfsEntry | undefined>
 }
 
+/** 一句能单独念的正文，位置是编辑器里的。 */
+export interface ReadSpan {
+  from: number
+  to: number
+  text: string
+}
+
 /** 软依赖：`ctx.get('webai')`。**只有一个消费者**：编辑器工具条上那颗「问 AI」
  *  （`editor-blocksuite` 传一段选中的字进来）。
  *  ★ 侧栏左下角那只宠物**不碰这条**（用户 2026-10-07：「他不要跟 web ai 联系一起，我要他做
@@ -759,6 +772,14 @@ export interface WebAiService {
   /** 选中一段文字 → 把那一段填进面板的输入框（只填不发，自己按回车）。D-0079 之前
    *  这件事是 ai-web 自己浮一颗按钮干的，现在按钮挪进了编辑器的工具栏。 */
   askSelection(text: string): void
+}
+
+/** 软依赖：`ctx.get('readaloud')`。顶栏「朗读这篇」和工具条「读」都走它。 */
+export interface ReadAloudService {
+  /** 选区。文档是插件自己记的当前篇。 */
+  speakSelection(range: { from: number; to: number }): void
+  /** 没在读就读这一篇，在读就停。 */
+  toggle(docId: string | null): void
 }
 
 /** 软依赖：`ctx.get('agent')`。**只有一个消费者**：侧栏左下角那只宠物（`plugins/mascot/`）。
@@ -962,6 +983,7 @@ declare module 'cordis' {
     version?: VersionService
     files?: FilesService
     webai?: WebAiService
+    readaloud?: ReadAloudService
     agent?: AgentService
     mascot?: MascotService
     tools?: ToolsService

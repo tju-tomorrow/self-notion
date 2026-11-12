@@ -20,7 +20,7 @@ import { reportError } from '../../src/kernel/errors'
 import { ask, enterDoc, fallbackToClipboard, leaveDoc, sentText } from './actions'
 import { setWebAiState } from './state'
 import { deliverVoice } from './voice'
-import { WebAiEntry, WebAiHeader, WebAiPanel } from './ui'
+import { WebAiEntry, WebAiPanel } from './ui'
 
 export const name = 'ai-web'
 
@@ -102,9 +102,8 @@ export function apply(ctx: Context) {
   )
 
   ctx.effect(() => [
-    // 网页版 AI 那颗在动作区**最左端**（用户点名，D-0096）；朗读那颗留在右边和评论入口并排。
+    // 网页版 AI 那颗在动作区最左端。朗读改走 `read-aloud`（Edge），不再从这里开。
     ctx.slot.register('doc.header.leading', () => createElement(WebAiEntry, { ctx })),
-    ctx.slot.register('doc.header.right', () => createElement(WebAiHeader, { ctx })),
     ctx.slot.register('doc.aside.right', () => createElement(WebAiPanel, { ctx })),
   ])
 }

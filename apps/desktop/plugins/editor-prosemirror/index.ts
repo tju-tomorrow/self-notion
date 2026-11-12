@@ -83,6 +83,7 @@ export function apply(ctx: Context) {
           // 正文几何变了 → 广播，评论插件重摆卡片（D-0172）。
           layout: () => ctx.emit(COMMENT_LAYOUT),
         },
+        read: (range) => ctx.get('readaloud')?.speakSelection(range),
       })
       mod = editor
       // 判据（D-0126）：DOM 与模型那一组不变量。★ 装在**懒装载这一侧** —— `./diagnose` 要读
@@ -144,6 +145,9 @@ export function apply(ctx: Context) {
 
       /** 还没装载过 = 一篇都没打开过 → null。 */
       text: (id: string) => mod?.liveText(id) ?? null,
+
+      readSpans: (id: string, range?: { from: number; to: number }) => mod?.readSpansOf(id, range) ?? null,
+      paintRead: (id: string, range: { from: number; to: number } | null) => mod?.paintReadOn(id, range),
 
       /** 语音草稿落正文（契约 `insertText`）：没装载 / 这篇没开着 → false。 */
       insertText: (id: string, text: string, at?: 'caret' | 'end') =>

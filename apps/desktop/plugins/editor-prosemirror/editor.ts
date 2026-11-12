@@ -28,6 +28,7 @@ import { firstTextPos } from './commands/block'
 import { allDocs, metaOf, subscribe } from './doc-meta'
 import { docsBacking, type DocPayload, type DocsBacking } from './doc-source'
 import { createFindApi, findPlugin, type FindApi } from './find'
+import { collectSpans, paintRead, readPlugin, type ReadSpan } from './read-mark'
 import { startLearn } from './learn'
 import { nodeViews } from './nodes'
 import { outlinePlugin } from './outline'
@@ -62,6 +63,8 @@ export interface EditorWiring {
   docsChanged(): void
   /** 往评论插件去的两个口子（形状在 `comment.ts`）—— 编辑器这一层不认识 `ctx`。 */
   comment: CommentHooks
+  /** 工具条「读」：把选区交给朗读插件。没装上就不响。 */
+  read?(range: { from: number; to: number }): void
   /** 标题输入框的占位（走 i18n）。 */
   untitled: string
   /** 右侧大纲：按钮的 title、空态那句。 */
@@ -264,7 +267,12 @@ function buildPlugins(parts: {
     inputRulesPlugin(),
     // 工具条那颗「评论」→ 把量好的选区交给评论插件（D-0079）。软依赖，没接上就不建那颗按钮。
     // ★ 文件模式**也不建**：锚点按 docId 写进 `comment` 表，而外部文件不进库（D-0140）。
-    inlineToolbarPlugin(parts.file ? undefined : (at) => wiring?.comment.selection(at)),
+    inlineToolbarPlugin(
+      parts.file ? undefined : (at) => wiring?.comment.selection(at),
+      (range) => wiring?.read?.(range),
+    ),
+    // 朗读划线。不写进正文，只在正在念的那句上盖一层。
+    readPlugin,
     blockHandlePlugin(),
     // 空白处按住拖动 → 划过的块一串选上（跟手柄的 ⇧ 点是同一套块选区）。
     blankDragPlugin(),
@@ -603,6 +611,24 @@ export function currentView(): EditorView | null {
 /** 查找面板要的 API —— 给它一个「取当前活编辑器」的口子。 */
 export function findApiForCurrentView(): FindApi {
   return createFindApi(() => currentView())
+}
+
+/** 一句一句，带位置。没打开这篇 → null。 */
+export function readSpansOf(id: string, range?: { from: number; to: number }): ReadSpan[] | null {
+  const rec = live.get(id)
+  if (!rec) return null
+  const doc = rec.view.state.doc
+  const from = range?.from ?? 0
+  const to = range?.to ?? doc.content.size
+  if (from >= to) return []
+  return collectSpans(doc, from, to)
+}
+
+/** 划上正在念的那句。null 擦掉。 */
+export function paintReadOn(id: string, range: { from: number; to: number } | null): void {
+  const rec = live.get(id)
+  if (!rec) return
+  paintRead(rec.view, range)
 }
 
 /** 活文档的正文（纯文本）。没打开过 → null。 */
