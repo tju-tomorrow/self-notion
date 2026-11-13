@@ -15,6 +15,7 @@ import {
 } from 'prosemirror-markdown'
 import {
   DOMParser as PMDOMParser,
+  Fragment,
   Schema,
   type Mark as PMMark,
   type Node as PMNode,
@@ -57,7 +58,14 @@ const mdNodes: Record<string, NodeSpec> = {
     content: 'text*',
     group: 'mdBlock',
     attrs: { language: { default: '' } },
-    parseDOM: [{ tag: 'pre', preserveWhitespace: 'full' }],
+    // 语言由 `fixCodeBlocks` 事先写到 `data-language` 上（网页的 `<pre>` 自己不带）。
+    parseDOM: [
+      {
+        tag: 'pre',
+        preserveWhitespace: 'full',
+        getAttrs: (el) => ({ language: (el as HTMLElement).dataset.language ?? '' }),
+      },
+    ],
   },
   divider: { atom: true, group: 'mdBlock', parseDOM: [{ tag: 'hr' }] },
   // 行内图片（markdown 就是这么给的）—— 转的时候按「整段只有图」拆成块。
@@ -162,6 +170,100 @@ function ourMarks(marks: readonly PMMark[]): PMMark[] {
   return out
 }
 
+/* ─────────────────── 粘贴进来的 `$…$`：网页复制出来的公式是原样 TeX ─────────────────── */
+
+/** 内容里得有点数学记号才认 —— 不然 `价格 $5，$6` 这种也配成公式。 */
+const MATHY = /[\\^_{}=+*/<>()[\]A-Za-z]/
+const DISPLAY_MATH = /^\s*\$\$([\s\S]+?)\$\$\s*$/
+
+interface MathSpan {
+  start: number
+  end: number
+  tex: string
+}
+
+/** `$…$` / `$$…$$` 在文本里的位置。括号内不许贴空白、单 `$` 不许跨行（跟 LaTeX 同一个口径）。 */
+function mathSpans(text: string): MathSpan[] {
+  const spans: MathSpan[] = []
+  let i = 0
+  while (i < text.length) {
+    const open = text.indexOf('$', i)
+    if (open < 0) break
+    if (text[open - 1] === '\\') {
+      i = open + 1
+      continue
+    }
+    const display = text[open + 1] === '$'
+    const openEnd = open + (display ? 2 : 1)
+    const close = text.indexOf(display ? '$$' : '$', openEnd)
+    if (close < 0) break
+    const raw = text.slice(openEnd, close)
+    const end = close + (display ? 2 : 1)
+    const ok =
+      raw !== '' &&
+      raw.trim() === raw &&
+      MATHY.test(raw) &&
+      (display ? !raw.includes('$') : !raw.includes('\n')) &&
+      // `$a$b` 这种多半是 shell 变量，不是公式。
+      !/[A-Za-z0-9_]/.test(text[end] ?? '')
+    if (ok) spans.push({ start: open, end, tex: raw })
+    i = end
+  }
+  return spans
+}
+
+/** 相邻、同样 marks 的文本先拼回去 —— 网页的 `<span>` 会把一句话切成好几个文本节点，`$` 就配不上对了。 */
+function mergeText(nodes: readonly PMNode[]): PMNode[] {
+  const out: PMNode[] = []
+  for (const node of nodes) {
+    const prev = out[out.length - 1]
+    if (node.isText && prev?.isText && prev.sameMarkup(node)) {
+      out[out.length - 1] = schema.text((prev.text ?? '') + (node.text ?? ''), node.marks)
+    } else {
+      out.push(node)
+    }
+  }
+  return out
+}
+
+/** 行内节点里的 `$…$` → inlineEquation。tex 只在 attrs 里，正文不会多出字符（D-0127）。 */
+function splitMath(nodes: readonly PMNode[]): PMNode[] {
+  const out: PMNode[] = []
+  for (const node of mergeText(nodes)) {
+    const text = node.text ?? ''
+    if (!node.isText || !text || node.marks.some((m) => m.type.name === 'code')) {
+      out.push(node)
+      continue
+    }
+    const spans = mathSpans(text)
+    if (spans.length === 0) {
+      out.push(node)
+      continue
+    }
+    let last = 0
+    for (const span of spans) {
+      if (span.start > last) out.push(schema.text(text.slice(last, span.start), node.marks))
+      out.push(schema.nodes.inlineEquation.create({ tex: span.tex }))
+      last = span.end
+    }
+    if (last < text.length) out.push(schema.text(text.slice(last), node.marks))
+  }
+  return out
+}
+
+/** 整棵切片走一遍 —— PM 默认那条路（带 HTML 的、外部拖入的）也落在 transformPasted 上。 */
+export function splitMathFragment(frag: Fragment): Fragment {
+  return Fragment.fromArray(frag.content.map(splitMathNode))
+}
+
+function splitMathNode(node: PMNode): PMNode {
+  if (node.isText || node.isLeaf || node.type.spec.code || node.content.size === 0) return node
+  if (!node.type.inlineContent) return node.copy(splitMathFragment(node.content))
+  const kids: PMNode[] = []
+  node.forEach((child) => kids.push(child.isText ? child : splitMathNode(child)))
+  return node.copy(Fragment.fromArray(splitMath(kids)))
+}
+
 /** 一个块在原文里的行区间（markdown-it token 的 `map`）—— 外部文件那条路靠它记每块的原文（D-0142）。 */
 export interface SourceRange {
   start: number
@@ -195,7 +297,7 @@ function inlineOf(node: PMNode): PMNode[] {
       out.push(schema.nodes.hardBreak.create())
     }
   })
-  return out
+  return splitMath(out)
 }
 
 function pushImage(node: PMNode, out: PMNode[], range: SourceRange): void {
@@ -224,18 +326,30 @@ function docLinkId(node: PMNode): string {
   return href ? href.slice(DOC_PREFIX.length) : ''
 }
 
+/** 空段落（只有空白 / `<br>`）。Gemini 复制出来的行距就是一个个 `<p></p>`，落成块会变成一串空气块。 */
+function blankParagraph(node: PMNode): boolean {
+  return node.type.name === 'paragraph' && node.textContent.trim() === ''
+}
+
 /** 段落：里面夹图片就拆成「段落 / 图片 / 段落」几个块（架构里 image 是块级原子，不能待在段落里）。 */
 function convertParagraph(node: PMNode, out: PMNode[], range: SourceRange): void {
+  if (blankParagraph(node)) return
   const docId = docLinkId(node)
   if (docId) {
     out.push(container(schema.nodes.subpage.create({ docId }), [], range))
+    return
+  }
+  // 整段只有 `$$…$$` = 块级公式（Gemini 之类复制出来的显示公式就是这样）。
+  const display = DISPLAY_MATH.exec(node.textContent)
+  if (display?.[1].trim()) {
+    out.push(container(schema.nodes.equation.create({ tex: display[1].trim() }), [], range))
     return
   }
   const start = out.length
   let buf: PMNode[] = []
   const flush = (): void => {
     if (!buf.length) return
-    out.push(container(schema.nodes.paragraph.create(null, buf), [], range))
+    out.push(container(schema.nodes.paragraph.create(null, splitMath(buf)), [], range))
     buf = []
   }
   node.forEach((child) => {
@@ -256,7 +370,10 @@ function convertParagraph(node: PMNode, out: PMNode[], range: SourceRange): void
 /** 引用：第一段升成 quote，其余（嵌套列表 / 更多段落）落成它的 children。 */
 function convertQuote(node: PMNode, out: PMNode[], range: SourceRange): void {
   const parts: PMNode[] = []
-  node.forEach((child) => parts.push(child))
+  node.forEach((child) => {
+    if (!blankParagraph(child)) parts.push(child)
+  })
+  if (parts.length === 0) return
   const head = parts.shift()
   const kids: PMNode[] = []
   let content = schema.nodes.quote.create()
@@ -293,9 +410,13 @@ function convertListItem(
   kind: 'bulletedListItem' | 'numberedListItem',
   range: SourceRange,
   start = 1,
-): PMNode {
+): PMNode | null {
+  // 空的 `<p>`（Gemini 的行距）先扔掉，不然第一项就成了空条目、正文全被挤成子块。
   const parts: PMNode[] = []
-  item.forEach((child) => parts.push(child))
+  item.forEach((child) => {
+    if (!blankParagraph(child)) parts.push(child)
+  })
+  if (parts.length === 0) return null
   const head = parts.shift()
   const kids: PMNode[] = []
   let content: PMNode
@@ -344,22 +465,24 @@ function convertBlock(node: PMNode, out: PMNode[], range: SourceRange): void {
       convertQuote(node, out, range)
       return
     case 'bulletList':
-      node.forEach((item, _off, i) =>
-        out.push(convertListItem(item, 'bulletedListItem', range.children[i] ?? NO_RANGE)),
-      )
+      node.forEach((item, _off, i) => {
+        const block = convertListItem(item, 'bulletedListItem', range.children[i] ?? NO_RANGE)
+        if (block) out.push(block)
+      })
       return
     case 'orderedList': {
       // 起点只在第一项上写（后面几项顺着数）。
       const start = Math.max(1, Number(node.attrs.start) || 1)
-      node.forEach((item, _off, i) =>
-        out.push(convertListItem(item, 'numberedListItem', range.children[i] ?? NO_RANGE, i === 0 ? start : 1)),
-      )
+      node.forEach((item, _off, i) => {
+        const block = convertListItem(item, 'numberedListItem', range.children[i] ?? NO_RANGE, i === 0 ? start : 1)
+        if (block) out.push(block)
+      })
       return
     }
     default: {
       // 认不出（表格 / html）：能掏文字就留一个段落，掏不出就丢
       const text = node.textContent.trim()
-      if (text) out.push(container(schema.nodes.paragraph.create(null, schema.text(text)), [], range))
+      if (text) out.push(container(schema.nodes.paragraph.create(null, splitMath([schema.text(text)])), [], range))
     }
   }
 }
@@ -413,15 +536,139 @@ export function blocksFromMarkdown(markdown: string): PMNode[] | null {
  */
 export function blocksFromHtml(html: string): PMNode[] | null {
   try {
-    const dom = document.implementation.createHTMLDocument('')
-    dom.body.innerHTML = html
-    const parsed = PMDOMParser.fromSchema(mdSchema).parse(dom.body)
+    const body = domOfHtml(html)
+    const parsed = PMDOMParser.fromSchema(mdSchema).parse(body)
     const blocks: PMNode[] = []
     parsed.forEach((child) => convertBlock(child, blocks, NO_RANGE))
     return blocks.length > 0 ? blocks : null
   } catch (err) {
     reportError('editor-prosemirror', err)
     return null
+  }
+}
+
+/** 语言名 → 我们存的值（键一律小写；类名里认不出的按原值小写）。 */
+const LANG_ALIASES: Record<string, string> = {
+  'c++': 'cpp',
+  cpp: 'cpp',
+  c: 'c',
+  'c#': 'csharp',
+  csharp: 'csharp',
+  cs: 'csharp',
+  python: 'python',
+  py: 'python',
+  javascript: 'javascript',
+  js: 'javascript',
+  typescript: 'typescript',
+  ts: 'typescript',
+  java: 'java',
+  rust: 'rust',
+  rs: 'rust',
+  go: 'go',
+  golang: 'go',
+  shell: 'shell',
+  bash: 'shell',
+  sh: 'shell',
+  zsh: 'shell',
+  json: 'json',
+  yaml: 'yaml',
+  yml: 'yaml',
+  html: 'html',
+  css: 'css',
+  sql: 'sql',
+  markdown: 'markdown',
+  md: 'markdown',
+  mermaid: 'mermaid',
+}
+
+function langOf(value: string): string {
+  const v = value.trim()
+  return v === '' ? '' : LANG_ALIASES[v.toLowerCase()] ?? v.toLowerCase()
+}
+
+function classLang(el: Element | null): string {
+  const m = /(?:^|[\s-])(?:language|lang)-([\w+#.-]+)/.exec(el?.getAttribute('class') ?? '')
+  return m ? langOf(m[1]) : ''
+}
+
+/** 元素自己、或它里面的小元素，是不是一个语言名（代码块头部除了语言名还有复制按钮之类的杂项）。 */
+function labelLang(el: Element): string {
+  const own = LANG_ALIASES[(el.textContent ?? '').trim().toLowerCase()]
+  if (own) return own
+  for (const child of Array.from(el.querySelectorAll('span, div, b, strong, code'))) {
+    const text = (child.textContent ?? '').trim()
+    if (text && text.length <= 24) {
+      const lang = LANG_ALIASES[text.toLowerCase()]
+      if (lang) return lang
+    }
+  }
+  return ''
+}
+
+/** 往上两层找：`<pre>` 前面、或包着它的容器前面，贴着的小元素是不是语言名（Gemini 的 "C++" 就是这样）。 */
+function languageLabel(pre: Element, root: HTMLElement): { lang: string; el: Element } | null {
+  for (const start of [pre, pre.parentElement]) {
+    if (!start || start === root) continue
+    for (let el = start.previousElementSibling; el; el = el.previousElementSibling) {
+      const text = (el.textContent ?? '').trim()
+      if (text === '') continue
+      if (text.length > 40) return null
+      const lang = labelLang(el)
+      return lang ? { lang, el } : null
+    }
+  }
+  return null
+}
+
+/** 网页的 `<pre>` 自己不带语言 —— 认出来写到 `data-language` 上，那个语言名元素就别再落成正文了。 */
+function fixCodeBlocks(root: HTMLElement): void {
+  for (const pre of Array.from(root.querySelectorAll('pre'))) {
+    const code = pre.querySelector('code')
+    const known =
+      pre.getAttribute('data-language') ||
+      code?.getAttribute('data-language') ||
+      classLang(code) ||
+      classLang(pre)
+    if (known) {
+      pre.setAttribute('data-language', langOf(known))
+      continue
+    }
+    const hit = languageLabel(pre, root)
+    if (!hit) continue
+    pre.setAttribute('data-language', hit.lang)
+    hit.el.remove()
+  }
+}
+
+/** 粘进来的 HTML 先过一遍（我们自己复制出来的带 `data-pm-slice`，那是完整结构，不动）。 */
+function domOfHtml(html: string): HTMLElement {
+  const dom = document.implementation.createHTMLDocument('')
+  dom.body.innerHTML = html
+  if (!html.includes('data-pm-slice')) {
+    fixCodeBlocks(dom.body)
+    stripBlank(dom.body)
+  }
+  return dom.body
+}
+
+/** PM 默认那条路（`transformPastedHTML`）只收字符串 —— 改过的 DOM 得回写一份。 */
+export function prepPastedHtml(html: string): string {
+  try {
+    return domOfHtml(html).innerHTML
+  } catch (err) {
+    reportError('editor-prosemirror', err)
+    return html
+  }
+}
+
+/** Gemini 之类复制出来的每个空行都是一个空的 `<p>` —— 先摘掉，不然粘完是一串空气块。 */
+function stripBlank(root: HTMLElement): void {
+  for (const el of Array.from(root.querySelectorAll('p, div, li'))) {
+    if ((el.textContent ?? '').trim() !== '') continue
+    if (el.querySelector('img, pre, table, hr, video, audio, svg')) continue
+    // 空 `<li>` 底下挂着嵌套列表的，那是缩进结构，得留着。
+    if (el.tagName === 'LI' && el.querySelector('ul, ol')) continue
+    el.remove()
   }
 }
 

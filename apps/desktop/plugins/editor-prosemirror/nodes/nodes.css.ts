@@ -194,7 +194,9 @@ globalStyle('.sn-image[data-empty="true"]', {
 globalStyle('.sn-codeblock', {
   position: 'relative',
   margin: '2px 0',
-  borderRadius: 6,
+  // 像张卡片：圆角大一点，再压一道很淡的边。
+  borderRadius: 10,
+  border: '1px solid rgba(128, 128, 128, .18)',
   background: WASH,
 })
 

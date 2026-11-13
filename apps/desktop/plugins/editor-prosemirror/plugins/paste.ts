@@ -15,7 +15,7 @@ import type { EditorView } from 'prosemirror-view'
 
 import { reportError } from '../../../src/kernel/errors'
 import { putBlob } from '../blob'
-import { blocksFromHtml, blocksFromMarkdown } from '../serializers/markdown'
+import { blocksFromHtml, blocksFromMarkdown, prepPastedHtml, splitMathFragment } from '../serializers/markdown'
 import { newBlockId } from '../commands'
 import { blockAt, type BlockRef } from '../commands/block'
 import { schema } from '../schema'
@@ -177,7 +177,10 @@ export function pastePlugin(wire: PasteWiring): Plugin {
       // ★ 内部拖拽也走这条钩子：**移动**时源块同时被删、id 得留着（评论锚点跟着块走）；
       //   只有「非移动」（真粘贴 / 复制 / 外部拖入）才换新。`view.dragging.move` 就是 PM 说的
       //   「移动 vs 复制」（见 `prosemirror-view` 的 `dragging` 类型注释）。
-      transformPasted: (slice, view) => (view.dragging?.move === true ? slice : freshIds(slice)),
+      transformPasted: (slice, view) =>
+        withMath(view.dragging?.move === true ? slice : freshIds(slice), view),
+      // PM 自己解 HTML 的那条路（没列表的网页内容）：同样先摘空气块、把代码块语言归位。
+      transformPastedHTML: (html) => prepPastedHtml(html),
       // 应用内拖放不走 `transformPasted`：移动就改父级，按住 ⌥ 复制就走「深拷一份新页面」。
       handleDrop: (view, _event, slice, moved) => {
         const ids = subpageIds(slice.content)
@@ -344,6 +347,14 @@ function imageOnlyHtml(html: string): string[] {
   return Array.from(body.querySelectorAll('img'))
     .map((img) => img.getAttribute('src') ?? '')
     .filter((src) => src.startsWith('data:image/'))
+}
+
+/** 网页复制出来的公式是原样 TeX（`$1024 \times 1024$`）—— PM 默认那条路也得落成公式节点。 */
+function withMath(slice: Slice, view: EditorView): Slice {
+  // 粘进代码块就是要原样，别把代码里的 `$` 拆了。
+  if (view.state.selection.$from.parent.type.spec.code) return slice
+  const content = splitMathFragment(slice.content)
+  return new Slice(content, slice.openStart, slice.openEnd)
 }
 
 /** 把 slice 里所有 `blockContainer` 的 id 换新 —— 复制一份出来不该跟原件撞 id。 */
