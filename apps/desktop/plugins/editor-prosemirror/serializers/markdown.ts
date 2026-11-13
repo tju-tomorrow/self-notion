@@ -253,7 +253,10 @@ function splitMath(nodes: readonly PMNode[]): PMNode[] {
 
 /** 整棵切片走一遍 —— PM 默认那条路（带 HTML 的、外部拖入的）也落在 transformPasted 上。 */
 export function splitMathFragment(frag: Fragment): Fragment {
-  return Fragment.fromArray(frag.content.map(splitMathNode))
+  // 顶层也要过 splitMath：粘到段落中间时 PM 给的是 open slice，顶上直接就是一串文本节点。
+  const out: PMNode[] = []
+  frag.forEach((node) => out.push(splitMathNode(node)))
+  return Fragment.fromArray(splitMath(out))
 }
 
 function splitMathNode(node: PMNode): PMNode {

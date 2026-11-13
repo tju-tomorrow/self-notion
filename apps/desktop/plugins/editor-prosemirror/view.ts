@@ -47,6 +47,9 @@ let focus = 0
 /** 「库里这篇的字节换过了，重读一遍」—— 每篇只对紧接着的那次渲染生效。 */
 const forced = new Set<string>()
 
+/** 每篇上次滚到哪儿 —— 换回来时接着看，不用重新往下拖。 */
+const scrollMemory = new Map<string, number>()
+
 const listeners = new Set<() => void>()
 
 /** 栏头要显示的页名。`doc:list` 一次给全（跟标签条同一条路），`DOCS_CHANGED` 后重取。 */
@@ -241,6 +244,7 @@ class PaneView {
     }
 
     const previous = this.shown
+    if (previous !== null) scrollMemory.set(previous, this.body.scrollTop)
     // ★ 这一句是**冷启动的分水岭**：打开第一篇文档时，是它把人等进去、把模块拉下来的。
     const editor = await load()
     // ★ 恢复历史版本这一趟必须跳过：手里那个活文档是**恢复前**的状态，落一次就把刚改好的库写回去了。
@@ -259,6 +263,8 @@ class PaneView {
       }
       this.handle = handle
       this.shown = want
+      const top = scrollMemory.get(want)
+      if (top) this.body.scrollTop = top
     } catch (err) {
       // 静默失败是 D-0045 明令禁止的：打不开就留痕 + 让用户看见，别给个空白编辑器。
       reportError('editor-prosemirror', err)
@@ -284,6 +290,7 @@ class PaneView {
   /** 这一栏走人（关栏 / 拔插件）—— 走的路上把最后一点改动落库。 */
   destroy(): void {
     const leaving = this.shown
+    if (leaving !== null) scrollMemory.set(leaving, this.body.scrollTop)
     this.seq++
     this.teardown()
     if (leaving !== null) void load().then((editor) => editor.flushDoc(leaving))
