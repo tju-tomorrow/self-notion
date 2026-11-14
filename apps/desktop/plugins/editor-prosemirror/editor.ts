@@ -45,6 +45,7 @@ import { mentionPlugin } from './plugins/mention'
 import { pastePlugin } from './plugins/paste'
 import { slashPlugin } from './plugins/slash'
 import { tablePlugin } from './plugins/table'
+import { bodyEnd, trailingBlockPlugin, withTrailingEmpty } from './plugins/trailing-block'
 import { sanitizePlugin, stripBad } from './sanitize'
 import { schema } from './schema'
 import { docFromRaw, docToMarkdown, docToMarkdownFidelity, type SideEntry } from './serializers/markdown'
@@ -81,6 +82,8 @@ export interface EditorWiring {
   /** 标题下那行：`创建于 {time}` · `{count} 字`。 */
   createdAt: string
   words: string
+  /** 这篇在回收站里时，页面上那句提示。 */
+  trashed: string
 }
 
 export interface Live {
@@ -125,6 +128,16 @@ function need(): DocsBacking {
   return backing
 }
 
+/** 回收站里的文档不挂编辑器：只留一句提示，也不记学习指标。 */
+function showTrashed(el: HTMLElement, docId: string): void {
+  el.replaceChildren()
+  el.dataset.docId = docId
+  const p = document.createElement('p')
+  p.className = 'sn-pane-empty'
+  p.textContent = wiring?.trashed ?? ''
+  el.appendChild(p)
+}
+
 /** 库里还没这一篇时造的空文档 —— 一个空的段落块。 */
 function emptyDocJson(): unknown {
   return {
@@ -150,15 +163,15 @@ function parseDoc(raw: string | null, docId: string): PMNode {
       compatTables(compat)
       compatSubpages(compat, docId)
       try {
-        return schema.nodeFromJSON(compat)
+        return withTrailingEmpty(schema.nodeFromJSON(compat))
       } catch {
-        return schema.nodeFromJSON(original)
+        return withTrailingEmpty(schema.nodeFromJSON(original))
       }
     } catch (err) {
       reportError('editor-prosemirror', err)
     }
   }
-  return schema.nodeFromJSON(emptyDocJson())
+  return withTrailingEmpty(schema.nodeFromJSON(emptyDocJson()))
 }
 
 type Json = Record<string, unknown>
@@ -278,6 +291,8 @@ function buildPlugins(parts: {
     listNumberPlugin(),
     // 空段落上那句「输入 / 唤起菜单」。
     blockHintPlugin(),
+    // 文末常驻一个空段落：点正文下面的空白总能落光标。
+    trailingBlockPlugin(),
     // 工具条那颗「评论」→ 把量好的选区交给评论插件（D-0079）。软依赖，没接上就不建那颗按钮。
     // ★ 文件模式**也不建**：锚点按 docId 写进 `comment` 表，而外部文件不进库（D-0140）。
     inlineToolbarPlugin(
@@ -324,6 +339,11 @@ function buildPlugins(parts: {
 /** @param side 栏右侧那一列（大纲）。不给就没有大纲 —— 契约 `mount()` 那条口子给不出这一列。 */
 export async function mountEditor(el: HTMLElement, docId: string, side?: HTMLElement): Promise<EditorHandle> {
   const handle = await need().hydrate(docId)
+  if (handle.deletedAt != null) {
+    dispose(live.get(docId))
+    showTrashed(el, docId)
+    return { unmount: () => el.replaceChildren() }
+  }
   // `raw` 非空 = 外部文件那条路：**自己解析**（顺带建 side table），保存时走保真序列化（D-0142）。
   const raw = handle.raw
   const parsed = raw !== undefined ? docFromRaw(raw) : null
@@ -694,8 +714,7 @@ export function insertTextAt(id: string, text: string, at: 'caret' | 'end' = 'ca
       ),
     )
   if (blocks.length === 0) return false
-  // 根 `blockGroup` 内容区的末尾（同 `tools/doc.ts::append`）。
-  view.dispatch(view.state.tr.insert(view.state.doc.content.size - 1, blocks))
+  view.dispatch(view.state.tr.insert(bodyEnd(view.state.doc), blocks))
   view.dispatch(view.state.tr.setSelection(Selection.atEnd(view.state.doc)).scrollIntoView())
   view.focus()
   return true
@@ -742,6 +761,7 @@ export { docFromBlocks } from './serializers/blocks'
 let comments = commentApi(() => currentView())
 
 export const commentTextSelection = () => comments.textSelection()
+export const selectedText = () => comments.selectionText()
 export const commentBlockSelection = () => comments.blockSelection()
 export const addCommentAnchor = (id: string, at: CommentTarget) => comments.addAnchor(id, at)
 export const removeCommentAnchor = (id: string) => comments.removeAnchor(id)

@@ -186,6 +186,12 @@ pub fn dispatch(
             let a: crate::aiweb::ShowArgs = parse(args)?;
             aiweb_call(app, win, |h, w| crate::aiweb::show(h, w, a))
         }
+        "aiweb:url" => {
+            let h = app.ok_or_else(|| ApiError::new("no_app", "这条命令需要窗口句柄"))?;
+            let url = crate::aiweb::current_url(h, win.unwrap_or("main"))
+                .map_err(|e| ApiError::new("aiweb", e))?;
+            Ok(Value::String(url))
+        }
         "aiweb:hide" => aiweb_call(app, win, crate::aiweb::hide),
         "aiweb:close" => aiweb_call(app, win, crate::aiweb::close),
         "aiweb:probe" => aiweb_call(app, win, crate::aiweb::probe),

@@ -25,7 +25,7 @@ import { ArrowUpBigIcon, CloseIcon, PageIcon, PlusIcon, SidebarIcon, StopIcon } 
 import { AGENT_TAB_ID, CLOSE_TAB, type AiService } from '../../src/kernel/contract'
 import { readLocal, writeLocal } from '../../src/kernel/local'
 import * as s from './ai.css'
-import { runTurn } from './loop'
+import { runTurn, type Quote } from './loop'
 import { Markdown } from './md'
 import { placeOf, type Place } from './place'
 import {
@@ -256,6 +256,33 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
   const lines = currentSession().lines
   const pet = ctx.get('mascot')
   const place = usePlace(ctx, st.viewingDoc)
+  // 正文里划着的文字 = 这一轮要一起送过去的原文（仿 Notion：不按钮，只看有没有选中）。
+  const [picked, setPicked] = useState<string | null>(null)
+  /** 点过 ✕ 的那一段 —— 选区还在，但用户说了不要，别每帧又冒出来。 */
+  const dropped = useRef('')
+
+  useEffect(() => {
+    let raf = 0
+    const read = () => {
+      raf = 0
+      const next = ctx.editor.selectedText()
+      if (next === null) dropped.current = ''
+      setPicked((prev) => (prev === next ? prev : next))
+    }
+    const schedule = () => {
+      if (!raf) raf = requestAnimationFrame(read)
+    }
+    document.addEventListener('selectionchange', schedule)
+    document.addEventListener('pointerup', schedule)
+    schedule()
+    return () => {
+      if (raf) cancelAnimationFrame(raf)
+      document.removeEventListener('selectionchange', schedule)
+      document.removeEventListener('pointerup', schedule)
+    }
+  }, [ctx])
+
+  const quoted = picked !== null && picked !== dropped.current ? picked : null
 
   // ★ 只在**用户本来就在底下**的时候才跟着滚。上一版每次都 `scrollTop = scrollHeight`：
   //   用户往回翻想读上面那段时会被一次次拽回底部（「他会强行带我走」「无法拉到最下面」）。
@@ -280,14 +307,18 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
 
   // ★ 行只跟 `lines` 走，**不跟时钟走**。转圈和计时各自在那一行里（`ToolRow` / `ThinkingRow`）
   //   —— 不然每 80ms 一次的重渲染会把整屏 markdown 重新解析一遍（用户：「非常卡」）。
-  const rendered = useMemo(() => rows(lines), [lines])
+  const rendered = useMemo(() => rows(lines, ctx), [lines, ctx])
 
   const ask = (prompt: string) => {
     const q = prompt.trim()
     if (!q || st.busy) return
+    // 发的那一刻现读一次 —— 「选完立刻回车」不会错过还没跑到的 rAF。
+    const now = ctx.editor.selectedText()
+    const quote: Quote | undefined =
+      now && now !== dropped.current ? { text: now, path: place?.path ?? null } : undefined
     setText('')
     stick.current = true
-    void runTurn(ctx, ai, q)
+    void runTurn(ctx, ai, q, quote)
   }
 
   return (
@@ -337,6 +368,25 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
             <span>{place.path}</span>
           </div>
         ) : null}
+        {/* 正文里划着的那段：看得见、可撤，发出去时一起给模型（气泡里只留用户的问题）。 */}
+        {quoted ? (
+          <div className={s.quote} title={ctx.i18n.t('agent.quote', { n: quoted.length })}>
+            <span className={s.quoteText}>「{quoted}」</span>
+            <button
+              type="button"
+              className={s.quoteClear}
+              title={ctx.i18n.t('agent.quoteClear')}
+              aria-label={ctx.i18n.t('agent.quoteClear')}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                dropped.current = quoted
+                setPicked(null)
+              }}
+            >
+              <CloseIcon width={12} height={12} />
+            </button>
+          </div>
+        ) : null}
         <div className={s.box}>
           <textarea
             className={s.input}
@@ -376,48 +426,107 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
 
 /* ────────────────────────── 把行摊成 React 节点 ────────────────────────── */
 
-/** 用户靠右的圆气泡、助手走 markdown、工具那几行按名字合堆。 */
-function rows(lines: Line[]): ReactNode[] {
+/** 用户靠右的圆气泡、助手走 markdown；工具调用按**一轮一组**收进可折叠的思维链（默认折叠）。 */
+function rows(lines: Line[], ctx: Context): ReactNode[] {
   const out: ReactNode[] = []
-  for (let i = 0; i < lines.length; i++) {
+  let i = 0
+  while (i < lines.length) {
     const line = lines[i]
-    if (!line) continue
+    if (!line) {
+      i++
+      continue
+    }
     if (line.role === 'user') {
       out.push(
         <p key={i} className={s.bubbleUser}>
           {line.text}
         </p>,
       )
+      i++
       continue
     }
-    if (line.role === 'ai') {
-      out.push(
-        <div key={i} className={s.bubbleAi}>
-          <Markdown text={line.text} />
-        </div>,
-      )
-      continue
-    }
-    if (!line.tool) {
-      // 老会话里工具行没有 `tool`（D-0097 之前存的）—— 当一句淡字画出来。
-      out.push(
-        <p key={i} className={s.note}>
-          <span className={s.noteDot} />
-          {line.text}
-        </p>,
-      )
-      continue
-    }
-    // 连着调同一个工具就合成一条 —— 一屏五个「vfs_list」谁也不看。
-    const marks = [line.tool]
-    while (i + 1 < lines.length) {
-      const next = lines[i + 1]?.tool
-      const tail = marks[marks.length - 1]
-      if (!next || next.name !== line.tool.name || next.ms === null || tail?.ms === null) break
-      marks.push(next)
+    // 一轮 = 到下一个用户发言为止。这一轮的工具调用合成一块，**摆在第一次调用的位置**，
+    // 它前面 / 后面的字各归各位。
+    const start = i
+    const marks: ToolMark[] = []
+    const before: ReactNode[] = []
+    const after: ReactNode[] = []
+    let seen = false
+    while (i < lines.length) {
+      const one = lines[i]
+      if (!one || one.role === 'user') break
+      if (one.tool) {
+        marks.push(one.tool)
+        seen = true
+      } else {
+        const node =
+          one.role === 'ai' ? (
+            <div key={i} className={s.bubbleAi}>
+              <Markdown text={one.text} />
+            </div>
+          ) : (
+            // 老会话里工具行没有 `tool`（D-0097 之前存的）—— 当一句淡字画出来。
+            <p key={i} className={s.note}>
+              <span className={s.noteDot} />
+              {one.text}
+            </p>
+          )
+        if (seen) after.push(node)
+        else before.push(node)
+      }
       i++
     }
-    out.push(<ToolRow key={i} marks={marks} />)
+    out.push(...before)
+    if (marks.length) out.push(<ThoughtBlock key={`t${start}`} ctx={ctx} marks={marks} />)
+    out.push(...after)
+  }
+  return out
+}
+
+/** 一轮的工具调用：平时只有一行标题，点开才是每一步。跑着的时候自己走时钟。 */
+function ThoughtBlock({ ctx, marks }: { ctx: Context; marks: ToolMark[] }) {
+  const [open, setOpen] = useState(false)
+  const running = marks.some((mark) => mark.ms === null)
+  const now = useClock(running)
+  const failed = marks.some((mark) => mark.failed)
+  const spent = marks.reduce((sum, mark) => sum + (mark.ms ?? Math.max(0, now - mark.start)), 0)
+
+  return (
+    <div className={s.thought}>
+      <button
+        type="button"
+        className={running ? `${s.thoughtHead} ${s.toolOn}` : s.thoughtHead}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className={s.thoughtChev}>{open ? '▾' : '▸'}</span>
+        <span className={s.toolMark}>{running ? frame(now) : failed ? '✕' : '⏺'}</span>
+        <span className={s.thoughtLabel}>
+          {running
+            ? ctx.i18n.t('agent.chainRunning', { n: marks.length })
+            : ctx.i18n.t('agent.chainDone', { n: marks.length, time: secs(spent) })}
+        </span>
+        {running ? <span className={s.toolTime}>({secs(spent)})</span> : null}
+      </button>
+      {open ? (
+        <div className={s.thoughtBody}>
+          {mergeMarks(marks).map((group, at) => (
+            <ToolRow key={at} marks={group} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/** 连着调同一个工具就合成一条 —— 一屏五个「vfs_list」谁也不看。 */
+function mergeMarks(marks: readonly ToolMark[]): ToolMark[][] {
+  const out: ToolMark[][] = []
+  for (const mark of marks) {
+    const last = out[out.length - 1]
+    const tail = last?.[last.length - 1]
+    if (last && tail && tail.name === mark.name && tail.ms !== null && mark.ms !== null) last.push(mark)
+    else out.push([mark])
   }
   return out
 }

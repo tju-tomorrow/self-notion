@@ -25,6 +25,7 @@ import './comment.css'
 
 export interface CommentApi {
   textSelection(): TextAnchorInfo | null
+  selectionText(): string | null
   blockSelection(): BlockAnchorInfo | null
   addAnchor(id: string, at: CommentTarget): void
   removeAnchor(id: string): void
@@ -49,6 +50,8 @@ export interface CommentHooks {
 
 /** 原文截断 —— 库里那一列也是 200（`docs/comment.md` §四）。 */
 const QUOTE_MAX = 200
+/** 划给助手看的那段上限 —— 整篇选中也塞得下，但不至于把提示词撑爆。 */
+const PICK_MAX = 6000
 /** 「点一条评论闪一下」持续多久。 */
 const FLASH_MS = 1600
 /** 冷启动时栏是**异步**挂上的：视图还没进 `live` 就短促重试，别把第一次的高亮丢了。 */
@@ -141,6 +144,14 @@ function textSelection(view: EditorView): TextAnchorInfo | null {
   const at = selectionAnchor(view.state)
   if (!at) return null
   return { ...at, rect: rectOf(view, view.state.selection.from, view.state.selection.from + at.length) }
+}
+
+/** 整段选区的纯文本（跨块也完整）。给助手「划线段送进去」—— 评论那份限一块、限 200 字。 */
+export function selectionText(view: EditorView): string | null {
+  const sel = view.state.selection
+  if (!(sel instanceof TextSelection) || sel.empty) return null
+  const text = view.state.doc.textBetween(sel.from, sel.to, '\n').trim()
+  return text ? text.slice(0, PICK_MAX) : null
 }
 
 /** 当前块选区（点拖拽手柄 / 拖过一串块选中的那些）→ 拿第一块。图片 / 表格这类没法选文字的靠它。 */
@@ -487,6 +498,15 @@ export function commentApi(currentView: () => EditorView | null, next?: CommentH
       try {
         const view = currentView()
         return view ? textSelection(view) : null
+      } catch (err) {
+        reportError('comment', err)
+        return null
+      }
+    },
+    selectionText: () => {
+      try {
+        const view = currentView()
+        return view ? selectionText(view) : null
       } catch (err) {
         reportError('comment', err)
         return null

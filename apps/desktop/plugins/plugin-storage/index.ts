@@ -23,6 +23,7 @@ export const inject = ['rpc']
 
 /** `doc:open` 的返回里用得上的那一半 —— 形状 = 契约的 `DocHandle`。 */
 interface Opened {
+  doc?: { deletedAt?: number | null }
   content: string | null
 }
 
@@ -45,7 +46,7 @@ export function apply(ctx: Context) {
         return { id, content: null, raw: file.text }
       }
       const opened = await rpc.call<Opened>('doc:open', { id })
-      return { id, content: opened.content }
+      return { id, content: opened.content, deletedAt: opened.doc?.deletedAt ?? null }
     },
 
     async save(id, doc) {

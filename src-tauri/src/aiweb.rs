@@ -37,6 +37,10 @@ pub struct ShowArgs {
     pub url: String,
     #[serde(flatten)]
     pub rect: Rect,
+    /// 用户**明确切了站点**：不管 `url()` 说现在是哪一页，都导航一次。
+    /// 上一次导航卡住时 `url()` 可能已经报成目标站点，只比 host 会永远判「没变」。
+    #[serde(default)]
+    pub force: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -70,7 +74,7 @@ pub fn show(app: &tauri::AppHandle, win: &str, a: ShowArgs) -> Result<(), String
                 .ok()
                 .map(|cur| cur.host_str() == url.host_str())
                 .unwrap_or(false);
-            if !same_site {
+            if !same_site || a.force {
                 wv.navigate(url).map_err(|e| e.to_string())?;
             }
             wv.set_position(pos).map_err(|e| e.to_string())?;
@@ -107,7 +111,13 @@ pub fn close(app: &tauri::AppHandle, win: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// 把页面里像输入框的东西列出来，回给那个窗口（`aiweb:probe`）。排错用。
+/// 面板此刻**已经落地**的 URL。前端切站点后拿它轮询，判断那次导航到底有没有成
+/// （`Webview::url()` 在导航 commit 之前仍是旧页，正好当「还没到」的信号）。
+pub fn current_url(app: &tauri::AppHandle, win: &str) -> Result<String, String> {
+    let wv = app.get_webview(&labels(win).0).ok_or("面板还没开")?;
+    Ok(wv.url().map_err(|e| e.to_string())?.to_string())
+}
+
 /// 把面板当前那一页丢给系统默认浏览器。
 ///
 /// URL 是**现从子 webview 拿的**，不是站点表里那个首页 —— 网页版里点进哪个对话，开的就是哪一页
@@ -119,6 +129,7 @@ pub fn open_external(app: &tauri::AppHandle, win: &str) -> Result<(), String> {
     tauri_plugin_opener::open_url(url.as_str(), None::<&str>).map_err(|e| e.to_string())
 }
 
+/// 把页面里像输入框的东西列出来，回给那个窗口（`aiweb:probe`）。排错用。
 pub fn probe(app: &tauri::AppHandle, win: &str) -> Result<(), String> {
     eval(app, win, &labels(win).0, PROBE_JS, "aiweb:probe")
 }
@@ -263,11 +274,12 @@ const PROBE_JS: &str = r#"(function () {
 })()"#;
 
 // 注入：**按顺序试选择器、跳过不可见的**（业界标准做法，见 D-0074 的调研）。
-// ChatGPT 的输入框是 `#prompt-textarea`（一个 contenteditable 的 div），DeepSeek 是 textarea。
+// ChatGPT 的输入框是 `#prompt-textarea`（一个 contenteditable 的 div），DeepSeek 是 textarea，
+// Gemini 是 `rich-textarea` 里的 Quill 编辑区（也是 contenteditable）。
 // React / ProseMirror 都是受控的：textarea 必须走原生 setter + 派发 input，
 // contenteditable 必须走 execCommand('insertText')，直接改 innerText 它们读不到。
 const INJECT_JS: &str = r#"(function (text) {
-  var sels = ['#prompt-textarea', 'textarea[placeholder]', 'textarea', '[contenteditable="true"]'];
+  var sels = ['#prompt-textarea', 'rich-textarea [contenteditable="true"]', 'textarea[placeholder]', 'textarea', '[contenteditable="true"]'];
 
   function usable(el) {
     if (!el || el.disabled) return false;

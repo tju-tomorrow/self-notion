@@ -25,6 +25,8 @@ export interface DocHandle {
    *  ★ **外部文件那条路上它也是 `null`**：那种文档的载荷是 `raw`（读进来）和 `md`（写回去），
    *    见下面两个字段。 */
   content: string | null
+  /** 非 null = 这篇在回收站里。编辑器据此不挂、只显示「在回收站」。 */
+  deletedAt?: number | null
   /** 正文投影（纯文本）与标题，只有**落库**方向用得上：Rust 拿它喂 FTS / 摘要（`doc_text`）。
    *  不给就保持库里原值，所以 `load` 的返回不必带。没有这两个字段，`doc_text` 永远是空的 ——
    *  搜索搜不到正文，首页也给不出摘要。
@@ -134,6 +136,11 @@ export interface EditorService {
 
   /** 当前文字选区。没有选区、或选中的不是文字 → null。`rect` 给浮出按钮定位用。 */
   textSelection(): TextAnchorInfo | null
+  /**
+   * 当前文字选区的**纯文本**（跨块整段，不截成一块）。助手「划线段送进去」用 ——
+   * 评论那份 `textSelection().quote` 只取第一块、限 200 字，那是给锚点用的。
+   */
+  selectedText(): string | null
   /** 当前块选区（点拖拽手柄选中的那个块）—— 图片/表格这类没法选文字的东西靠它评论。 */
   blockSelection(): BlockAnchorInfo | null
   /** 给一段范围打上评论锚点。`kind: 'block'` 时不写正文，只登记这个块（锚点只活在库里）。 */
@@ -215,9 +222,6 @@ export interface RpcService {
 /** `titlebar.center` 归标签条；覆盖层（⌘K 之类）portal 到 body，不走槽。 */
 export type SlotName =
   | 'sidebar.item'
-  /** 侧栏**最底部**那格（导航和文档树都装不下它的地方）。宠物住这儿（D-0072）——
-   *  它要固定在底部，放 `sidebar.item` 里就只能跟着可滚区跑。 */
-  | 'sidebar.foot'
   | 'main.home'
   | 'main.view'
   /** 「助手」那一页（D-0095）。外壳的**第三个**分支：主区整块交给助手（左边历史、右边对话），
@@ -779,7 +783,7 @@ export interface ReadSpan {
 
 /** 软依赖：`ctx.get('webai')`。**只有一个消费者**：编辑器工具条上那颗「问 AI」
  *  （`editor-blocksuite` 传一段选中的字进来）。
- *  ★ 侧栏左下角那只宠物**不碰这条**（用户 2026-10-07：「他不要跟 web ai 联系一起，我要他做
+ *  ★ 宠物**不碰这条**（用户 2026-10-07：「他不要跟 web ai 联系一起，我要他做
  *    agentic 的」）—— 它留给内置 agent（D-0042 / `docs/ai.md`）。 */
 export interface WebAiService {
   /** 选中一段文字 → 把那一段填进面板的输入框（只填不发，自己按回车）。D-0079 之前
@@ -793,16 +797,6 @@ export interface ReadAloudService {
   speakSelection(range: { from: number; to: number }): void
   /** 没在读就读这一篇，在读就停。 */
   toggle(docId: string | null): void
-}
-
-/** 软依赖：`ctx.get('agent')`。**只有一个消费者**：侧栏左下角那只宠物（`plugins/mascot/`）。
- *  点它开关内置助手的面板 —— 就是 D-0072 说好的那一格（用户 2026-10-07：「我要他做
- *  agentic 的」）。
- *  ★ 跨插件不 import 别人的内部（D-0052），所以这件事只能走契约里的一个方法。
- *  ★ 它是**内置助手**（`docs/ai.md`，能读写笔记），**不是**网页版 AI 面板（`WebAiService`）。 */
-export interface AgentService {
-  /** 开↔关。为什么不是 `open()`：宠物点一下就该是个开关，跟左下角那颗的语义一致。 */
-  toggle(): void
 }
 
 /** 软依赖：`ctx.get('mascot')`。**只有一个消费者**：内置助手那一页（D-0095）拿它当标志和头像
@@ -1005,7 +999,6 @@ declare module 'cordis' {
     files?: FilesService
     webai?: WebAiService
     readaloud?: ReadAloudService
-    agent?: AgentService
     mascot?: MascotService
     tools?: ToolsService
     ai?: AiService

@@ -55,6 +55,10 @@ const listeners = new Set<() => void>()
 /** 栏头要显示的页名。`doc:list` 一次给全（跟标签条同一条路），`DOCS_CHANGED` 后重取。 */
 let titles: ReadonlyMap<string, string> = new Map()
 
+/** 在回收站里的文档 id —— 这些不挂编辑器，只显示一句提示。 */
+let trashed: ReadonlySet<string> = new Set()
+let trashedText = '这篇文档在回收站里'
+
 /** 发事件用。`registerEditorView` 时接上 —— 模块级的订阅者拿不到 ctx。 */
 let bus: Context | undefined
 
@@ -151,6 +155,7 @@ function resetView(): void {
   forced.clear()
   listeners.clear()
   titles = new Map()
+  trashed = new Set()
   bus = undefined
 }
 
@@ -172,6 +177,8 @@ class PaneView {
   private handle: EditorHandle | undefined
   /** 现在真的挂着哪一篇。空栏 / 还没挂完都是 null。 */
   private shown: string | null = null
+  /** 现在显示的是哪一篇的「在回收站」提示。 */
+  private trashShown: string | null = null
   private index = 0
   /** 拖过分隔条就是固定百分比；没拖过就平分（flex-grow）。 */
   private pct: number | null = null
@@ -217,6 +224,16 @@ class PaneView {
     this.label.textContent = want === null ? '' : titles.get(want) || untitledText
     this.label.title = this.label.textContent
     this.applyWidth()
+    if (want !== null && trashed.has(want)) {
+      if (this.trashShown === want) return
+      // 作废还在路上的 open：它回来时看见 seq 变了就不会再挂编辑器。
+      this.seq++
+      this.teardown()
+      this.trashShown = want
+      this.showEmpty(trashedText)
+      return
+    }
+    this.trashShown = null
     const reload = want !== null && forced.delete(want)
     if (want === this.shown && !reload) return
     void this.open(want, reload)
@@ -410,6 +427,7 @@ export function registerEditorView(ctx: Context): () => void {
   paneEmptyText = ctx.i18n.t('editor.paneEmpty')
   closeText = ctx.i18n.t('editor.paneClose')
   untitledText = ctx.i18n.t('doc.untitled')
+  trashedText = ctx.i18n.t('editor.trashed')
   // 只记下「怎么问」，不问 —— 这一问就是装载。
   editorReady = () => ctx.editor.ready()
 
@@ -421,6 +439,7 @@ export function registerEditorView(ctx: Context): () => void {
   const pullTitles = () =>
     void ctx.rpc.call<DocMeta[]>('doc:list', { includeTrashed: true }).then((all) => {
       titles = new Map(all.map((doc) => [doc.id, doc.title]))
+      trashed = new Set(all.filter((doc) => doc.deletedAt !== null).map((doc) => doc.id))
       notify()
     })
   ctx.on(DOCS_CHANGED, pullTitles)

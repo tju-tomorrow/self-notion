@@ -255,6 +255,93 @@ export const toolDetail = style({
 
 export const toolTime = style({ flex: '0 0 auto', color: 'var(--affine-v2-text-tertiary)' })
 
+/** 思维链：标题一行，点开才铺工具行（默认折叠）。 */
+export const thought = style({
+  alignSelf: 'flex-start',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  maxWidth: '100%',
+})
+
+export const thoughtHead = style({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  margin: 0,
+  padding: 0,
+  border: 'none',
+  background: 'transparent',
+  fontFamily: 'var(--affine-font-code-family)',
+  fontSize: 12.5,
+  lineHeight: '20px',
+  color: 'var(--affine-v2-text-tertiary)',
+  textAlign: 'left',
+  cursor: 'pointer',
+  selectors: {
+    '&:hover': { color: 'var(--affine-v2-text-primary)' },
+  },
+})
+
+export const thoughtChev = style({ flex: '0 0 auto', width: 10, fontSize: 10, textAlign: 'center' })
+
+export const thoughtLabel = style({
+  flex: '0 1 auto',
+  minWidth: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+})
+
+export const thoughtBody = style({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  margin: '2px 0 4px 16px',
+})
+
+/** 输入框上面那条「正文里划着的选区」—— 可撤，不抢输入框的戏。 */
+export const quote = style({
+  alignSelf: 'stretch',
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 6,
+  marginBottom: 4,
+  padding: '6px 8px',
+  borderRadius: 10,
+  background: 'var(--affine-v2-layer-background-secondary)',
+  color: 'var(--affine-v2-text-secondary)',
+  fontSize: 12,
+  lineHeight: '18px',
+})
+
+export const quoteText = style({
+  flex: '1 1 auto',
+  minWidth: 0,
+  overflow: 'hidden',
+  display: '-webkit-box',
+  WebkitLineClamp: 3,
+  WebkitBoxOrient: 'vertical',
+  wordBreak: 'break-word',
+})
+
+export const quoteClear = style({
+  flex: '0 0 auto',
+  display: 'flex',
+  padding: 2,
+  border: 'none',
+  borderRadius: 4,
+  background: 'transparent',
+  color: 'var(--affine-v2-text-tertiary)',
+  cursor: 'pointer',
+  selectors: {
+    '&:hover': {
+      color: 'var(--affine-v2-text-primary)',
+      background: 'var(--affine-v2-layer-background-hoverOverlay)',
+    },
+  },
+})
+
 /** 流式那一截末尾的方块光标。 */
 export const cursor = style({
   display: 'inline-block',
@@ -531,7 +618,7 @@ export const dockIcon = style({
   selectors: { '&:hover': { background: 'var(--affine-v2-layer-background-hoverOverlay)' } },
 })
 
-/** 顶栏那一颗（`AgentEntry`）—— 跟它旁边那几颗一样是 28px 的公图标（里面的是那只宠物）。 */
+/** 顶栏那一颗（`AgentEntry`）—— 跟它旁边那几颗一样是 28px 的公图标。 */
 export const entry = style({
   flex: '0 0 28px',
   width: 28,

@@ -25,7 +25,7 @@ export const bar = style({
 export const strip = style({
   display: 'flex',
   alignItems: 'center',
-  gap: 4,
+  gap: 6,
   minWidth: 0,
   overflowX: 'auto',
   overflowY: 'hidden',
@@ -51,10 +51,10 @@ export const tab = style({
   selectors: { '&:hover': { color: 'var(--affine-v2-text-primary)' } },
 })
 
-/** 当前激活的标签 —— AFFiNE 用一圈内描边，而不是把底色拉开。 */
+/** 当前激活的标签 —— 底色拉开 + 一圈描边，跟旁边的标签分得清。 */
 export const tabActive = style({
   background: 'var(--affine-v2-tab-tabBackground-active)',
-  boxShadow: '0 0 0 1px var(--sn-tab-ring, var(--affine-v2-button-innerBlackBorder))',
+  boxShadow: '0 0 0 1px var(--sn-tab-ring, var(--affine-v2-layer-insideBorder-primary))',
   color: 'var(--affine-v2-text-primary)',
 })
 

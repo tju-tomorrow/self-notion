@@ -135,9 +135,6 @@ export function AppShell({ ctx }: { ctx: Context }) {
       <div className={s.body}>
         <aside className={collapsed ? `${s.sidebar} ${s.sidebarCollapsed}` : s.sidebar}>
           <SlotHost ctx={ctx} name="sidebar.item" />
-          {/* 最底下那格：宠物（D-0072）。折叠了就不画 —— 0 宽的侧栏里塞一只 48 像素的
-              小人，它会顺着边溢出去。 */}
-          {!collapsed && <SlotHost ctx={ctx} name="sidebar.foot" />}
           {/* 折叠了就没有宽度可拖 */}
           {!collapsed && (
             <div

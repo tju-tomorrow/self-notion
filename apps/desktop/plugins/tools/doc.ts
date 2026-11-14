@@ -78,6 +78,20 @@ function blockId(): string {
   return `b${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
 }
 
+/** 正文末尾的插入点：跳过编辑器常驻的那个空段落，别把新内容加到它下面。 */
+function bodyEnd(doc: PMNode): number {
+  const last = doc.firstChild?.lastChild
+  const content = last?.firstChild
+  if (
+    last?.type.name === 'blockContainer' &&
+    content?.type.name === 'paragraph' &&
+    content.content.size === 0
+  ) {
+    return doc.content.size - 1 - last.nodeSize
+  }
+  return doc.content.size - 1
+}
+
 /** markdown → 块数组。`docFromMarkdown` 回的是一整篇 doc：`content[0]` 是那个 `blockGroup`，它的 children 才是块。 */
 function blocksFrom(ctx: Context, schema: Schema, markdown: string): PMNode[] {
   return nodesFrom(ctx, schema, ctx.editor.docFromMarkdown(markdown))
@@ -190,7 +204,7 @@ export async function append(
     const blocks = blocksFrom(ctx, schema, markdown)
     const tr = new Transform(doc)
     // 根 `blockGroup` 内容区的末尾：doc 的内容就那一个 blockGroup，它内容区收在 content.size - 1。
-    if (blocks.length) tr.insert(doc.content.size - 1, blocks)
+    if (blocks.length) tr.insert(bodyEnd(doc), blocks)
     const title = await commit(ctx, id, tr.doc ?? doc, groupId, labelOf(markdown, ''))
     return { id, title, blocks: blocks.length }
   } catch (err) {
@@ -245,7 +259,7 @@ export async function blocks(
     const { doc, schema } = await loadDoc(ctx, id)
     const added = blocksFromSpec(ctx, schema, spec)
     const tr = new Transform(doc)
-    let at = doc.content.size - 1
+    let at = bodyEnd(doc)
     if (target?.length) {
       const hits = collectBlocks(doc, target)
       if (!hits.length) throw new Error('doc_blocks：这些块 id 一个都不在这篇里')

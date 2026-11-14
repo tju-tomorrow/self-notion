@@ -49,10 +49,10 @@ export function notionVars(seeds: Seeds): Record<string, string> {
     '--affine-v2-button-emptyIconBackground': wash,
     '--affine-v2-button-buttonOverHover': on(text, 10),
 
-    '--affine-v2-tab-tabBackground-default': 'transparent',
-    '--affine-v2-tab-tabBackground-active': pill,
+    '--affine-v2-tab-tabBackground-default': wash,
+    '--affine-v2-tab-tabBackground-active': on(text, 12),
     '--affine-v2-tab-iconColor-default': icon,
-    '--affine-v2-tab-fontColor-default': textTer,
+    '--affine-v2-tab-fontColor-default': textSec,
 
     '--affine-shadow-2': `0 4px 16px ${on('#000', 40)}`,
     '--affine-shadow-3': `0 12px 32px ${on('#000', 48)}`,
@@ -75,7 +75,7 @@ export function notionVars(seeds: Seeds): Record<string, string> {
     '--sn-add-radius': '6px',
     '--sn-add-hover': text,
     '--sn-row-radius': '6px',
-    '--sn-tab-ring': 'transparent',
+    '--sn-tab-ring': on(text, 18),
   }
 }
 

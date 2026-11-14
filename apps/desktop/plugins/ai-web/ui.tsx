@@ -14,7 +14,7 @@ import { reportError } from '../../src/kernel/errors'
 import { readLocal, writeLocal } from '../../src/kernel/local'
 import { Hint } from '../../src/ui/hint'
 import { closePanel, openInBrowser, openPanel, setSite, siteUrl } from './actions'
-import { getWebAiState, SITE_ORDER, SITES, useWebAiState } from './state'
+import { getWebAiState, setWebAiState, SITE_ORDER, SITES, useWebAiState, type SiteKey } from './state'
 import * as watch from './watch'
 import * as s from './ai-web.css'
 
@@ -90,15 +90,23 @@ export function WebAiPanel({ ctx }: { ctx: Context }) {
     [width],
   )
 
+  /** 上一次选中的站点 —— 只有**真的切了站点**才强制导航一次（见 `force` 的注释）。 */
+  const lastSite = useRef(st.site)
+
   useEffect(() => {
     const el = screen.current
     if (!st.open || st.docId === null || !el) return
+    const prevSite = lastSite.current
+    const siteChanged = prevSite !== st.site
+    lastSite.current = st.site
     let dead = false
     /** 上一次摆到哪儿了。 */
     let last: Box | null = null
     let raf = 0
     /** 最近一次「挪了」的时刻 —— 刚挪过才逐帧跟（见下）。 */
     let movedAt = 0
+    /** 强制导航只发一次：后面心跳每 250ms 一次的 `show` 再带 `force` 就是反复重载。 */
+    let force = siteChanged
 
     /** 这一块当前的矩形（就是子 webview 该占的地方）。量不到（还没布局）给 null。 */
     const measure = (): Box | null => {
@@ -124,7 +132,8 @@ export function WebAiPanel({ ctx }: { ctx: Context }) {
         placed = 'voice'
         return
       }
-      await ctx.rpc.call('aiweb:show', { url: siteUrl(st.site), ...box })
+      await ctx.rpc.call('aiweb:show', { url: siteUrl(st.site), ...box, force })
+      force = false
       if (placed !== 'chat') await ctx.rpc.call('aiweb:voice-hide')
       placed = 'chat'
     }
@@ -211,6 +220,32 @@ export function WebAiPanel({ ctx }: { ctx: Context }) {
     watch.reset()
     kick()
 
+    /**
+     * 切站点后盯 12 秒：`url()` 还停在旧站 = 那次导航没落地。最常见的因是这台机器
+     * 连不上那个站点（导航一直挂着，旧页留在屏幕上）—— 不盯的话用户看到的就是「点了没反应」。
+     */
+    const checkSwitch = async (site: SiteKey, from: SiteKey): Promise<void> => {
+      setWebAiState({ status: ctx.i18n.t('webai.switching', { site: SITES[site].label }) })
+      const oldHost = hostOf(SITES[from].url)
+      for (let i = 0; i < 24; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        if (dead || getWebAiState().site !== site) return
+        let cur = ''
+        try {
+          cur = await ctx.rpc.call<string>('aiweb:url')
+        } catch {
+          continue
+        }
+        if (cur !== '' && hostOf(cur) !== oldHost) {
+          setWebAiState({ status: '' })
+          return
+        }
+      }
+      if (!dead && getWebAiState().site === site) {
+        setWebAiState({ status: ctx.i18n.t('webai.switchFailed', { site: SITES[site].label }) })
+      }
+    }
+
     void (async () => {
       try {
         // 先把面板摆出来（webview 建好），再注入 —— 反过来的话 webview 还不存在，注入扑空。
@@ -221,6 +256,7 @@ export function WebAiPanel({ ctx }: { ctx: Context }) {
           await push(box)
         }
         if (dead) return
+        if (siteChanged) void checkSwitch(st.site, prevSite)
         if (st.mode === 'voice') return
         const text = getWebAiState().pending
         if (text !== '') await ctx.rpc.call('aiweb:inject', { text })
@@ -315,4 +351,13 @@ export function WebAiPanel({ ctx }: { ctx: Context }) {
       </div>
     </aside>
   )
+}
+
+/** URL → host。解析不了就空串（「还没落地」那一档）。 */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host
+  } catch {
+    return ''
+  }
 }

@@ -7,12 +7,10 @@
  *      一次问答一个回合，改了哪些文档记在撤销条上；
  *   3. **两块地儿**（`panel.tsx`）—— 整页（`AiPanel`，挂 `main.page`，开它就等于在标签条里
  *      开一个虚拟标签 `AGENT_TAB_ID`，D-0095）和**右侧那一列**（`AgentDock`，挂 `doc.aside.agent`，
- *      文档顶栗那颗宠物的按钮开关，D-0098）—— 后者是用户那句「边聊 边看到 笔记」。
+ *      文档顶栏那颗按钮开关，D-0098）—— 后者是用户那句「边聊 边看到 笔记」。
  *   4. **一条撤销条**（`undo.tsx`）—— 覆盖层，自绘 + 自己开 root（它不属于哪一页）。
  *
- * 两个入口：⌘K 里那一行命令，和**侧栏左下角那只宠物**（点一下开助手）。
- * 宠物那一头走 `ctx.provide('agent', …)` —— 跨插件只能走契约（D-0052），
- * `plugins/mascot/` 那边是 `ctx.get('agent')?.toggle()`。
+ * 入口：⌘K 里那一行命令（开整页 / 开右侧那一列）。
  *
  * 联网、key、SSE 全在 Rust（`src-tauri/src/ai/chat.rs`）：这个插件**不声明 `net`**，
  * 也不碰 key（它只知道「配没配」，那是 `ai:status` 的话）。
@@ -69,11 +67,6 @@ export function apply(ctx: Context) {
       if (id !== AGENT_TAB_ID) setAiState({ viewingDoc: id })
     }),
   )
-
-  // 入口二：侧栏左下角那只宠物（`plugins/mascot/` 的 `ctx.get('agent')?.toggle()`）。
-  // 叫 `toggle` 是留着手感一致（那一格原来就是开关）—— 现在关掉它只能点标签上那个 ×，
-  // 标签条的状态机是它自己的内部状态，外面没有「关掉某个标签」的口子。
-  ctx.effect(() => ctx.provide('agent', { toggle: open }))
 
   ctx.effect(() => [
     installHistory(ctx),

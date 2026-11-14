@@ -6,7 +6,7 @@
  */
 import { useSyncExternalStore } from 'react'
 
-export type SiteKey = 'deepseek' | 'chatgpt'
+export type SiteKey = 'deepseek' | 'chatgpt' | 'gemini'
 
 export interface Site {
   label: string
@@ -17,9 +17,10 @@ export interface Site {
 export const SITES: Record<SiteKey, Site> = {
   deepseek: { label: 'DeepSeek', url: 'https://chat.deepseek.com/' },
   chatgpt: { label: 'ChatGPT', url: 'https://chatgpt.com/' },
+  gemini: { label: 'Gemini', url: 'https://gemini.google.com/app' },
 }
 
-export const SITE_ORDER: readonly SiteKey[] = ['deepseek', 'chatgpt']
+export const SITE_ORDER: readonly SiteKey[] = ['deepseek', 'chatgpt', 'gemini']
 
 export interface WebAiState {
   docId: string | null

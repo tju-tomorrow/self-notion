@@ -130,6 +130,7 @@ export function apply(ctx: Context) {
         outlineEmpty: ctx.i18n.t('editor.outlineEmpty'),
         createdAt: ctx.i18n.t('editor.createdAt'),
         words: ctx.i18n.t('editor.words'),
+        trashed: ctx.i18n.t('editor.trashed'),
         // 评论插件那一侧（软依赖：它不在，高亮就点不动、按钮也没反应 —— 跟别处一个规矩）。
         comment: {
           open: (id) => ctx.get('comment')?.open(id),
@@ -240,6 +241,7 @@ export function apply(ctx: Context) {
 
       /* 评论（D-0067）：都过 `mod`，装载前一律空转 —— 没开文档时本来就该是 null。 */
       textSelection: () => mod?.commentTextSelection() ?? null,
+      selectedText: () => mod?.selectedText() ?? null,
       blockSelection: () => mod?.commentBlockSelection() ?? null,
       addCommentAnchor: (id: string, at: CommentTarget) => mod?.addCommentAnchor(id, at),
       removeCommentAnchor: (id: string) => mod?.removeCommentAnchor(id),

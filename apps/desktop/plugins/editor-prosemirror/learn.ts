@@ -56,9 +56,25 @@ export async function setFamiliarity(id: string, level: number | null): Promise<
 export function startLearn(docId: string, content: HTMLElement, signal: AbortSignal): void {
   if (!call || signal.aborted) return
   const rpc = call
+  let dead = false
+  let timer: ReturnType<typeof setInterval> | undefined
+
+  const stop = (): void => {
+    dead = true
+    if (timer !== undefined) clearInterval(timer)
+  }
+  /** 文档进了回收站 / 被硬删：学习指标没有对象，安静收摊，别弹错。 */
+  const fail = (err: unknown): void => {
+    if (typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 'not_found') {
+      stop()
+      return
+    }
+    reportError('learn', err)
+  }
+
   void rpc('learn:opened', { id: docId })
     .then((row) => publish(row as LearnRow))
-    .catch((err) => reportError('learn', err))
+    .catch(fail)
 
   const scroller = scrollerOf(content)
   let depth = 0
@@ -74,6 +90,7 @@ export function startLearn(docId: string, content: HTMLElement, signal: AbortSig
   }
 
   const flush = (): void => {
+    if (dead) return
     sample()
     const addMs = Math.round(pending)
     pending = 0
@@ -81,15 +98,15 @@ export function startLearn(docId: string, content: HTMLElement, signal: AbortSig
     sent = true
     void rpc('learn:progress', { id: docId, addMs, depth })
       .then((row) => publish(row as LearnRow))
-      .catch((err) => reportError('learn', err))
+      .catch(fail)
   }
 
-  const timer = setInterval(flush, 15_000)
+  timer = setInterval(flush, 15_000)
   scroller.addEventListener('scroll', sample, { passive: true, signal })
   document.addEventListener('visibilitychange', sample, { signal })
   signal.addEventListener('abort', () => {
-    clearInterval(timer)
     flush()
+    stop()
   })
   requestAnimationFrame(sample)
 }

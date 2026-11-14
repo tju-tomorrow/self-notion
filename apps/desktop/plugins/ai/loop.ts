@@ -62,8 +62,15 @@ const BASE_PROMPT = [
     'image(blobId,caption) / video|audio|file(blobId,name) / subpage(docId) / columnList(columns，每列一个块数组) / ' +
     'tableOfContents / breadcrumb。text 支持行内 markdown（**粗体** *斜体* `代码` [链接](url)），' +
     'children 是嵌套块，color / bg 是块级文字色和背景色。',
+  '用户消息里用 """ 圈起来的那段是他在正文里划出来的原文 —— 问题多半针对它，先读它再答。',
   '不要尝试删除文档 —— 没有这个工具。回答用用户提问的语言，简短。',
 ].join('\n')
+
+/** 用户划线送进来的那段正文。`path` 拿不到就只说「当前笔记」。 */
+export interface Quote {
+  text: string
+  path: string | null
+}
 
 /** 一个回合一个。`crypto.randomUUID` 要安全上下文，自建一个更省心。 */
 function newGroupId(): string {
@@ -76,7 +83,12 @@ function newGroupId(): string {
  * 历史**只带这一回合**（system + 用户这句 + 中间几轮工具），不跨回合攒 ——
  * 单人应用、你问它才答（`docs/ai.md` 第十一节），攒历史只会把上下文喂爆。
  */
-export async function runTurn(ctx: Context, ai: AiService, prompt: string): Promise<void> {
+export async function runTurn(
+  ctx: Context,
+  ai: AiService,
+  prompt: string,
+  quote?: Quote,
+): Promise<void> {
   const state = getAiState()
   if (state.busy) return
   const groupId = newGroupId()
@@ -97,7 +109,7 @@ export async function runTurn(ctx: Context, ai: AiService, prompt: string): Prom
 
   const messages: AiMessage[] = [
     { role: 'system', content: await systemPrompt(ctx) },
-    { role: 'user', content: prompt },
+    { role: 'user', content: withQuote(prompt, quote) },
   ]
 
   try {
@@ -130,6 +142,13 @@ export async function runTurn(ctx: Context, ai: AiService, prompt: string): Prom
       setAiState({ undo: [...getAiState().undo, { groupId, docs: [...written] }] })
     }
   }
+}
+
+/** 划线段只进给模型这一轮 —— 气泡里还是用户自己问的那句话（他选的）。 */
+function withQuote(prompt: string, quote?: Quote): string {
+  if (!quote) return prompt
+  const where = quote.path ? `《${quote.path}》` : '当前笔记'
+  return `用户选中了${where}里的这一段：\n"""\n${quote.text}\n"""\n\n${prompt}`
 }
 
 /** 系统提示：`/index.md` + `/AGENTS.md` 就是这棵树自己的说明书（`docs/ai.md` 第四节）。 */
