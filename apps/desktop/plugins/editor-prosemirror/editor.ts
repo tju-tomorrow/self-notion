@@ -85,6 +85,8 @@ export interface EditorWiring {
   words: string
   /** 这篇在回收站里时，页面上那句提示。 */
   trashed: string
+  /** 图片块「复制图片」：写系统剪贴板（Rust 的 NSPasteboard）。没接上就退回 webview 自己那套。 */
+  copyImage?(blobId: string): Promise<void>
 }
 
 export interface Live {
@@ -302,7 +304,7 @@ function buildPlugins(parts: {
     ),
     // 朗读划线。不写进正文，只在正在念的那句上盖一层。
     readPlugin,
-    blockHandlePlugin(),
+    blockHandlePlugin(wiring?.copyImage),
     // 空白处按住拖动 → 划过的块一串选上（跟手柄的 ⇧ 点是同一套块选区）。
     blankDragPlugin(),
     // 粘贴：只接管「剪贴板里有文件」（图片 / 附件），纯文本 / HTML / 块一律交回 PM。

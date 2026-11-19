@@ -11,6 +11,8 @@ mod assoc;
 mod autocheck;
 mod backup;
 mod bugs;
+#[cfg(target_os = "macos")]
+mod clipboard;
 mod commands;
 mod disk;
 #[cfg(target_os = "macos")]

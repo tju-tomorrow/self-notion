@@ -409,6 +409,19 @@ pub fn dispatch(
             let a: DocId = parse(args)?;
             blob::info(c, &a.id)
         }),
+        // 复制图片到系统剪贴板。webview 自己的 execCommand 只填它那份视图，别的应用读不到 ——
+        // 真正写 NSPasteboard 只能在 Rust 这侧做。
+        #[cfg(target_os = "macos")]
+        "clipboard:copyImage" => call(db, |c| {
+            let a: DocId = parse(args)?;
+            let Some((_mime, bytes)) = blob::get(c, &a.id)? else {
+                return Err(ApiError::new("not_found", "blob"));
+            };
+            crate::clipboard::copy_image(&bytes).map_err(|e| ApiError::new("clipboard", e))?;
+            Ok(serde_json::Value::Null)
+        }),
+        #[cfg(not(target_os = "macos"))]
+        "clipboard:copyImage" => Err(ApiError::new("unsupported", "只支持 macOS")),
 
         // ── 评论（D-0067）─────────────────────────────────────────────────────
         "comment:list" => call(db, |c| {

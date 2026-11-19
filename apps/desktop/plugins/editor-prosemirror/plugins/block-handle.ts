@@ -16,7 +16,7 @@ import type { EditorView } from 'prosemirror-view'
 
 import { reportError } from '../../../src/kernel/errors'
 import { blobUrl } from '../../../src/platform/blob-url'
-import { copyImage } from '../../../src/ui/clipboard'
+import { copyImage as copyImageByDom } from '../../../src/ui/clipboard'
 import { groupChildren } from '../commands/block'
 import { duplicateBlock } from '../commands/duplicate'
 import { schema } from '../schema'
@@ -96,7 +96,11 @@ class BlockHandle {
   /** `⋮⋮` / 右键弹出来的块菜单（同一时间只开一个）。 */
   private menu: HTMLDivElement | null = null
 
-  constructor(private readonly view: EditorView) {
+  /** 写图片剪贴板走 Rust 的 NSPasteboard —— webview 自己那份 execCommand 别的应用读不到。 */
+  constructor(
+    private readonly view: EditorView,
+    private readonly copyImage?: (blobId: string) => Promise<void>,
+  ) {
     this.dom = document.createElement('div')
     this.dom.className = 'sn-block-handle'
     this.dom.hidden = true
@@ -392,7 +396,9 @@ class BlockHandle {
     const blobId = ids.length === 1 ? imageBlobId(this.view.state.doc, ids[0]!) : ''
     if (blobId) {
       item('复制图片', () => {
-        void copyImage(blobUrl(blobId)).catch((err: unknown) => reportError('block-handle', err))
+        const fallback = () => copyImageByDom(blobUrl(blobId))
+        const run = this.copyImage ? this.copyImage(blobId).catch(fallback) : fallback()
+        void run.catch((err: unknown) => reportError('block-handle', err))
       })
     }
     item('删除', () => this.deleteBlocks(ids))
@@ -736,13 +742,13 @@ function children(fragment: Fragment): PMNode[] {
   return out
 }
 
-export function blockHandlePlugin(): Plugin {
+export function blockHandlePlugin(copyImage?: (blobId: string) => Promise<void>): Plugin {
   // 一个 view 一个插件实例 —— 三个窗口并存时别互相串（`editor.ts` 最多保活 3 个 view）。
   const holder: { handle: BlockHandle | null } = { handle: null }
   return new Plugin({
     key: blockHandleKey,
     view: (view) => {
-      const handle = new BlockHandle(view)
+      const handle = new BlockHandle(view, copyImage)
       holder.handle = handle
       return handle
     },

@@ -132,6 +132,10 @@ export function apply(ctx: Context) {
         createdAt: ctx.i18n.t('editor.createdAt'),
         words: ctx.i18n.t('editor.words'),
         trashed: ctx.i18n.t('editor.trashed'),
+        // 图片块的「复制图片」：webview 自己那份 execCommand 只有它自己读得到，写系统剪贴板得走 Rust。
+        copyImage: async (blobId) => {
+          await ctx.rpc.call('clipboard:copyImage', { id: blobId })
+        },
         // 评论插件那一侧（软依赖：它不在，高亮就点不动、按钮也没反应 —— 跟别处一个规矩）。
         comment: {
           open: (id) => ctx.get('comment')?.open(id),
