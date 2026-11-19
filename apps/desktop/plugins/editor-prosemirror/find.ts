@@ -119,6 +119,18 @@ export function setMatches(view: EditorView, matches: readonly Match[], active =
   paint(view, matches, matches.length === 0 ? -1 : active)
 }
 
+/**
+ * 把一处命中滚进视野。
+ *
+ * ★ 不能只靠 `tr.scrollIntoView()`：焦点在查找框里时 PM 不往 DOM 写选区，
+ *   `scrollToSelection` 拿不到 focusNode，就什么都不滚（用户 2026-11-19：「点上下不翻」）。
+ */
+function reveal(view: EditorView, from: number): void {
+  const at = view.domAtPos(from)
+  const el = at.node.nodeType === Node.TEXT_NODE ? at.node.parentElement : (at.node as Element)
+  el?.scrollIntoView({ block: 'center' })
+}
+
 /** 跳到一处命中：把它选上 + 滚到视野里，并标成「当前」。★ 不 view.focus() —— 查找框打字时焦点要留在框里。 */
 export function focusMatch(view: EditorView, m: Match): void {
   const doc = view.state.doc
@@ -130,9 +142,9 @@ export function focusMatch(view: EditorView, m: Match): void {
   view.dispatch(
     view.state.tr
       .setSelection(TextSelection.create(doc, m.from, m.to))
-      .setMeta(findKey, { matches, active: idx >= 0 ? idx : 0 })
-      .scrollIntoView(),
+      .setMeta(findKey, { matches, active: idx >= 0 ? idx : 0 }),
   )
+  reveal(view, m.from)
 }
 
 /** 位置还在原来那个块里吗 —— 文档被改过就别照旧偏移下手，免得替错地方。 */
