@@ -7,6 +7,7 @@
  * ★ **封面归编辑器**：外壳没有它的 UI，所以存 `doc.attrs.cover`，跟正文一起落库。
  */
 import { metaOf, subscribe } from './doc-meta'
+import { blobUrl } from '../../src/platform/blob-url'
 import { putBlob } from './blob'
 
 export interface PageHead {
@@ -55,7 +56,7 @@ export function renderPageHead(
   const paintCover = () => {
     const blobId = coverOf()
     coverEl.dataset.on = blobId ? '1' : '0'
-    if (blobId) coverImg.src = `self-notion://blob/${blobId}`
+    if (blobId) coverImg.src = blobUrl(blobId)
     else coverImg.removeAttribute('src')
   }
 

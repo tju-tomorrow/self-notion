@@ -1,7 +1,8 @@
 /**
  * `codeBlock` 的 NodeView —— 语言选择器 + 代码区（`content`）。
  *
- * 语法高亮 P1 不做，`language` 只是存进 attr 等以后用。选择器是 `contentDOM` 之外的部件，
+ * 语法高亮由 `plugins/code-highlight.ts` 以 decoration 提供，配色由 `code-theme` 插件给。
+ * 选择器是 `contentDOM` 之外的部件，
  * 自带 `contenteditable="false"`。`pre` 包 `code`：`contentDOM` 是那个 `code`，
  * 位置才落在文本上（架构 §2.3）。
  *

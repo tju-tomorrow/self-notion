@@ -23,6 +23,8 @@ export function subscribeLearn(cb: (row: LearnRow) => void): () => void {
 }
 
 function publish(row: LearnRow): void {
+  // 桥那头回 null 也不该把整页炸掉 —— 学习指标是装饰，不是正文。
+  if (!row || typeof row !== 'object') return
   latest.set(row.docId, row)
   for (const cb of subs) cb(row)
 }

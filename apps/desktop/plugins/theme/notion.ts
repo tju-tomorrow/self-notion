@@ -134,6 +134,53 @@ html[data-sn-theme="notion"] [data-sn-shell] main {
   min-height: 0;
 }
 
+/* 手机（D-0195）：主题那套 grid 只认 header / aside / main；底部导航是第四个
+   flex/grid 孩子，会被自动摆进第一格、和标题叠在一起（真机截图里那排
+   “文档 / 搜索” 跑到了最上面）。窄屏直接退回外壳的纵向 flex。 */
+html[data-sn-theme="notion"] [data-sn-shell][data-mobile="1"] {
+  display: flex;
+  flex-direction: column;
+  grid-template-columns: none;
+  grid-template-rows: none;
+}
+html[data-sn-theme="notion"] [data-sn-shell][data-mobile="1"] > header {
+  grid-column: auto;
+  grid-row: auto;
+  flex: 0 0 auto;
+}
+html[data-sn-theme="notion"] [data-sn-shell][data-mobile="1"] > header > div:first-child,
+html[data-sn-theme="notion"] [data-sn-shell][data-mobile="1"][data-collapsed="1"] > header > div:first-child {
+  padding-left: 6px !important;
+}
+html[data-sn-theme="notion"] [data-sn-shell][data-mobile="1"] > div:nth-child(2) {
+  display: flex;
+  flex: 1 1 0%;
+  min-height: 0;
+}
+html[data-sn-theme="notion"] [data-sn-shell][data-mobile="1"] aside {
+  grid-column: auto;
+  grid-row: auto;
+  padding-top: env(safe-area-inset-top, 0px);
+}
+html[data-sn-theme="notion"] [data-sn-shell][data-mobile="1"] main {
+  grid-column: auto;
+  grid-row: auto;
+  flex: 1 1 0%;
+  min-height: 0;
+}
+html[data-sn-theme="notion"] [data-sn-shell][data-mobile="1"] > nav {
+  flex: 0 0 auto;
+}
+html[data-sn-theme="notion"] [data-sn-shell][data-mobile="1"] .sn-pane-body {
+  padding-top: 36px;
+}
+html[data-sn-theme="notion"] [data-sn-shell][data-mobile="1"] .sn-pm-title {
+  font-size: calc(32px * var(--sn-font-scale, 1));
+}
+html[data-sn-theme="notion"] [data-sn-shell][data-mobile="1"] .sn-kbd {
+  display: none !important;
+}
+
 html[data-sn-theme="notion"] .sn-kbd {
   display: inline-flex;
   align-items: center;

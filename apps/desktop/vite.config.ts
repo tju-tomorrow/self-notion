@@ -8,7 +8,9 @@ import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin'
 // ★ 插件目录原来在仓库根，所以要 `@plugins` 别名 + `server.fs.allow` 两处特判。
 //   D-0048 把它搬进 `apps/desktop/plugins/` 之后，两处都删了 —— 它们本来就是在补
 //   「代码在 Vite root 外面」这个洞，洞没了补丁就该走。
-export default defineConfig({
+//
+// ★ `--mode web`（D-0195）出手机网页版：同一份源码、另一个产物目录。桌面那份仍是 `dist`。
+export default defineConfig(({ mode }) => ({
   plugins: [react(), vanillaExtractPlugin()],
   // ★ BlockSuite 发到 npm 的是**源码**（D-0046），里面用了 `override accessor x = true`
   //   （ES2022 的 auto-accessor）。Vite 的 esbuild 默认 `target: 'esnext'` —— 原样放行，
@@ -48,4 +50,11 @@ export default defineConfig({
     strictPort: true,
   },
   clearScreen: false,
-})
+  build:
+    mode === 'web'
+      ? {
+          outDir: 'dist-web',
+          emptyOutDir: true,
+        }
+      : undefined,
+}))

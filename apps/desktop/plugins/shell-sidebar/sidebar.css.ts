@@ -29,6 +29,7 @@ export const search = style({
   alignItems: 'center',
   gap: 8,
   height: 'var(--sn-search-h, 30px)',
+  '@media': { '(max-width: 720px)': { height: 40 } },
   padding: '0 10px 0 8px',
   border: 'none',
   borderRadius: 'var(--sn-search-radius, 4px)',
@@ -48,6 +49,7 @@ export const addPage = style({
   flex: '0 0 30px',
   width: 30,
   height: 30,
+  '@media': { '(max-width: 720px)': { flex: '0 0 40px', width: 40, height: 40 } },
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -66,6 +68,7 @@ export const navItem = style({
   alignItems: 'center',
   gap: 8,
   minHeight: 30,
+  '@media': { '(max-width: 720px)': { minHeight: 44 } },
   width: '100%',
   padding: '0 6px',
   border: 'none',
@@ -203,6 +206,8 @@ export const act = style({
     [`${row}:hover &`]: { display: 'flex' },
     '&:hover': { background: 'var(--affine-v2-layer-background-hoverOverlay)', color: 'var(--affine-v2-icon-primary)' },
   },
+  // 触屏没有 hover：行尾动作必须常显，否则手机上根本删不了 / 恢复不了。
+  '@media': { '(hover: none)': { display: 'flex', flex: '0 0 28px', width: 28, height: 28 } },
 })
 
 export const input = style({
@@ -303,6 +308,7 @@ export const sectionActions = style({
   display: 'flex',
   gap: 8,
   opacity: 0,
+  '@media': { '(hover: none)': { opacity: 1, pointerEvents: 'auto' } },
   // 透明但还是能点 —— 不关掉的话，点标题行右端（想折叠）会静默新建一篇。
   pointerEvents: 'none',
   selectors: { [`${sectionHeader}:hover &`]: { opacity: 1, pointerEvents: 'auto' } },
@@ -311,6 +317,7 @@ export const sectionActions = style({
 export const sectionAdd = style({
   width: 20,
   height: 20,
+  '@media': { '(hover: none)': { width: 28, height: 28 } },
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',

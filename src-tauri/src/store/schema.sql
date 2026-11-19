@@ -262,3 +262,97 @@ CREATE TABLE IF NOT EXISTS doc_learn (
   familiarity  INTEGER,                       -- 1–4，null = 没打过
   at           INTEGER NOT NULL
 );
+
+-- ── 局域网同步（D-0195 / D-0196）：文档级 rev + 变更日志游标 ──────────────────
+-- ★ 为什么不是 `updated_at`：正文改动不更新 `documents.updated_at`（只有标题变才写它），
+--   拿它当同步游标会漏掉整篇正文的修改。日志表是唯一可靠的游标。
+-- ★ 只增表、只加触发器，不改已有列 —— 老库每次 open 跑一遍 schema 就补齐。
+CREATE TABLE IF NOT EXISTS doc_sync (
+  doc_id TEXT PRIMARY KEY,
+  rev    INTEGER NOT NULL DEFAULT 0,
+  at     INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sync_log (
+  seq    INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity TEXT NOT NULL,                       -- 'doc' | 'meta' | 'del' | 'blob'
+  id     TEXT NOT NULL,
+  at     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sync_log_entity ON sync_log(entity, seq);
+
+-- 正文写入 = 一次 rev + 一条日志。`doc` 一行就是整篇，所以内容变了才算改。
+CREATE TRIGGER IF NOT EXISTS sync_doc_ins AFTER INSERT ON doc
+BEGIN
+  INSERT INTO doc_sync(doc_id, rev, at)
+  VALUES(NEW.doc_id, 1, CAST(strftime('%s','now') AS INTEGER) * 1000)
+  ON CONFLICT(doc_id) DO UPDATE SET rev = rev + 1, at = excluded.at;
+  INSERT INTO sync_log(entity, id, at)
+  VALUES('doc', NEW.doc_id, CAST(strftime('%s','now') AS INTEGER) * 1000);
+END;
+
+CREATE TRIGGER IF NOT EXISTS sync_doc_upd AFTER UPDATE OF content ON doc
+WHEN OLD.content IS NOT NEW.content
+BEGIN
+  INSERT INTO doc_sync(doc_id, rev, at)
+  VALUES(NEW.doc_id, 1, CAST(strftime('%s','now') AS INTEGER) * 1000)
+  ON CONFLICT(doc_id) DO UPDATE SET rev = rev + 1, at = excluded.at;
+  INSERT INTO sync_log(entity, id, at)
+  VALUES('doc', NEW.doc_id, CAST(strftime('%s','now') AS INTEGER) * 1000);
+END;
+
+-- 元数据 / 回收站 / 收藏 / 置顶 / 标签 / 排序 —— 都算这篇“变了”。
+-- `last_opened_at` 故意不在条件里：打开一篇不算改过它。
+CREATE TRIGGER IF NOT EXISTS sync_meta_ins AFTER INSERT ON documents
+BEGIN
+  INSERT INTO doc_sync(doc_id, rev, at)
+  VALUES(NEW.id, 1, CAST(strftime('%s','now') AS INTEGER) * 1000)
+  ON CONFLICT(doc_id) DO UPDATE SET rev = rev + 1, at = excluded.at;
+  INSERT INTO sync_log(entity, id, at)
+  VALUES('meta', NEW.id, CAST(strftime('%s','now') AS INTEGER) * 1000);
+END;
+
+CREATE TRIGGER IF NOT EXISTS sync_meta_upd AFTER UPDATE ON documents
+WHEN OLD.title IS NOT NEW.title
+  OR OLD.parent_id IS NOT NEW.parent_id
+  OR OLD.icon IS NOT NEW.icon
+  OR OLD.sort_order IS NOT NEW.sort_order
+  OR OLD.deleted_at IS NOT NEW.deleted_at
+  OR OLD.is_favorite IS NOT NEW.is_favorite
+  OR OLD.pinned_at IS NOT NEW.pinned_at
+  OR OLD.tags IS NOT NEW.tags
+BEGIN
+  INSERT INTO doc_sync(doc_id, rev, at)
+  VALUES(NEW.id, 1, CAST(strftime('%s','now') AS INTEGER) * 1000)
+  ON CONFLICT(doc_id) DO UPDATE SET rev = rev + 1, at = excluded.at;
+  INSERT INTO sync_log(entity, id, at)
+  VALUES('meta', NEW.id, CAST(strftime('%s','now') AS INTEGER) * 1000);
+END;
+
+-- 硬删除：留一条 'del'，客户端据此删本地副本。rev 行一起清掉。
+CREATE TRIGGER IF NOT EXISTS sync_meta_del AFTER DELETE ON documents
+BEGIN
+  DELETE FROM doc_sync WHERE doc_id = OLD.id;
+  INSERT INTO sync_log(entity, id, at)
+  VALUES('del', OLD.id, CAST(strftime('%s','now') AS INTEGER) * 1000);
+END;
+
+CREATE TRIGGER IF NOT EXISTS sync_blob_ins AFTER INSERT ON blob
+BEGIN
+  INSERT INTO sync_log(entity, id, at)
+  VALUES('blob', NEW.id, CAST(strftime('%s','now') AS INTEGER) * 1000);
+END;
+
+-- 同步块源（D-0136）跟着局域网同步走：节点只存 id，源内容不跟着文档推，
+-- 所以单独记一条日志，让手机端也能拿到同一份源。
+CREATE TRIGGER IF NOT EXISTS sync_src_ins AFTER INSERT ON sync
+BEGIN
+  INSERT INTO sync_log(entity, id, at)
+  VALUES('src', NEW.id, CAST(strftime('%s','now') AS INTEGER) * 1000);
+END;
+
+CREATE TRIGGER IF NOT EXISTS sync_src_upd AFTER UPDATE OF content ON sync
+WHEN OLD.content IS NOT NEW.content
+BEGIN
+  INSERT INTO sync_log(entity, id, at)
+  VALUES('src', NEW.id, CAST(strftime('%s','now') AS INTEGER) * 1000);
+END;

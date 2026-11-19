@@ -293,7 +293,7 @@ export function DocHeader({ ctx }: { ctx: Context }) {
         <Hint text={ctx.i18n.t(panes >= 3 ? 'doc.splitOff' : panes === 1 ? 'doc.splitOn' : 'doc.splitMore')}>
           <button
             type="button"
-            className={s.iconButton}
+            className={`${s.iconButton} ${s.splitButton}`}
             aria-label={ctx.i18n.t(panes >= 3 ? 'doc.splitOff' : panes === 1 ? 'doc.splitOn' : 'doc.splitMore')}
             aria-pressed={panes > 1}
             style={panes > 1 ? { color: 'var(--affine-primary-color)' } : undefined}

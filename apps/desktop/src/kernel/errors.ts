@@ -4,6 +4,8 @@
  * 为什么要浮出来：Shell 起不来的时候 DevTools 未必开着，得有一眼能看见的地方。
  * 浮层用原生 DOM 直接挂到 body，不走 React —— 出错时 React 树本身就是可疑对象。
  */
+import { isWeb } from '../platform/env'
+
 const MAX_SHOWN = 5
 const shown: string[] = []
 
@@ -35,6 +37,20 @@ export function describeThrown(err: unknown): string {
  */
 export function reportNote(source: string, message: string): void {
   console.info(`[${source}]`, message)
+  sendLog(source, message)
+}
+
+/** 网页端写回桌面那份 errors.log（D-0197）：出错只有一个地方可看。 */
+function sendLog(source: string, message: string): void {
+  if (isWeb) {
+    void fetch('/log/error', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ source, message }),
+    }).catch(() => {})
+    return
+  }
   void import('@tauri-apps/api/core')
     .then(({ invoke }) =>
       invoke('api', { req: { method: 'log:error', args: { source, message } } }),
@@ -45,15 +61,13 @@ export function reportNote(source: string, message: string): void {
 function record(source: string, message: string): void {
   console.error(`[${source}]`, message)
   // 日志文件是权威；桥断了也不能让报错本身再炸一次。
-  void import('@tauri-apps/api/core')
-    .then(({ invoke }) =>
-      invoke('api', { req: { method: 'log:error', args: { source, message } } }),
-    )
-    .catch(() => {})
+  sendLog(source, message)
   show(`${source}: ${message}`)
 }
 
 function show(line: string): void {
+  // 同一个错每 15 秒刷一次时别把屏刷满；连续重复只留一条。
+  if (shown[shown.length - 1] === line) return
   shown.push(line)
   if (shown.length > MAX_SHOWN) shown.shift()
 
@@ -62,10 +76,12 @@ function show(line: string): void {
     box = document.createElement('div')
     box.id = 'sn-errors'
     box.style.cssText = [
-      'position:fixed', 'top:8px', 'right:8px', 'z-index:2147483647', 'max-width:46ch',
-      'max-height:50vh', 'overflow:auto', 'padding:8px 10px', 'border-radius:6px',
-      'background:rgba(160,20,20,.94)', 'color:#fff', 'font:11px/1.45 ui-monospace,monospace',
-      'white-space:pre-wrap', 'pointer-events:auto',
+      'position:fixed', 'top:calc(8px + env(safe-area-inset-top))', 'right:8px',
+      'z-index:2147483647', 'max-width:min(46ch, calc(100vw - 16px))',
+      'max-height:45vh', 'overflow:auto', 'padding:8px 10px', 'border-radius:8px',
+      'background:#a01414', 'color:#fff', 'font:12px/1.5 ui-monospace,monospace',
+      'white-space:pre-wrap', 'overflow-wrap:anywhere', 'pointer-events:auto',
+      'box-shadow:0 6px 24px rgba(0,0,0,.35)',
     ].join(';')
     box.addEventListener('click', () => box?.remove())
     document.body.appendChild(box)

@@ -26,9 +26,16 @@ import { mountToastHost } from './ui/toast'
 import { createI18n } from './i18n/i18n'
 import { AppShell } from './shell/app-shell'
 import { createTheme } from './theme/tokens'
+import { isWeb } from './platform/env'
+import { authState, PairingScreen } from './platform/web/pairing'
+import { installPwa } from './platform/web/pwa'
+import { installDebugCapture } from './platform/web/debug'
 
 // 最早装：后面任何一步炸了都有一条记录。
 installErrorSink()
+if (isWeb && typeof document !== 'undefined') document.documentElement.dataset.snWeb = '1'
+// 手机端：把控制台错误也留一份给「报告问题」的现场包。
+installDebugCapture()
 
 // macOS 那套「自动检查」在输入框里只会捣乱：`"` 变弯引号、句首自动大写、拼写红线。
 // 正文自己设了（`editor.ts` 的 `attributes`），这里管住其余输入框 —— 标题、搜索、AI 输入框、
@@ -63,9 +70,20 @@ ctx.effect(() => mountConfirmHost((key) => ctx.i18n.t(key)))
 ctx.effect(() => mountToastHost())
 
 async function main() {
+  // 网页端第一次打开先配对。配过就带着 cookie 直接进本地库。
+  if (isWeb) {
+    const state = await authState()
+    if (state === 'pair') {
+      createRoot(el!).render(<PairingScreen />)
+      return
+    }
+  }
+
   // ponytail: 装载失败就整屏摊开。toast / 通知服务出现后改成「降级 + 一条通知」，
   // 但绝不能静默白屏 —— 那正是 D-0045 要防的东西。
-  const { invoke } = await import('@tauri-apps/api/core')
+  const invoke = isWeb
+    ? async (_cmd: string, _args?: unknown) => null
+    : (await import('@tauri-apps/api/core')).invoke
 
   /** 把窗口露出来。★ 窗口在第一帧画出来之前是**藏着**的（`tauri.conf.json` 的
    *  `visible: false`）—— 不然启动那一下先闪一个空的毛玻璃窗，然后内容「啪」地顶上来。
@@ -74,6 +92,7 @@ async function main() {
    *  （页面是「不可见」的），干等 rAF 可能等到 Rust 那个兜底定时器。
    *  所以「抢一下、最多等 150ms」—— 抢到了就是画完再露，没抢到也几乎看不出来。 */
   const reveal = async () => {
+    if (isWeb) return
     await Promise.race([
       new Promise<void>((r) => requestAnimationFrame(() => r())),
       new Promise<void>((r) => setTimeout(r, 150)),
@@ -100,6 +119,29 @@ async function main() {
       <AppShell ctx={ctx} />
     </React.StrictMode>,
   )
+  if (isWeb) {
+    installPwa()
+    // 软键盘弹起时把当前输入框滚进可视区（iOS 不会自动做这件事）。
+    window.visualViewport?.addEventListener('resize', () => {
+      const el = document.activeElement
+      if (
+        el instanceof HTMLElement &&
+        (el.isContentEditable || el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)
+      ) {
+        setTimeout(() => el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 60)
+      }
+    })
+    // 正文里的 `self-notion://doc/<id>` 链接：桌面由 Rust 深链接，网页在这里接。
+    document.addEventListener('click', (e) => {
+      const a = (e.target as Element | null)?.closest?.('a')
+      const href = a?.getAttribute('href') ?? ''
+      const id = href.startsWith('self-notion://doc/') ? href.slice('self-notion://doc/'.length) : ''
+      if (!id) return
+      e.preventDefault()
+      e.stopPropagation()
+      ctx.emit(OPEN_DOC, { id })
+    }, true)
+  }
   await reveal()
 
   // 新窗口带着 `#doc=<id>` 起来 → 直接开这一篇。菜单只会告诉前端「开个新窗口」——
@@ -109,9 +151,11 @@ async function main() {
   if (opened) ctx.emit(OPEN_DOC, { id: decodeURIComponent(opened) })
 
   // 通道探活。界面**不显示**结果 —— 之前那行 pong 是开发期的脚手架，摆在侧栏底部很难看。
-  await invoke('api', { req: { method: 'meta:ping' } }).catch((e) =>
-    reportError('boot', new Error(`meta:ping 失败：${String(e)}`)),
-  )
+  if (!isWeb) {
+    await invoke('api', { req: { method: 'meta:ping' } }).catch((e) =>
+      reportError('boot', new Error(`meta:ping 失败：${String(e)}`)),
+    )
+  }
 }
 
 void main()

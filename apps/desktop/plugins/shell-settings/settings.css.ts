@@ -36,6 +36,9 @@ const panelBox = style({
   // ★ 设置页的强调色（D-0070）。比 AFFiNE 那个蓝（#1e96eb）软一档，偏靛；
   //   滑块 / 主按钮 / 输入框聚焦边框都读它 —— 想换色只改这一行。
   vars: { '--sn-accent': '#5b7cfa' },
+  '@media': {
+    '(max-width: 720px)': { width: '100vw', height: '100dvh', borderRadius: 0 },
+  },
 })
 
 /** 本体 + 入场（`motion.riseIn` 在前：它那几条属性和本体不撞）。 */
@@ -70,7 +73,13 @@ export const close = style({
 })
 
 /** 弹窗里那一层：左栏 + 内容区。 */
-export const page = style({ flex: 1, minWidth: 0, display: 'flex', overflow: 'hidden' })
+export const page = style({
+  flex: 1,
+  minWidth: 0,
+  display: 'flex',
+  overflow: 'hidden',
+  '@media': { '(max-width: 720px)': { flexDirection: 'column' } },
+})
 
 /** AFFiNE 的 `settingSlideBar`：240 宽、底色 secondary。 */
 export const nav = style({
@@ -83,6 +92,20 @@ export const nav = style({
   overflowY: 'auto',
   background: 'var(--affine-v2-layer-background-secondary)',
   borderRight: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
+  '@media': {
+    '(max-width: 720px)': {
+      flex: '0 0 auto',
+      width: '100%',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      padding: '10px 12px',
+      overflowX: 'auto',
+      overflowY: 'hidden',
+      borderRight: 'none',
+      borderBottom: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
+    },
+  },
 })
 
 export const navTitle = style({

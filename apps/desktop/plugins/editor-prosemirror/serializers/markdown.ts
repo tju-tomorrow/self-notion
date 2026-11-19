@@ -176,6 +176,49 @@ function ourMarks(marks: readonly PMMark[]): PMMark[] {
 const MATHY = /[\\^_{}=+*/<>()[\]A-Za-z]/
 const DISPLAY_MATH = /^\s*\$\$([\s\S]+?)\$\$\s*$/
 
+/** DeepSeek 这类来源写 `\(…\)` / `\[…\]`。markdown-it 会把 `\(` 当转义吃掉，得在解析前换成 `$`。 */
+function texDelims(src: string): string {
+  return src
+    .split(/(`+[\s\S]*?`+)/)
+    .map((part, i) =>
+      i % 2 === 1
+        ? part
+        : part
+            .replace(/\\\[([\s\S]+?)\\\]/g, (all, tex: string) =>
+              MATHY.test(tex) ? `$$${tex.trim()}$$` : all,
+            )
+            .replace(/\\\(([\s\S]+?)\\\)/g, (all, tex: string) =>
+              MATHY.test(tex) ? `$${tex.trim()}$` : all,
+            ),
+    )
+    .join('')
+}
+
+/** 围栏里的代码原样保留 —— 别把代码里的 `\(` 改成公式。 */
+function texOutsideCode(markdown: string): string {
+  const out: string[] = []
+  let prose: string[] = []
+  let inCode = false
+  const flush = () => {
+    if (prose.length === 0) return
+    out.push(texDelims(prose.join('\n')))
+    prose = []
+  }
+  for (const line of markdown.split('\n')) {
+    if (/^\s{0,3}(?:```|~~~)/.test(line)) {
+      flush()
+      out.push(line)
+      inCode = !inCode
+    } else if (inCode) {
+      out.push(line)
+    } else {
+      prose.push(line)
+    }
+  }
+  flush()
+  return out.join('\n')
+}
+
 interface MathSpan {
   start: number
   end: number
@@ -230,11 +273,11 @@ function mergeText(nodes: readonly PMNode[]): PMNode[] {
 function splitMath(nodes: readonly PMNode[]): PMNode[] {
   const out: PMNode[] = []
   for (const node of mergeText(nodes)) {
-    const text = node.text ?? ''
-    if (!node.isText || !text || node.marks.some((m) => m.type.name === 'code')) {
+    if (!node.isText || !node.text || node.marks.some((m) => m.type.name === 'code')) {
       out.push(node)
       continue
     }
+    const text = texDelims(node.text)
     const spans = mathSpans(text)
     if (spans.length === 0) {
       out.push(node)
@@ -300,7 +343,45 @@ function inlineOf(node: PMNode): PMNode[] {
       out.push(schema.nodes.hardBreak.create())
     }
   })
-  return splitMath(out)
+  return splitMath(rescueMarks(mergeText(out)))
+}
+
+/** CommonMark 不认贴着标点的 `**“中文”**`、也不认 `~~` —— 剩下的成对标记按字面补回来。 */
+const LITERAL_MARKS: ReadonlyArray<[RegExp, string]> = [
+  [/\*\*([\s\S]+?)\*\*/, 'bold'],
+  [/__([\s\S]+?)__/, 'bold'],
+  [/~~([\s\S]+?)~~/, 'strike'],
+]
+
+function rescueMarks(nodes: readonly PMNode[]): PMNode[] {
+  const out: PMNode[] = []
+  for (const node of nodes) {
+    if (!node.isText || !node.text || node.marks.some((m) => m.type.name === 'code')) {
+      out.push(node)
+      continue
+    }
+    rescueText(node, out)
+  }
+  return out
+}
+
+function rescueText(node: PMNode, out: PMNode[]): void {
+  const text = node.text ?? ''
+  let hit: { at: number; end: number; name: string; body: string } | null = null
+  for (const [re, name] of LITERAL_MARKS) {
+    const m = re.exec(text)
+    if (!m || m[1].trim() === '') continue
+    if (hit && m.index >= hit.at) continue
+    hit = { at: m.index, end: m.index + m[0].length, name, body: m[1] }
+  }
+  if (!hit) {
+    out.push(node)
+    return
+  }
+  if (hit.at > 0) out.push(schema.text(text.slice(0, hit.at), node.marks))
+  out.push(schema.text(hit.body, [...node.marks, schema.marks[hit.name].create()]))
+  const rest = text.slice(hit.end)
+  if (rest) rescueText(schema.text(rest, node.marks), out)
 }
 
 function pushImage(node: PMNode, out: PMNode[], range: SourceRange): void {
@@ -524,7 +605,7 @@ export function docFromMarkdown(markdown: string): string {
 export function blocksFromMarkdown(markdown: string): PMNode[] | null {
   try {
     const blocks: PMNode[] = []
-    mdBlocks(markdown, blocks)
+    mdBlocks(texOutsideCode(markdown), blocks)
     return blocks.length > 0 ? blocks : null
   } catch (err) {
     reportError('editor-prosemirror', err)

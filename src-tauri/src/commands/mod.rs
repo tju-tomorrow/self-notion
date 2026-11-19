@@ -109,7 +109,6 @@ pub async fn api_bg(
     let Request { method, args } = req;
     let label = window.label().to_string();
     let db = std::sync::Arc::clone(state.inner());
-    drop(state);
     let at = std::time::Instant::now();
     crate::perf::rpc_begin(&label, &method);
     let task_label = label.clone();
@@ -440,6 +439,11 @@ pub fn dispatch(
             let a: DocId = parse(args)?;
             comment::remove(c, &a.id).map(|_| serde_json::json!({"ok": true}))
         }),
+
+        // ── 手机版 / 局域网同步（D-0198）──────────────────────────────────────
+        // 这两条只读服务状态，不碰库：设置页拿它显示地址和配对码。
+        "mobile:status" => Ok(crate::syncing::status()),
+        "mobile:code" => Ok(crate::syncing::new_code()),
 
         // ── 设置（meta 表）────────────────────────────────────────────────────
         "settings:get" => call(db, |c| {

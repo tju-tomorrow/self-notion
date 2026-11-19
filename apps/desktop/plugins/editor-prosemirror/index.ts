@@ -21,6 +21,7 @@ import {
 } from '../../src/kernel/contract'
 import { nextCopyTitle, retitleDocJson } from '../../src/kernel/doc-name'
 import { reportError } from '../../src/kernel/errors'
+import { isWeb } from '../../src/platform/env'
 import { setLoadBacklinks } from './backlinks'
 import { setPutBlob } from './blob'
 import { allDocs, setCreateDoc, setDocs, setLoadDoc, setOpenDoc } from './doc-meta'
@@ -348,6 +349,15 @@ export function apply(ctx: Context) {
   // 关窗口前把攒着的改动落完 —— 300ms 的窗口期里点红点会丢那一截。
   ctx.effect(() => {
     if (typeof window === 'undefined') return () => {}
+    if (isWeb) {
+      // 网页端没有「关窗口」这个钩子；切到后台 / 关标签页前把攒着的改动落完。
+      const flush = () => {
+        if (document.visibilityState !== 'hidden') return
+        void load().then((editor) => editor.flushAll()).catch((err: unknown) => reportError('editor-prosemirror', err))
+      }
+      document.addEventListener('visibilitychange', flush)
+      return () => document.removeEventListener('visibilitychange', flush)
+    }
     let unlisten: (() => void) | undefined
     let dead = false
     void import('@tauri-apps/api/window')

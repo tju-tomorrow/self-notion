@@ -712,7 +712,7 @@ export function Home({ ctx }: { ctx: Context }) {
           <span className={s.rowDateValue}>{timeAgo(doc.updatedAt, now)}</span>
         </span>
         <span
-          className={s.rowDate}
+          className={`${s.rowDate} ${s.rowDateCreated}`}
           title={`${ctx.i18n.t('home.createdAt')} ${fullTime(doc.createdAt)}`}
         >
           <DateTimeIcon className={s.rowDateIcon} width={14} height={14} />

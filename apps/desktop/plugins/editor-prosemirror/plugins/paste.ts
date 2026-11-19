@@ -218,6 +218,8 @@ export function pastePlugin(wire: PasteWiring): Plugin {
           : imageOnlyHtml(html).map(sourceOfDataUrl)
 
         if (sources.length === 0) {
+          // 代码块里粘贴就是原样落字 —— 当 markdown 解成块会插到代码块外面（用户 2026-11-19）。
+          if (view.state.selection.$from.parent.type.spec.code) return false
           // 带列表的 HTML 自己解：`<li>` 里放 `<p>` 时 PM 会把段落甩到列表项外面（一条列表散成空条目 + 段落）。
           // 表格不抢 —— 那份 HTML 里表格的形状我们这边解不出来。
           if (html && /<(?:ol|ul)[\s>]/i.test(html) && !/<table[\s>]/i.test(html)) {

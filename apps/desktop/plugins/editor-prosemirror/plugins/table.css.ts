@@ -55,6 +55,7 @@ globalStyle('.sn-table-cell.selectedCell::after', {
   zIndex: 2,
   background: SELECT,
   opacity: 0.16,
+  '@media': { '(hover: none)': { opacity: 0.45 } },
   pointerEvents: 'none',
 })
 

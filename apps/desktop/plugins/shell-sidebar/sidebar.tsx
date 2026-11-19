@@ -48,6 +48,8 @@ import {
 import { CLOSE_ALL, DOCS_CHANGED, OPEN_DOC, SHOW_LIST, type ListGroup } from '../../src/kernel/contract'
 import { reportError, reportNote } from '../../src/kernel/errors'
 import { readLocal, writeLocal } from '../../src/kernel/local'
+import { isWeb } from '../../src/platform/env'
+import { sendBugReport } from '../../src/platform/web/debug'
 import { DocMenu, useDocMenu } from '../../src/ui/doc-menu'
 import { toast } from '../../src/ui/toast'
 import { buildTree, favorites, pinned, recent, type DocMeta, type DocNode } from './tree'
@@ -692,6 +694,19 @@ export function Sidebar({ ctx }: { ctx: Context }) {
         {/* 「设置」这一项走**命令**，不是直接去开别人的面板 —— 契约里没有设置窗口，
             shell-settings 自己注册了 `settings.open`（⌘K 面板也是这么找到它的）。
             命令不在（那个插件被卸了）就整行不画，不留一个点了没反应的入口。 */}
+        {isWeb && (
+          <button
+            type="button"
+            className={s.navItem}
+            onClick={() => {
+              void sendBugReport().catch((err: unknown) => reportError('debug', err))
+            }}
+          >
+            <span className={s.navIcon} style={{ fontWeight: 600 }}>!</span>
+            <span className={s.navLabel}>报告问题</span>
+          </button>
+        )}
+
         {settings && (
           <button type="button" className={s.navItem} onClick={() => void settings.run()}>
             <span className={s.navIcon}>

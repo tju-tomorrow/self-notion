@@ -9,9 +9,8 @@ import type { Node as PMNode } from 'prosemirror-model'
 import type { NodeViewConstructor } from 'prosemirror-view'
 
 import { reportError } from '../../../src/kernel/errors'
+import { blobUrl } from '../../../src/platform/blob-url'
 import { asString } from './attrs'
-
-const BLOB_PREFIX = 'self-notion://blob/'
 
 function makeMediaView(kind: 'video' | 'audio'): NodeViewConstructor {
   return (node) => {
@@ -27,7 +26,7 @@ function makeMediaView(kind: 'video' | 'audio'): NodeViewConstructor {
 
     const paint = (n: PMNode) => {
       const blobId = asString(n.attrs.blobId)
-      el.src = blobId ? BLOB_PREFIX + blobId : ''
+      el.src = blobId ? blobUrl(blobId) : ''
       dom.dataset.empty = String(blobId === '')
     }
     paint(node)
@@ -80,7 +79,7 @@ export const fileView: NodeViewConstructor = (node) => {
   const download = async () => {
     if (!blobId) return
     try {
-      const res = await fetch(BLOB_PREFIX + blobId)
+      const res = await fetch(blobUrl(blobId))
       if (!res.ok) throw new Error(`blob ${res.status}`)
       const url = URL.createObjectURL(await res.blob())
       const a = document.createElement('a')

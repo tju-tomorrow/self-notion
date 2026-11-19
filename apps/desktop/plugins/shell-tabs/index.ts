@@ -9,7 +9,7 @@
  */
 import type { Context } from 'cordis'
 import { createElement } from 'react'
-import { listen } from '@tauri-apps/api/event'
+import { appListen } from '../../src/platform/events'
 // 事件名与载荷类型都从契约来；`Events` 的声明也在契约里（`declare module` 那一块）
 // —— 消费方不用再各补一份。
 import { AGENT_TAB_ID, CLOSE_ALL, CLOSE_TAB, DOCS_CHANGED, OPEN_DOC, isFileId, type DocMeta } from '../../src/kernel/contract'
@@ -129,7 +129,7 @@ export function apply(ctx: Context) {
     (() => {
       let off: (() => void) | null = null
       let dead = false
-      void listen('ui:new-window', () => {
+      void appListen('ui:new-window', () => {
         void ctx.rpc
           .call('window:new', { docId: store.snapshot().activeId ?? undefined })
           .catch((err) => reportError('window', err))

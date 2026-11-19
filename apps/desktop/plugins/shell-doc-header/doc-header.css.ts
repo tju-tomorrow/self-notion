@@ -316,3 +316,6 @@ export const block = style({ display: 'flex', flexDirection: 'column', gap: 8 })
 export const blockTitle = style({ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--affine-v2-text-primary)' })
 
 export const hint = style({ margin: 0, fontSize: 13, color: 'var(--affine-v2-text-secondary)' })
+
+/** 手机只有一栏：分屏按钮点了也没有可用的布局，直接收起来。 */
+export const splitButton = style({ '@media': { '(max-width: 720px)': { display: 'none' } } })

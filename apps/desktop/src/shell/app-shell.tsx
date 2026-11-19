@@ -2,13 +2,14 @@
  * 应用外壳：顶栏 + 侧栏 + 主区。只搭骨架、只挂槽位，里面全由插件塞。
  * 结构照 AFFiNE 的 `app-container`：上面一条通栏，下面才左右分栏。
  */
-import { useCallback, useEffect, useState, type CSSProperties, type PointerEvent } from 'react'
+import { useCallback, useEffect, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react'
 import type { Context } from 'cordis'
-import { SidebarIcon } from '@blocksuite/icons/rc'
-import { AGENT_TAB_ID, CLOSE_ALL, OPEN_DOC, SHOW_LIST, isFileId } from '../kernel/contract'
+import { PageIcon, PlusIcon, SearchIcon, SettingsIcon, SidebarIcon } from '@blocksuite/icons/rc'
+import { AGENT_TAB_ID, CLOSE_ALL, DOCS_CHANGED, OPEN_DOC, SHOW_LIST, isFileId } from '../kernel/contract'
 import * as s from './shell.css'
 import * as motion from '../ui/motion.css'
 import { readLocal, writeLocal } from '../kernel/local'
+import { reportError } from '../kernel/errors'
 import { SlotHost } from './slot-host'
 
 /** 主区显示哪一页。放外壳是因为只有外壳知道主区该给谁。 */
@@ -38,22 +39,53 @@ function useDocView(ctx: Context): { view: MainView; id: string | null } {
   return state
 }
 
+/** 手机断点（D-0195）。侧栏从「占一列」变成「抽屉」。 */
+function useIsMobile(): boolean {
+  // ★ 不只信宽度：iPhone 上偶尔会拿到一个比 720 宽的布局视口（旧缓存 / 缩放），
+  //   那时候桌面侧栏会把正文挤成一条，所以 UA 也一起看。
+  const uaMobile =
+    typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+  const [mobile, setMobile] = useState(
+    () => (typeof window !== 'undefined' && window.matchMedia('(max-width: 720px)').matches) || uaMobile,
+  )
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 720px)')
+    const on = () => setMobile(uaMobile || mq.matches)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [uaMobile])
+  return mobile
+}
+
 function TitleBar({
   ctx,
   collapsed,
+  mobile,
   onToggle,
 }: {
   ctx: Context
   collapsed: boolean
+  mobile: boolean
   onToggle: () => void
 }) {
   const label = ctx.i18n.t('sidebar.toggle')
   return (
     // ★ 必须 `="deep"`：裸属性只认直接点在元素上的那次（drag.js: `el === composedPath[0]`），
     //   而这格里塞了三个 div，点哪儿都是内层元素 → 拖不动。
-    <header className={s.titlebar} data-tauri-drag-region="deep">
+    <header
+      className={mobile ? `${s.titlebar} ${s.titlebarMobile}` : s.titlebar}
+      data-tauri-drag-region={mobile ? undefined : 'deep'}
+    >
       {/* 红绿灯占位 + 侧栏折叠开关（B9）。折叠后这格收窄，标签条从侧栏原位置起。 */}
-      <div className={collapsed ? `${s.headerLeft} ${s.headerLeftCollapsed}` : s.headerLeft}>
+      <div
+        className={
+          mobile
+            ? `${s.headerLeft} ${s.headerLeftCollapsed} ${s.headerLeftMobile}`
+            : collapsed
+              ? `${s.headerLeft} ${s.headerLeftCollapsed}`
+              : s.headerLeft
+        }
+      >
         <button
           type="button"
           className={s.sidebarSwitch}
@@ -75,22 +107,138 @@ function TitleBar({
         <SlotHost ctx={ctx} name="titlebar.center" />
       </div>
       <div className={s.titlebarRight}>
+        {/* 搜索在手机底部导航里；顶栏不再重复一颗。 */}
         <SlotHost ctx={ctx} name="titlebar.right" />
       </div>
     </header>
   )
 }
 
+/** 手机底部导航：把「文档 / 搜索 / 新建 / 设置」放到拇指够得着的地方。 */
+function MobileBar({ ctx, view }: { ctx: Context; view: MainView }) {
+  const create = () => {
+    void ctx.rpc
+      .call<{ id: string }>('doc:create', { parentId: null, title: '' })
+      .then((doc) => {
+        ctx.emit(DOCS_CHANGED)
+        ctx.emit(OPEN_DOC, { id: doc.id })
+      })
+      .catch((err: unknown) => reportError('mobile-bar', err))
+  }
+  const settings = () => {
+    const cmd = ctx.command.list().find((c) => c.id === 'settings.open')
+    if (cmd) void cmd.run()
+  }
+  const item = (
+    key: string,
+    label: string,
+    icon: ReactNode,
+    onTap: () => void,
+    on = false,
+  ) => (
+    <button
+      key={key}
+      type="button"
+      className={on ? `${s.mobileBarBtn} ${s.mobileBarBtnOn}` : s.mobileBarBtn}
+      onClick={onTap}
+      aria-label={label}
+    >
+      {icon}
+      <span className={s.mobileBarLabel}>{label}</span>
+    </button>
+  )
+  return (
+    <nav className={s.mobileBar}>
+      {item('docs', ctx.i18n.t('mobile.tab.docs'), <PageIcon width={22} height={22} />, () => ctx.emit(SHOW_LIST, { group: 'all' }), view === 'home')}
+      {item('search', ctx.i18n.t('mobile.tab.search'), <SearchIcon width={22} height={22} />, () => {
+        window.dispatchEvent(new CustomEvent('sn:open-search'))
+      })}
+      {item('new', ctx.i18n.t('mobile.tab.new'), <PlusIcon width={22} height={22} />, create)}
+      {item('settings', ctx.i18n.t('mobile.tab.settings'), <SettingsIcon width={22} height={22} />, settings)}
+    </nav>
+  )
+}
+
 export function AppShell({ ctx }: { ctx: Context }) {
   const { view, id } = useDocView(ctx)
-  const [collapsed, setCollapsed] = useState(() => readLocal('sn.shell.collapsed', false))
+  const mobile = useIsMobile()
+  const [collapsed, setCollapsed] = useState(
+    () =>
+      (typeof window !== 'undefined' && window.matchMedia('(max-width: 720px)').matches) ||
+      readLocal('sn.shell.collapsed', false),
+  )
   const [width, setWidth] = useState(() => readLocal('sn.shell.width', s.SIDEBAR_W))
 
   // 宽度和折叠都落盘 —— 拖一次、收一次，重开还得是这个样子。
+  // 手机上的折叠是**抽屉开合**，不是用户偏好，不写回桌面那份额。
   useEffect(() => {
+    if (mobile) return
     writeLocal('sn.shell.collapsed', collapsed)
     writeLocal('sn.shell.width', width)
-  }, [collapsed, width])
+  }, [collapsed, width, mobile])
+
+  // 手机：换到窄屏自动收起抽屉；点开一篇文档也收起（否则挡住正文）。
+  useEffect(() => {
+    if (!mobile) return
+    setCollapsed(true)
+    const off = ctx.on(OPEN_DOC, () => setCollapsed(true))
+    return () => {
+      void off()
+    }
+  }, [mobile, ctx])
+
+  // 手机侧滑：左缘往右拉打开侧栏，抽屉上往左推收起。只认明显的横向手势，
+  // 竖向滑动（滚正文）不抢。
+  useEffect(() => {
+    if (!mobile || typeof window === 'undefined') return
+    let sx = 0
+    let sy = 0
+    let active = false
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return
+      const t = e.touches[0]
+      if (t.clientY > window.innerHeight - 64) return
+      if (collapsed) {
+        active = t.clientX <= 28
+      } else {
+        active = true
+      }
+      if (active) {
+        sx = t.clientX
+        sy = t.clientY
+      }
+    }
+    const onMove = (e: TouchEvent) => {
+      if (!active || e.touches.length !== 1) return
+      const t = e.touches[0]
+      const dx = t.clientX - sx
+      const dy = t.clientY - sy
+      if (Math.abs(dy) > 28 && Math.abs(dy) > Math.abs(dx)) {
+        active = false
+        return
+      }
+      if (collapsed && dx > 56) {
+        active = false
+        setCollapsed(false)
+      } else if (!collapsed && dx < -56) {
+        active = false
+        setCollapsed(true)
+      }
+    }
+    const onEnd = () => {
+      active = false
+    }
+    document.addEventListener('touchstart', onStart, { passive: true })
+    document.addEventListener('touchmove', onMove, { passive: true })
+    document.addEventListener('touchend', onEnd, { passive: true })
+    document.addEventListener('touchcancel', onEnd, { passive: true })
+    return () => {
+      document.removeEventListener('touchstart', onStart)
+      document.removeEventListener('touchmove', onMove)
+      document.removeEventListener('touchend', onEnd)
+      document.removeEventListener('touchcancel', onEnd)
+    }
+  }, [mobile, collapsed])
 
   // Ctrl+B 开合侧栏。特意不认 Cmd —— Cmd+B 在编辑器里是加粗。
   useEffect(() => {
@@ -129,22 +277,44 @@ export function AppShell({ ctx }: { ctx: Context }) {
       className={`${s.root} ${motion.fadeIn}`}
       data-sn-shell=""
       data-collapsed={collapsed ? '1' : '0'}
-      style={{ '--shell-sidebar-w': `${width}px` } as CSSProperties}
+      data-mobile={mobile ? '1' : '0'}
+      style={{ '--shell-sidebar-w': mobile ? 'min(84vw, 320px)' : `${width}px` } as CSSProperties}
     >
-      <TitleBar ctx={ctx} collapsed={collapsed} onToggle={() => setCollapsed((v) => !v)} />
+      <TitleBar
+        ctx={ctx}
+        collapsed={collapsed}
+        mobile={mobile}
+        onToggle={() => setCollapsed((v) => !v)}
+      />
       <div className={s.body}>
-        <aside className={collapsed ? `${s.sidebar} ${s.sidebarCollapsed}` : s.sidebar}>
-          <SlotHost ctx={ctx} name="sidebar.item" />
-          {/* 折叠了就没有宽度可拖 */}
-          {!collapsed && (
-            <div
-              className={s.resizer}
-              role="separator"
-              aria-orientation="vertical"
-              onPointerDown={onResizeStart}
-            />
-          )}
-        </aside>
+        {mobile && !collapsed ? (
+          <div className={s.scrim} onPointerDown={() => setCollapsed(true)} />
+        ) : null}
+        {/* 手机收起时**整块不渲染**：只把宽度设成 0 会让里面的文字溢出来盖住首页
+            （2026-11-15 真机截图）。桌面照旧。 */}
+        {!(mobile && collapsed) ? (
+          <aside
+            className={
+              mobile
+                ? `${s.sidebar} ${s.sidebarDrawer}`
+                : collapsed
+                  ? `${s.sidebar} ${s.sidebarCollapsed}`
+                  : s.sidebar
+            }
+            style={mobile ? { width: 'min(84vw, 320px)' } : undefined}
+          >
+            <SlotHost ctx={ctx} name="sidebar.item" />
+            {/* 折叠了就没有宽度可拖；手机抽屉也不拖 */}
+            {!collapsed && !mobile && (
+              <div
+                className={s.resizer}
+                role="separator"
+                aria-orientation="vertical"
+                onPointerDown={onResizeStart}
+              />
+            )}
+          </aside>
+        ) : null}
         <main className={s.main}>
           {/* ★ 两个分支各套一层带 `key` 的 `view`：换页时 React 重挂它，
               入场动画（`motion.fadeIn`）于是每次切换都重放 —— 不套这一层的话，
@@ -193,6 +363,7 @@ export function AppShell({ ctx }: { ctx: Context }) {
           )}
         </main>
       </div>
+      {mobile ? <MobileBar ctx={ctx} view={view} /> : null}
     </div>
   )
 }

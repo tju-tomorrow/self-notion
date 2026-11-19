@@ -20,6 +20,8 @@ globalStyle('.sn-outline-toggle', {
   background: 'transparent',
   color: 'var(--sn-muted, #8a8a8a)',
   cursor: 'pointer',
+  // 手机上没有右侧大纲栏，按钮留着只会点了没反应。
+  '@media': { '(max-width: 720px)': { display: 'none' } },
 })
 
 globalStyle('.sn-outline-toggle:hover', {

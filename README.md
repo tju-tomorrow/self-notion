@@ -60,6 +60,7 @@ them (plugins, AI, the retrieval surface for agents) is grown here.
 **Data**
 - **Zero-wait image paste**: bytes go straight into SQLite, deduped by sha256, no extra local directory
 - **One-way Markdown backup to GitHub** (off by default; readable and diffable on the web)
+- **Phone PWA over your own Wi-Fi**: a full offline copy on the phone, two-way sync with the desktop — no account, no cloud, no server
 - **Notion import**: HTML export zip → one doc per page, folder hierarchy → parent/child, images into the blob store
 
 <img src="images/github-backup.jpg" width="880" alt="Settings → GitHub backup: enable, repository, branch, access token, last backup">
@@ -163,13 +164,13 @@ overwrite** (it would drop block metadata), and **no delete**.
 
 Not doing (frozen): databases with multiple views (Notion's soul, D-0008) ·
 whiteboard canvas · accounts / cloud sync / collaboration · journal / templates ·
-formulas / web embeds / bookmarks · mobile / web · telemetry / auto-update · theme editor
+formulas / web embeds / bookmarks · telemetry / auto-update · theme editor
 
 > **The one-line test: if a feature doesn't help me write faster or extend more easily, it doesn't get built.**
 
 **Not built yet** (in priority order): the extension market · doc title and body measure in
 the editor · dedicated pages for recents / favorites / trash · home collections and tags are empty
-states · virtualized card grid · databases / whiteboard / collaboration / mobile.
+states · virtualized card grid · databases / whiteboard / collaboration.
 
 ---
 

@@ -148,6 +148,7 @@ globalStyle('.sn-image-grip', {
   bottom: -4,
   width: 12,
   height: 12,
+  '@media': { '(max-width: 720px)': { width: 20, height: 20, right: -6, bottom: -6 } },
   borderRadius: 3,
   border: `1px solid ${LINE}`,
   background: 'var(--sn-bg, #fff)',
@@ -288,6 +289,16 @@ globalStyle('.sn-mermaid[data-state="error"]', {
   fontSize: 12,
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',
+})
+
+/* ── inlineCode（mark，跟 codeBlock 里的 <code> 不共用）── */
+
+globalStyle('.sn-inline-code', {
+  padding: '1px 4px',
+  borderRadius: 4,
+  background: WASH,
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+  fontSize: '0.92em',
 })
 
 /* ── equation / inlineEquation ── */

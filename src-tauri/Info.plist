@@ -4,5 +4,7 @@
 <dict>
   <key>NSMicrophoneUsageDescription</key>
   <string>self-notion 用麦克风把你的语音转成本地笔记草稿，声音不会离开这台电脑。</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>手机版要和同一 Wi-Fi 下的手机同步笔记，只在你自己的局域网里走。</string>
 </dict>
 </plist>

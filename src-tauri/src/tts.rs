@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -81,8 +82,8 @@ pub fn speak(app: &AppHandle, args: Value) -> ApiResult<Value> {
 
 pub fn warm() -> ApiResult<Value> {
     std::thread::spawn(|| {
-        for idx in 0..SLOTS_N {
-            let mut slot = SLOTS[idx].lock().unwrap_or_else(|err| err.into_inner());
+        for slot_ref in &SLOTS {
+            let mut slot = slot_ref.lock().unwrap_or_else(|err| err.into_inner());
             if slot.is_some() {
                 continue;
             }
@@ -163,8 +164,11 @@ fn cache_path(app: &AppHandle, key: &str) -> ApiResult<PathBuf> {
     Ok(dir.join(format!("{key}.mp3")))
 }
 
-fn flights() -> &'static Mutex<HashMap<String, Vec<mpsc::Sender<Result<(), String>>>>> {
-    static FLIGHTS: OnceLock<Mutex<HashMap<String, Vec<mpsc::Sender<Result<(), String>>>>>> = OnceLock::new();
+type Flight = mpsc::Sender<Result<(), String>>;
+type Flights = Mutex<HashMap<String, Vec<Flight>>>;
+
+fn flights() -> &'static Flights {
+    static FLIGHTS: OnceLock<Flights> = OnceLock::new();
     FLIGHTS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -359,10 +363,30 @@ enum Miss {
 }
 
 fn humanize(err: String) -> String {
+    if err.contains("429") {
+        return "朗读服务在限流，等几秒再点一次".into();
+    }
     if err.contains("No audio was received") {
         return "这个音色现在没有出声".into();
     }
     err
+}
+
+/// 微软按 IP 限流，两条并发就 429。一次只连一条，并留一点间隔。
+static GATE: Mutex<Option<Instant>> = Mutex::new(None);
+const GAP: Duration = Duration::from_millis(350);
+
+fn paced<T>(job: impl FnOnce() -> T) -> T {
+    let mut last = GATE.lock().unwrap_or_else(|err| err.into_inner());
+    if let Some(at) = *last {
+        let wait = GAP.saturating_sub(at.elapsed());
+        if !wait.is_zero() {
+            std::thread::sleep(wait);
+        }
+    }
+    let out = job();
+    *last = Some(Instant::now());
+    out
 }
 
 fn synth(path: &Path, text: &str, voice: &str, rate: &str) -> Result<(), String> {
@@ -374,24 +398,28 @@ fn synth(path: &Path, text: &str, voice: &str, rate: &str) -> Result<(), String>
         "rate": rate,
         "path": path.to_string_lossy(),
     });
-    let mut last = "朗读进程断了".to_string();
-    for attempt in 0..2 {
+    let mut dead = 0;
+    let mut limited = 0;
+    loop {
         if slot.is_none() {
             *slot = Some(Worker::spawn()?);
         }
-        match slot.as_mut().unwrap().request(&payload) {
+        match paced(|| slot.as_mut().unwrap().request(&payload)) {
             Ok(()) => return Ok(()),
+            Err(Miss::Remote(msg)) if limited < 2 && msg.contains("429") => {
+                limited += 1;
+                std::thread::sleep(Duration::from_millis(900 * limited as u64));
+            }
             Err(Miss::Remote(msg)) => return Err(humanize(msg)),
             Err(Miss::Dead(msg)) => {
                 *slot = None;
-                last = msg;
-                if attempt == 1 {
-                    return Err(last);
+                dead += 1;
+                if dead >= 2 {
+                    return Err(msg);
                 }
             }
         }
     }
-    Err(last)
 }
 
 /// 应用自己的 PATH 里 `python3` 经常是另一只，没装 edge-tts。找到能 `import edge_tts` 的那只再用。

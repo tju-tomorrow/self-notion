@@ -61,7 +61,9 @@ fn reset(conn: &Connection) -> Result<(), rusqlite::Error> {
          DROP TABLE IF EXISTS graph_edge;
          DROP TABLE IF EXISTS vec;
          DROP TABLE IF EXISTS agent_request;
-         DROP TABLE IF EXISTS doc_learn;",
+         DROP TABLE IF EXISTS doc_learn;
+         DROP TABLE IF EXISTS doc_sync;
+         DROP TABLE IF EXISTS sync_log;",
     )?;
     conn.execute_batch(include_str!("schema.sql"))
 }

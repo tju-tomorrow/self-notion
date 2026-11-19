@@ -30,7 +30,11 @@ const SCHEMES: Readonly<Record<Scheme, Readonly<Record<string, string>>>> = {
  * —— 挂在外壳 div 上的话，弹到 body 下的浮层（菜单、tooltip）拿不到。
  */
 function applyScheme(scheme: Scheme) {
-  if (typeof document !== 'undefined') document.documentElement.dataset.theme = scheme
+  if (typeof document === 'undefined') return
+  document.documentElement.dataset.theme = scheme
+  // PWA 最上面那条是 iOS 状态栏，不是 app 画的：深色 app 用实黑，浅色用默认白。
+  const meta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')
+  if (meta) meta.setAttribute('content', scheme === 'dark' ? 'black' : 'default')
 }
 
 /** 契约的 `ThemeService` 是一条只读通道 —— 没有 `set`。见文件末尾。 */

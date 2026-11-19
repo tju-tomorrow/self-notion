@@ -40,15 +40,31 @@ export const header = style({
   height: 52,
   // 24 = 版心。跟下面列表的左缘、右缘对齐，工具栏不再比内容多探出去 8px。
   padding: '0 24px',
+  '@media': {
+    '(max-width: 720px)': {
+      flex: '0 0 auto',
+      height: 'auto',
+      minHeight: 52,
+      flexWrap: 'wrap',
+      gap: 8,
+      padding: '8px 12px',
+    },
+  },
 })
 
 export const tabs = style({
   display: 'flex',
   alignItems: 'center',
   gap: 8,
+  flexShrink: 0,
+  '@media': {
+    '(max-width: 720px)': { width: '100%', order: 2, overflowX: 'auto', paddingBottom: 2 },
+  },
 })
 
 export const tab = style({
+  flexShrink: 0,
+  whiteSpace: 'nowrap',
   border: 'none',
   background: 'transparent',
   padding: 0,
@@ -63,9 +79,22 @@ export const tab = style({
 
 export const tabOn = style([tab, { color: 'var(--affine-v2-text-primary)' }])
 
-export const actions = style({ display: 'flex', alignItems: 'center', gap: 12 })
+export const actions = style({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+  '@media': {
+    '(max-width: 720px)': {
+      width: '100%',
+      order: 1,
+      flexWrap: 'wrap',
+      gap: 8,
+      justifyContent: 'flex-start',
+    },
+  },
+})
 
-export const viewToggle = style({ display: 'flex', alignItems: 'center', gap: 4 })
+export const viewToggle = style({ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 })
 
 /** 行内 / 工具栏的图标按钮，24 见方（AFFiNE IconButton 的默认尺寸）。 */
 export const iconBtn = style({
@@ -96,6 +125,7 @@ export const starOn = style([iconBtn, { color: 'var(--affine-primary-color)' }])
 export const filter = style({
   height: 28,
   width: 180,
+  '@media': { '(max-width: 720px)': { flex: '1 1 140px', width: 'auto', minWidth: 0, height: 36 } },
   padding: '0 12px',
   border: 'none',
   borderRadius: 8,
@@ -110,6 +140,9 @@ export const filter = style({
 
 export const chipOn = style({
   height: 28,
+  '@media': { '(max-width: 720px)': { height: 36 } },
+  whiteSpace: 'nowrap',
+  flexShrink: 0,
   padding: '0 12px',
   border: 'none',
   borderRadius: 8,
@@ -122,6 +155,9 @@ export const chipOn = style({
 
 export const ghostBtn = style({
   height: 28,
+  '@media': { '(max-width: 720px)': { height: 36 } },
+  whiteSpace: 'nowrap',
+  flexShrink: 0,
   padding: '0 12px',
   border: 'none',
   borderRadius: 8,
@@ -140,10 +176,13 @@ export const ghostBtn = style({
  *    图标和字之间那个 JSX 里的空格也不要了，间距由 `gap` 管（空格宽度看字体，飘）。 */
 export const newDocBtn = style({
   display: 'inline-flex',
+  whiteSpace: 'nowrap',
+  flexShrink: 0,
   alignItems: 'center',
   justifyContent: 'center',
   gap: 6,
   height: 28,
+  '@media': { '(max-width: 720px)': { display: 'none' } },
   padding: '0 12px',
   border: 'none',
   borderRadius: 8,
@@ -214,10 +253,13 @@ export const groupLabel = style({
   lineHeight: '20px',
   fontWeight: 600,
   color: 'var(--affine-v2-text-primary)',
+  whiteSpace: 'nowrap',
+  flexShrink: 0,
 })
 
 /** 篇数：一枚小胶囊，跟名字拉开档次（原来是一串灰数字，混在满屏正文数字里认不出来）。 */
 export const groupCount = style({
+  flexShrink: 0,
   height: 18,
   padding: '0 7px',
   display: 'inline-flex',
@@ -299,6 +341,7 @@ export const row = style({
   alignItems: 'center',
   gap: 8,
   padding: '0 4px',
+  '@media': { '(max-width: 720px)': { gap: 6, padding: '0 2px' } },
   borderRadius: 4,
   cursor: 'pointer',
   transition: 'background-color 120ms ease-out',
@@ -341,6 +384,8 @@ export const headTitle = style({
   lineHeight: '26px',
   fontWeight: 600,
   color: 'var(--affine-v2-text-primary)',
+  whiteSpace: 'nowrap',
+  '@media': { '(max-width: 720px)': { fontSize: 16 } },
 })
 
 /** 时间列。`marginLeft` 是留给长标题的：没有它，标题省略号会直接顶到「更新」上。
@@ -352,6 +397,7 @@ export const rowDates = style({
   gap: 20,
   marginLeft: 16,
   flexShrink: 0,
+  '@media': { '(max-width: 720px)': { gap: 8, marginLeft: 8 } },
 })
 
 /** 一对时间：图标 + 「更新 / 创建」+ 数值 —— 光两个数摆在那儿看不出谁是谁。 */
@@ -360,6 +406,7 @@ export const rowDate = style({
   alignItems: 'center',
   gap: 4,
   fontSize: 12,
+  '@media': { '(max-width: 720px)': { fontSize: 11, gap: 2 } },
   lineHeight: '20px',
   color: 'var(--affine-v2-text-secondary)',
   whiteSpace: 'nowrap',
@@ -368,12 +415,22 @@ export const rowDate = style({
 /** 图标比字大半号，但颜色压到 tertiary，只当个记号用，不去跟数值抢注意力。 */
 export const rowDateIcon = style({ flexShrink: 0, color: 'var(--affine-v2-text-tertiary)' })
 
-export const rowDateLabel = style({ color: 'var(--affine-v2-text-tertiary)' })
+export const rowDateLabel = style({
+  color: 'var(--affine-v2-text-tertiary)',
+  // 手机上「更新 / 创建」这两个字最占地方：图标和值已经够认了。
+  '@media': { '(max-width: 720px)': { display: 'none' } },
+})
+
+/** 创建时间那一列在手机上直接不显示（更新那一列保留）。 */
+export const rowDateCreated = style({
+  '@media': { '(max-width: 720px)': { display: 'none' } },
+})
 
 /** 等宽数字：时间这列全是「7小时前 / 12小时前 / 昨天」，等宽之后每行都一条线。 */
 export const rowDateValue = style({
   width: 56,
   textAlign: 'right',
+  '@media': { '(max-width: 720px)': { width: 42 } },
   fontVariantNumeric: 'tabular-nums',
 })
 
@@ -423,6 +480,7 @@ export const grid = style({
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
   gap: 24,
+  '@media': { '(max-width: 720px)': { gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 14 } },
 })
 
 export const card = style({
@@ -542,6 +600,7 @@ export const masonry = style({
   gap: 24,
   '@media': {
     '(max-width: 900px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' },
+    '(max-width: 720px)': { gridTemplateColumns: 'minmax(0, 1fr)', gap: 14 },
   },
 })
 

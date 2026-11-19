@@ -21,6 +21,7 @@ pub mod mcp;
 mod mem;
 mod perf;
 mod store;
+mod syncing;
 mod tts;
 mod vfs;
 mod voice;
@@ -128,7 +129,10 @@ pub fn run() {
                 log::record("kb", &format!("启动同步标签词表失败：{}", e.message));
             }
             crate::kb::curator::spawn(db.clone());
+            // 手机版（D-0195）：局域网同步服务。失败只记日志，不拖累桌面。
+            let sync_db = db.clone();
             app.manage(db);
+            crate::syncing::start(app.handle(), sync_db);
             // 窗口在 `manage` 之后才建 —— 见 `windows::create_main`。
             windows::create_main(app.handle()).map_err(std::io::Error::other)?;
             // 兜底（见 `reveal`）：前端要是压根没起来，窗口也得出来 ——

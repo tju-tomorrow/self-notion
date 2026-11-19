@@ -10,8 +10,11 @@
  */
 import { invoke } from '@tauri-apps/api/core'
 import type { Context } from 'cordis'
-import type { RpcService } from '../../src/kernel/contract'
+import { DOCS_CHANGED, type RpcService } from '../../src/kernel/contract'
+import { reportError } from '../../src/kernel/errors'
 import { noteSlow } from '../../src/kernel/rpc-timing'
+import { isWeb } from '../../src/platform/env'
+import { createWebRpc } from '../../src/platform/web/rpc'
 
 export const name = 'plugin-rpc'
 
@@ -62,7 +65,18 @@ export function apply(ctx: Context) {
     },
   }
 
+  // 网页端（D-0197）：同一个 `RpcService` 形状，底下换成 IndexedDB + 同步引擎。
+  const web: RpcService | null = isWeb
+    ? createWebRpc({ onChange: () => ctx.emit(DOCS_CHANGED) })
+    : null
+
   // `provide` 自己就登记在 fiber 的 effect 账本上（cordis `reflect.provide`），
   // 卸载即撤销 —— 所以逆函数不用手写，这就是它（D-0033）。
-  ctx.effect(() => ctx.provide('rpc', rpc))
+  ctx.effect(() => ctx.provide('rpc', web ?? rpc))
+
+  if (web) {
+    void import('../../src/platform/web/sync')
+      .then((m) => m.startSync(ctx))
+      .catch((err: unknown) => reportError('sync', err))
+  }
 }

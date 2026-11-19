@@ -38,6 +38,7 @@ import { metaPlugin } from './page-meta'
 import { blockHandlePlugin } from './plugins/block-handle'
 import { blockHintPlugin } from './plugins/block-hint'
 import { blankDragPlugin } from './plugins/block-selection'
+import { codeHighlightPlugin } from './plugins/code-highlight'
 import { inlineToolbarPlugin } from './plugins/inline-toolbar'
 import { inputRulesPlugin } from './plugins/input-rules'
 import { listNumberPlugin } from './plugins/list-number'
@@ -314,6 +315,8 @@ function buildPlugins(parts: {
     // 拖拽的落点线。不装就没那条线（拖拽本身照样能用）。
     dropCursor({ color: 'var(--sn-accent, #1e96eb)', width: 2 }),
     findPlugin, // 查找命中的高亮（decoration）
+    // 代码块语法高亮。颜色不在这里 —— `code-theme` 插件按 `<html data-code-theme>` 出。
+    codeHighlightPlugin,
     // 标题下那行（创建时间 · 字数）。现算的投影，跟着 doc 变。
     metaPlugin(parts.meta, parts.docId, {
       createdAt: wiring?.createdAt ?? '{time}',

@@ -122,6 +122,7 @@ export const titlebarRight = style({
 export const iconButton = style({  flex: '0 0 28px',
   width: 28,
   height: 28,
+  '@media': { '(max-width: 720px)': { flex: '0 0 40px', width: 40, height: 40 } },
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -214,6 +215,7 @@ export const docHeader = style({
   //   这里给它一个高于默认层的层 + 不透明底色，它们就滑到这一行**底下**去。
   position: 'relative',
   zIndex: 2,
+  '@media': { '(max-width: 720px)': { paddingLeft: 8, paddingRight: 4, gap: 4, overflowX: 'auto' } },
 })
 
 /** 顶栏底下那一行：正文 + 右侧评论栏。评论栏没挂时行里只有正文，跟以前一样。 */
@@ -230,3 +232,120 @@ export const docBody = style({
 globalStyle(`${docBody} > *`, { minWidth: 0 })
 
 export const empty = style({ margin: 0, padding: 48, color: 'var(--affine-v2-text-tertiary)' })
+
+/* ─────────────────────────── 手机（D-0195） ─────────────────────────── */
+
+/** 抽屉打开时的遮罩。点一下就收。 */
+export const scrim = style({
+  position: 'fixed',
+  inset: 0,
+  zIndex: 49,
+  background: 'rgba(0, 0, 0, .26)',
+})
+
+/** 手机上的侧栏 = 从左边滑出来的抽屉，不再占正文一列。 */
+export const sidebarDrawer = style({
+  position: 'fixed',
+  top: 0,
+  left: 0,
+  bottom: 0,
+  zIndex: 50,
+  flex: '0 0 auto',
+  display: 'flex',
+  flexDirection: 'column',
+  // ★ 必须自己给底色：抽屉下面是首页，透明就会看见两层字叠在一起（真机截图）。
+  backgroundColor: 'var(--affine-v2-layer-background-primary, #191919)',
+  paddingTop: 'env(safe-area-inset-top)',
+  paddingBottom: 'calc(8px + env(safe-area-inset-bottom))',
+  boxShadow: '0 12px 40px rgba(0, 0, 0, .28)',
+  borderRight: '1px solid var(--sn-line, rgba(0, 0, 0, .12))',
+})
+
+/** 顶栏在手机上矮一点、给状态栏让位；没有红绿灯，左边那格也随之收窄。 */
+export const titlebarMobile = style({
+  flex: '0 0 auto',
+  height: 'calc(44px + env(safe-area-inset-top))',
+  paddingTop: 'env(safe-area-inset-top)',
+  paddingRight: 4,
+  backgroundColor: 'var(--affine-v2-layer-background-primary, #191919)',
+  borderBottom: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
+  zIndex: 3,
+})
+
+export const headerLeftMobile = style({
+  paddingLeft: 6,
+  paddingRight: 4,
+})
+
+globalStyle('html, body', {
+  '@media': { '(max-width: 720px)': { WebkitTextSizeAdjust: '100%' } },
+})
+
+globalStyle('html, body, #root', {
+  '@media': { '(max-width: 720px)': { height: '100dvh' } },
+})
+
+// iOS 在字号 < 16px 的输入框聚焦时会自动放大整页。统一抬到 16，编辑器正文也跟着好读。
+globalStyle('input, textarea, select, [contenteditable="true"], .ProseMirror', {
+  '@media': { '(max-width: 720px)': { fontSize: '16px' } },
+})
+
+// 手机上别让长按选中整页 / 双击缩放打断输入。
+globalStyle('button, [role="button"], .ProseMirror', {
+  '@media': { '(max-width: 720px)': { touchAction: 'manipulation' } },
+})
+
+/* ─────────────── 网页版：关掉窗口磨砂 / 弹层模糊 ───────────────
+ * 桌面端这些 blur 是压在系统 vibrancy 上的；浏览器里没有 vibrancy，同样的
+ * `backdrop-filter` 会把底下的正文糊成一团（真机截图）。 */
+globalStyle('[data-sn-web] *', {
+  backdropFilter: 'none !important',
+  WebkitBackdropFilter: 'none !important',
+})
+globalStyle('[data-sn-web] .sn-scrim', {
+  background: 'rgba(0, 0, 0, .55)',
+})
+globalStyle('html[data-sn-web], html[data-sn-web] body', {
+  background: 'var(--affine-v2-layer-background-primary, #faf9f7)',
+})
+globalStyle('[data-sn-web] button, [data-sn-web] a, [data-sn-web] [role="button"]', {
+  WebkitTapHighlightColor: 'transparent',
+})
+
+/* ─────────────────────────── 手机底部导航（D-0195） ─────────────────────────── */
+
+export const mobileBar = style({
+  flex: '0 0 auto',
+  display: 'flex',
+  alignItems: 'stretch',
+  borderTop: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
+  backgroundColor: 'var(--affine-v2-layer-background-primary, #191919)',
+  paddingBottom: 'env(safe-area-inset-bottom)',
+  zIndex: 4,
+})
+
+export const mobileBarBtn = style({
+  flex: 1,
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 2,
+  minHeight: 52,
+  padding: '8px 2px 4px',
+  border: 'none',
+  background: 'transparent',
+  color: 'var(--affine-v2-icon-secondary)',
+  fontFamily: 'inherit',
+  cursor: 'pointer',
+  WebkitTapHighlightColor: 'transparent',
+})
+
+export const mobileBarBtnOn = style({
+  color: 'var(--affine-v2-text-primary)',
+})
+
+export const mobileBarLabel = style({
+  fontSize: 10,
+  lineHeight: '12px',
+})

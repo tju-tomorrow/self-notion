@@ -9,12 +9,10 @@
  */
 import { Schema, type DOMOutputSpec, type MarkSpec, type Node as PMNode, type NodeSpec } from 'prosemirror-model'
 import { tableNodes } from 'prosemirror-tables'
+import { BLOB_PREFIX, blobIdFrom, blobUrl } from '../../../src/platform/blob-url'
 
 /** blockContent 组的节点 —— 一个块的「内容类型」，共用一个 group 好按类找（架构 §2.2）。 */
 const content = (spec: NodeSpec): NodeSpec => ({ group: 'blockContent', ...spec })
-
-/** 字节走 blob（`self-notion://blob/<id>`）；URL 现算，JSON 里只存 blobId（+ 显示名 name）。 */
-const BLOB_PREFIX = 'self-notion://blob/'
 
 /** video / audio / file 三个媒体块只有一处不同：宿主标签。`a` 那个把显示名当文字，其余是空元素。 */
 function mediaNode(tag: 'video' | 'audio' | 'a', cls: string): NodeSpec {
@@ -24,15 +22,15 @@ function mediaNode(tag: 'video' | 'audio' | 'a', cls: string): NodeSpec {
     attrs: { blobId: { default: '' }, name: { default: '' } },
     parseDOM: [
       {
-        tag: `${tag}[${srcAttr}^="${BLOB_PREFIX}"]`,
+        tag: `${tag}[${srcAttr}^="${BLOB_PREFIX}"], ${tag}[${srcAttr}^="/blob/"]`,
         getAttrs: (el) => {
           const src = (el as HTMLElement).getAttribute(srcAttr) ?? ''
-          return { blobId: src.slice(BLOB_PREFIX.length), name: (el as HTMLElement).dataset.name ?? '' }
+          return { blobId: blobIdFrom(src) ?? '', name: (el as HTMLElement).dataset.name ?? '' }
         },
       },
     ],
     toDOM: (node): DOMOutputSpec => {
-      const attrs = { [srcAttr]: BLOB_PREFIX + String(node.attrs.blobId ?? ''), class: cls, 'data-name': node.attrs.name }
+      const attrs = { [srcAttr]: blobUrl(String(node.attrs.blobId ?? '')), class: cls, 'data-name': node.attrs.name, 'data-blob-id': String(node.attrs.blobId ?? '') }
       return tag === 'a' ? ['a', attrs, String(node.attrs.name ?? '') || 'file'] : [tag, attrs]
     },
   }
@@ -218,13 +216,13 @@ const nodes: Record<string, NodeSpec> = {
       },
       parseDOM: [
         {
-          tag: 'img[src^="self-notion://blob/"]',
+          tag: 'img[src^="self-notion://blob/"], img[src^="/blob/"]',
           getAttrs: (el) => {
             const img = el as HTMLImageElement
             const src = img.getAttribute('src') ?? ''
             const width = img.getAttribute('width')
             return {
-              blobId: src.slice('self-notion://blob/'.length),
+              blobId: img.dataset.blobId ?? blobIdFrom(src) ?? '',
               width: width ? Number(width) : null,
               caption: img.dataset.caption ?? '',
               align: img.dataset.align ?? '',
@@ -233,7 +231,10 @@ const nodes: Record<string, NodeSpec> = {
         },
       ],
       toDOM: (node) => {
-        const attrs: Record<string, string> = { src: `self-notion://blob/${node.attrs.blobId}` }
+        const attrs: Record<string, string> = {
+          src: blobUrl(String(node.attrs.blobId)),
+          'data-blob-id': String(node.attrs.blobId),
+        }
         if (typeof node.attrs.width === 'number') attrs.width = String(node.attrs.width)
         if (node.attrs.caption) attrs['data-caption'] = String(node.attrs.caption)
         if (node.attrs.align) attrs['data-align'] = String(node.attrs.align)
@@ -419,7 +420,7 @@ const marks: Record<string, MarkSpec> = {
   },
   code: {
     parseDOM: [{ tag: 'code' }],
-    toDOM: () => ['code', 0],
+    toDOM: () => ['code', { class: 'sn-inline-code' }, 0],
   },
   link: {
     attrs: { href: { default: '' } },

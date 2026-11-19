@@ -74,7 +74,12 @@ export function ThreadCard({
         ref={place}
         className={dock ? s.chip : `${s.chip} ${s.floatPos}`}
         title={dock ? thread.root.quote : undefined}
-        onClick={() => setCommentState({ expanded: id })}
+        onClick={() => {
+          // 摊开卡片的同时让正文里那段闪一下 —— 只 setCommentState 的话，
+          // 卡片开了、原文没反应，用户不知道评论指的是哪一段。
+          setCommentState({ expanded: id })
+          ctx.editor?.revealComment(id)
+        }}
       >
         {lead}
         <span className={s.chipText}>{thread.root.body}</span>

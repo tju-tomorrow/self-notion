@@ -6,6 +6,7 @@
  */
 import { useEffect, useState, type ChangeEvent } from 'react'
 import type { Context } from 'cordis'
+import { blobUrl } from '../../src/platform/blob-url'
 import type { ThemeController } from '../../src/theme/tokens'
 import { confirmDialog } from '../../src/ui/confirm'
 import { Button, Field, Group, Note, Row, Select } from '../../src/ui/settings'
@@ -326,7 +327,7 @@ async function putArt(ctx: Context, dataUrl: string): Promise<string> {
     bytes: dataUrl.slice(comma + 1),
     mime,
   })
-  return `url("self-notion://blob/${meta.id}")`
+  return `url("${blobUrl(meta.id)}")`
 }
 
 /**

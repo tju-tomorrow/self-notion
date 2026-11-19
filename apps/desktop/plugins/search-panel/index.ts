@@ -113,8 +113,14 @@ function SearchPanel({ ctx }: { ctx: Context }) {
         setOpen(false)
       }
     }
+    // 手机没有 ⌘K：外壳的搜索按钮发这个事件（D-0195）。桌面也可以用同一个口子。
+    const onAsk = () => setOpen(true)
     document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
+    window.addEventListener('sn:open-search', onAsk)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      window.removeEventListener('sn:open-search', onAsk)
+    }
   }, [])
 
   // 打开：清空上一次打的字、把焦点给输入框。★ 清的是**输入**，不是结果 ——

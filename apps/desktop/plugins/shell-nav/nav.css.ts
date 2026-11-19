@@ -7,6 +7,7 @@ export const button = style({
   flex: '0 0 28px',
   width: 28,
   height: 28,
+  '@media': { '(max-width: 720px)': { width: 40, height: 40 } },
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',

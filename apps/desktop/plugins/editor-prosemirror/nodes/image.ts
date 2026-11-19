@@ -10,11 +10,11 @@
 import type { Node as PMNode } from 'prosemirror-model'
 import type { NodeViewConstructor } from 'prosemirror-view'
 
+import { blobUrl } from '../../../src/platform/blob-url'
 import { selectBlockRange } from '../plugins/block-selection'
 import { asString, asWidth } from './attrs'
 import { openLightbox } from './lightbox'
 
-const BLOB_PREFIX = 'self-notion://blob/'
 const MIN_WIDTH = 40
 
 export const imageView: NodeViewConstructor = (node, view, getPos) => {
@@ -62,7 +62,7 @@ export const imageView: NodeViewConstructor = (node, view, getPos) => {
 
   const paint = (n: PMNode) => {
     const blobId = asString(n.attrs.blobId)
-    img.src = blobId ? `${BLOB_PREFIX}${blobId}` : ''
+    img.src = blobId ? blobUrl(blobId) : ''
     // 还没有 blobId（占位 / 导入途中）—— 让 CSS 画一块灰底，别露一个破图标。
     dom.dataset.empty = String(blobId === '')
     const width = asWidth(n.attrs.width)

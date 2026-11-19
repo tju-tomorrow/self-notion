@@ -21,6 +21,7 @@ export const overlay = style([
     alignItems: 'flex-start',
     justifyContent: 'center',
     padding: '9vh 24px 24px',
+    '@media': { '(max-width: 720px)': { padding: 0, alignItems: 'stretch' } },
   },
 ])
 
@@ -37,6 +38,9 @@ export const panel = style([
     background: 'var(--affine-v2-layer-background-overlayPanel)',
     color: 'var(--affine-v2-text-primary)',
     boxShadow: 'var(--affine-shadow-2)',
+    '@media': {
+      '(max-width: 720px)': { width: '100vw', height: '100dvh', borderRadius: 0 },
+    },
   },
 ])
 
@@ -91,6 +95,8 @@ export const preview = style({
   borderRadius: 8,
   border: '1px solid var(--affine-v2-layer-insideBorder-border)',
   background: 'var(--affine-v2-layer-background-secondary)',
+  // 手机上列表要被预览挤掉一半 —— 直接不显示预览，点结果就打开。
+  '@media': { '(max-width: 720px)': { display: 'none' } },
 })
 
 export const previewTitle = style({
@@ -230,4 +236,5 @@ export const footer = style({
   fontSize: 12,
   color: 'var(--affine-v2-text-tertiary)',
   borderTop: '1px solid var(--affine-v2-layer-insideBorder-border)',
+  '@media': { '(max-width: 720px)': { display: 'none' } },
 })

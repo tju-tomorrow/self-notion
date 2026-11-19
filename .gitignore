@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-web/
 target/
 .vite/
 .DS_Store

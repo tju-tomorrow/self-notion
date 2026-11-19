@@ -87,6 +87,7 @@ globalStyle('.sn-pane-body', {
   minHeight: 0,
   overflow: 'auto',
   padding: '60px 0 24px',
+  '@media': { '(max-width: 720px)': { padding: '36px 0 calc(16px + env(safe-area-inset-bottom))' } },
 })
 
 // ── 正文纸面：底色 + 磨砂（D-0074） ──
@@ -113,6 +114,8 @@ globalStyle('.sn-pane-side[data-on="1"]', {
   width: 240,
   overflowY: 'auto',
   borderLeft: '1px solid var(--sn-line, rgba(0, 0, 0, .08))',
+  // 手机上正文只有一栏宽，240px 的大纲会把它挤没。要看大纲就横屏 / 桌面。
+  '@media': { '(max-width: 720px)': { display: 'none' } },
 })
 
 globalStyle('.sn-pane-empty', {

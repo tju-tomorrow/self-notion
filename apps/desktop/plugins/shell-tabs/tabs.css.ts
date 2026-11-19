@@ -122,6 +122,7 @@ export const close = style({
   flex: '0 0 16px',
   width: 16,
   height: 16,
+  '@media': { '(max-width: 720px)': { flex: '0 0 24px', width: 24, height: 24 } },
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
