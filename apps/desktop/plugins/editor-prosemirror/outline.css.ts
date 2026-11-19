@@ -36,6 +36,41 @@ globalStyle('.sn-outline', { padding: '40px 8px 24px' })
 
 globalStyle('.sn-outline-list', { display: 'flex', flexDirection: 'column', gap: 2 })
 
+/* ── 锚点：跟大纲共用一列，各一颗按钮 ── */
+
+// 大纲那颗在 `right: 8`，锚点往左让一格。
+globalStyle('.sn-anchor-toggle', { right: 36 })
+
+// 同一列只露当前模式那份列表。
+globalStyle('.sn-pane-side[data-mode="anchors"] .sn-outline-list', { display: 'none' })
+globalStyle('.sn-pane-side[data-mode="outline"] .sn-anchor-list', { display: 'none' })
+
+globalStyle('.sn-anchor-row', { display: 'flex', alignItems: 'center', gap: 2 })
+globalStyle('.sn-anchor-item', { flex: '1 1 auto', minWidth: 0 })
+
+globalStyle('.sn-anchor-del', {
+  flex: '0 0 20px',
+  width: 20,
+  height: 20,
+  display: 'none',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: 0,
+  border: 'none',
+  borderRadius: 4,
+  background: 'transparent',
+  color: 'var(--sn-muted, #8a8a8a)',
+  fontSize: 13,
+  cursor: 'pointer',
+})
+
+globalStyle('.sn-anchor-del:hover', {
+  background: 'rgba(127, 127, 127, .16)',
+  color: 'var(--sn-text, #333)',
+})
+
+globalStyle('.sn-anchor-row:hover .sn-anchor-del', { display: 'flex' })
+
 globalStyle('.sn-outline-item', {
   boxSizing: 'border-box',
   padding: '3px 8px',

@@ -30,6 +30,11 @@ export function listIcon(size = 14): SVGSVGElement {
   return icon(size, ['M9 6h11M9 12h11M9 18h11', 'M4.5 6h.01M4.5 12h.01M4.5 18h.01'])
 }
 
+/** 锚点：书签。 */
+export function bookmarkIcon(size = 14): SVGSVGElement {
+  return icon(size, ['M7 3.5h10v17l-5-3.6-5 3.6z'])
+}
+
 /** 创建时间。 */
 export function calendarIcon(size = 14): SVGSVGElement {
   return icon(size, [

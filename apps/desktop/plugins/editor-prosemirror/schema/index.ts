@@ -464,6 +464,13 @@ const marks: Record<string, MarkSpec> = {
     parseDOM: [{ tag: 'span.sn-comment', getAttrs: (el) => ({ ids: (el as HTMLElement).dataset.ids ?? '' }) }],
     toDOM: (mark) => ['span', { class: 'sn-comment', 'data-ids': mark.attrs.ids }, 0],
   },
+  // 页内锚点：选中一段打个书签，右侧「锚点」列表一键跳回来。跟着 doc JSON 落库，不加表。
+  anchor: {
+    attrs: { id: { default: '' } },
+    inclusive: false,
+    parseDOM: [{ tag: 'span.sn-anchor', getAttrs: (el) => ({ id: (el as HTMLElement).dataset.id ?? '' }) }],
+    toDOM: (mark) => ['span', { class: 'sn-anchor', 'data-id': String(mark.attrs.id) }, 0],
+  },
 }
 
 export const schema = new Schema({ nodes, marks })

@@ -9,7 +9,8 @@
 import type { Node as PMNode } from 'prosemirror-model'
 import { Plugin } from 'prosemirror-state'
 
-import { listIcon } from './icons'
+import { schema } from './schema'
+import { bookmarkIcon, listIcon } from './icons'
 import './outline.css'
 
 export interface OutlineStrings {
@@ -36,6 +37,35 @@ function headings(doc: PMNode): Entry[] {
   return out
 }
 
+interface AnchorEntry {
+  id: string
+  from: number
+  to: number
+  text: string
+}
+
+/** 正文里所有锚点（同一 id 的 mark 跨多个 text 节点是常态，按 id 合起来）。 */
+function anchorEntries(doc: PMNode): AnchorEntry[] {
+  const out = new Map<string, AnchorEntry>()
+  doc.descendants((node, pos) => {
+    if (!node.isText || !node.text) return true
+    for (const mark of node.marks) {
+      if (mark.type !== schema.marks.anchor) continue
+      const id = String(mark.attrs.id ?? '')
+      if (id === '') continue
+      const cur = out.get(id)
+      if (cur) {
+        cur.to = pos + node.text.length
+        cur.text += node.text
+      } else {
+        out.set(id, { id, from: pos, to: pos + node.text.length, text: node.text })
+      }
+    }
+    return true
+  })
+  return [...out.values()].sort((a, b) => a.from - b.from)
+}
+
 /** 每级缩一格。★ 缩进用 `margin` 不用 `padding` —— 二级往下那条竖线要落在**缩进的位置**上。 */
 const STEP = 14
 
@@ -49,13 +79,25 @@ export function outlinePlugin(host: HTMLElement, scroller: HTMLElement, strings:
       button.setAttribute('aria-label', strings.label)
       button.appendChild(listIcon(15))
 
+      // 锚点那颗跟大纲并排（`outline.css.ts` 里挪到左边一格）。
+      const anchorButton = document.createElement('button')
+      anchorButton.type = 'button'
+      anchorButton.className = 'sn-outline-toggle sn-anchor-toggle'
+      anchorButton.title = '锚点'
+      anchorButton.setAttribute('aria-label', '锚点')
+      anchorButton.appendChild(bookmarkIcon(15))
+
       const panel = document.createElement('div')
       panel.className = 'sn-outline'
       const list = document.createElement('div')
       list.className = 'sn-outline-list'
-      panel.appendChild(list)
+      const anchorList = document.createElement('div')
+      anchorList.className = 'sn-anchor-list'
+      panel.append(list, anchorList)
 
-      host.append(button, panel)
+      host.append(button, anchorButton, panel)
+      let mode: 'outline' | 'anchors' = host.dataset.mode === 'anchors' ? 'anchors' : 'outline'
+      host.dataset.mode = mode
 
       /** 渲染那一刻每行对应的正文 DOM（滚动跟踪用）。第 0 位是标题行，对应 null。 */
       let targets: (HTMLElement | null)[] = []
@@ -67,7 +109,7 @@ export function outlinePlugin(host: HTMLElement, scroller: HTMLElement, strings:
 
       const paintActive = (): void => {
         activeRaf = 0
-        if (!open) return
+        if (!open || mode !== 'outline') return
         const line = scroller.getBoundingClientRect().top + 8
         let at = 0
         for (let i = 1; i < targets.length; i += 1) {
@@ -99,12 +141,60 @@ export function outlinePlugin(host: HTMLElement, scroller: HTMLElement, strings:
         return el
       }
 
+      /** 跳到一处锚点：滚过去；先摘一下类再挂，动画才会重放。 */
+      const jump = (a: AnchorEntry): void => {
+        const el = view.dom.querySelector(`.sn-anchor[data-id="${a.id}"]`)
+        if (!(el instanceof HTMLElement)) return
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        el.classList.remove('sn-anchor-flash')
+        void el.offsetWidth
+        el.classList.add('sn-anchor-flash')
+        window.setTimeout(() => el.classList.remove('sn-anchor-flash'), 1200)
+      }
+
+      const renderAnchors = (items: AnchorEntry[]): void => {
+        anchorList.replaceChildren()
+        if (items.length === 0) {
+          const empty = document.createElement('div')
+          empty.className = 'sn-outline-empty'
+          empty.textContent = '还没有锚点：选中文字，点工具条上的书签'
+          anchorList.appendChild(empty)
+          return
+        }
+        for (const a of items) {
+          const line = document.createElement('div')
+          line.className = 'sn-anchor-row'
+          const go = document.createElement('button')
+          go.type = 'button'
+          go.className = 'sn-outline-item sn-anchor-item'
+          go.textContent = a.text.trim() || '（空）'
+          go.title = a.text
+          go.addEventListener('click', () => jump(a))
+          const del = document.createElement('button')
+          del.type = 'button'
+          del.className = 'sn-anchor-del'
+          del.textContent = '×'
+          del.title = '移除这个锚点'
+          del.addEventListener('click', (e) => {
+            e.stopPropagation()
+            view.dispatch(view.state.tr.removeMark(a.from, a.to, schema.marks.anchor.create({ id: a.id })))
+          })
+          line.append(go, del)
+          anchorList.appendChild(line)
+        }
+      }
+
       const render = (): void => {
         raf = 0
         const doc = view.state.doc
         const title = String(doc.attrs.title ?? '') || strings.untitled
         const items = headings(doc)
-        const next = [title, ...items.map((i) => `${i.level}:${i.pos}:${i.text}`)].join('\n')
+        const anchors = anchorEntries(doc)
+        const next = [
+          title,
+          ...items.map((i) => `${i.level}:${i.pos}:${i.text}`),
+          ...anchors.map((a) => `${a.id}:${a.from}:${a.to}:${a.text}`),
+        ].join('\n')
         if (next === key) return
         key = next
 
@@ -123,21 +213,21 @@ export function outlinePlugin(host: HTMLElement, scroller: HTMLElement, strings:
           empty.className = 'sn-outline-empty'
           empty.textContent = strings.empty
           list.appendChild(empty)
-          paintActive()
-          return
+        } else {
+          for (const item of items) {
+            const el = row(item.text, item.level)
+            // `item.pos` 只对**这一份** doc 有效 —— 下一次 doc 变了自己就会重算。
+            el.addEventListener('click', () => {
+              const dom = view.nodeDOM(item.pos)
+              if (dom instanceof HTMLElement) dom.scrollIntoView({ block: 'start', behavior: 'smooth' })
+            })
+            list.appendChild(el)
+            const dom = view.nodeDOM(item.pos)
+            targets.push(dom instanceof HTMLElement ? dom : null)
+          }
         }
 
-        for (const item of items) {
-          const el = row(item.text, item.level)
-          // `item.pos` 只对**这一份** doc 有效 —— 下一次 doc 变了自己就会重算。
-          el.addEventListener('click', () => {
-            const dom = view.nodeDOM(item.pos)
-            if (dom instanceof HTMLElement) dom.scrollIntoView({ block: 'start', behavior: 'smooth' })
-          })
-          list.appendChild(el)
-          const dom = view.nodeDOM(item.pos)
-          targets.push(dom instanceof HTMLElement ? dom : null)
-        }
+        renderAnchors(anchors)
         paintActive()
       }
 
@@ -149,12 +239,25 @@ export function outlinePlugin(host: HTMLElement, scroller: HTMLElement, strings:
       const setOpen = (v: boolean): void => {
         open = v
         host.dataset.on = v ? '1' : '0'
-        button.setAttribute('aria-expanded', v ? 'true' : 'false')
+        button.setAttribute('aria-expanded', v && mode === 'outline' ? 'true' : 'false')
+        anchorButton.setAttribute('aria-expanded', v && mode === 'anchors' ? 'true' : 'false')
         // 打开时补一次高亮：内容没变的话 `render` 会直接返回，那就没人画了。
         if (v) paintActive()
       }
 
-      button.addEventListener('click', () => setOpen(!open))
+      /** 两颗按钮共用同一列：点哪颗开哪份列表，再点同一颗收起。 */
+      const openAs = (next: 'outline' | 'anchors'): void => {
+        if (open && mode === next) {
+          setOpen(false)
+          return
+        }
+        mode = next
+        host.dataset.mode = next
+        setOpen(true)
+      }
+
+      button.addEventListener('click', () => openAs('outline'))
+      anchorButton.addEventListener('click', () => openAs('anchors'))
       scroller.addEventListener('scroll', onScroll, { passive: true })
       // ★ 视图会被**重建**（`find.ts` / `comment.ts` 的 `reconfigure` 把所有插件视图 destroy 再建一遍），
       //   所以「开着没过」这件事存在 `data-on` 上 —— destroy 时故意不清，换篇 / 拔插件由 `view.ts` 清。
@@ -171,6 +274,7 @@ export function outlinePlugin(host: HTMLElement, scroller: HTMLElement, strings:
           if (activeRaf) cancelAnimationFrame(activeRaf)
           // `data-on` **不清**（见上面 `setOpen` 那句）—— 换篇 / 拔插件由 `view.ts` 的 teardown 清。
           button.remove()
+          anchorButton.remove()
           panel.remove()
         },
       }

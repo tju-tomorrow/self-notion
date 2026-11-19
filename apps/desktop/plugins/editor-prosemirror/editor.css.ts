@@ -4,7 +4,7 @@
  * 分栏 / 栏头 / 版心跟 `editor-blocksuite/editor.css.ts` 那份同形状，只是**不再吃 `--affine-*`**
  * ——基座换了，那批变量跟着 BlockSuite 一起没了。颜色退回中性的兜底值。
  */
-import { globalStyle } from '@vanilla-extract/css'
+import { globalKeyframes, globalStyle } from '@vanilla-extract/css'
 
 /** 版心宽度 —— 旧版那套居中窄栏是 BlockSuite 的 page 容器给的，换基座后要自己实现。
  *  值照 Notion 的观感再收窄一档（640px ≈ 40 个汉字一行，跟「20–35 字」的阅读舒适区间更近）。
@@ -221,6 +221,21 @@ globalStyle('.sn-block mark', {
   background: 'color-mix(in srgb, var(--sn-hl, transparent) 45%, transparent)',
   color: 'inherit',
 })
+
+// 页内锚点（`schema` 的 `anchor` mark）：虚线下划线，跳过去时闪一下。
+globalStyle('.sn-anchor', {
+  textDecorationLine: 'underline',
+  textDecorationStyle: 'dotted',
+  textDecorationColor: 'var(--sn-accent, #1e96eb)',
+  textUnderlineOffset: 3,
+})
+
+globalKeyframes('sn-anchor-flash', {
+  from: { background: 'color-mix(in srgb, var(--sn-accent, #1e96eb) 32%, transparent)' },
+  to: { background: 'transparent' },
+})
+
+globalStyle('.sn-anchor-flash', { animation: 'sn-anchor-flash .9s ease-out' })
 
 // 真上过高亮才要圆角与内边距 —— 空色（工具条那格「无」/ 粘贴来的裸 `<mark>`）就等于没上。
 globalStyle('.sn-block mark[data-color]:not([data-color=""])', {

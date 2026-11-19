@@ -14,6 +14,7 @@ import type { EditorView } from 'prosemirror-view'
 import { CellSelection } from 'prosemirror-tables'
 
 import { selectionAnchor } from '../comment'
+import { newBlockId } from '../commands'
 import { BlockSelection } from './block-selection'
 import { schema } from '../schema'
 import './inline-toolbar.css'
@@ -92,6 +93,9 @@ const HL_ICON =
 
 const COMMENT_ICON =
   '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 9.3a1.8 1.8 0 0 1-1.8 1.8H5l-2.7 2V4.1a1.8 1.8 0 0 1 1.8-1.8h7.6a1.8 1.8 0 0 1 1.8 1.8z"/></svg>'
+
+const ANCHOR_ICON =
+  '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M4.5 2.5h7v11L8 10.7l-3.5 2.8z"/></svg>'
 
 /**
  * 评论那颗按钮点下去交出去的编号 —— 跟 `comment.ts` 的 `CommentHooks.selection` 同形
@@ -188,6 +192,19 @@ function createBar(
     })
     root.appendChild(readBtn)
   }
+
+  // 锚点：选中一段打个书签，右侧「锚点」列表一键跳回来。
+  root.appendChild(mkSeparator())
+  const anchorBtn = mkButton(ANCHOR_ICON, 'sn-itb-icon')
+  anchorBtn.title = '锚点'
+  anchorBtn.addEventListener('click', () => {
+    const { from, to } = view.state.selection
+    if (from === to) return
+    closePopovers()
+    toggleAnchor(view, from, to)
+    after()
+  })
+  root.appendChild(anchorBtn)
 
   // 评论：装了回调才在（协调者没接线时点不动，不如不显示）。整条工具条本来就只在有文字选区时出现。
   if (onComment) {
@@ -406,6 +423,24 @@ function createBar(
       root.remove()
     },
   }
+}
+
+/** 选中段落的锚点开关：整段都在锚点里就撤掉，否则盖一个新锚。 */
+function toggleAnchor(view: EditorView, from: number, to: number): void {
+  const type = schema.marks.anchor
+  if (!type) return
+  const tr = view.state.tr
+  let all = true
+  let any = false
+  view.state.doc.nodesBetween(from, to, (node) => {
+    if (!node.isText) return true
+    if (node.marks.some((m) => m.type === type)) any = true
+    else all = false
+    return true
+  })
+  if (all && any) tr.removeMark(from, to, type)
+  else tr.addMark(from, to, type.create({ id: newBlockId() }))
+  view.dispatch(tr)
 }
 
 function mkButton(html: string, cls: string): HTMLButtonElement {
