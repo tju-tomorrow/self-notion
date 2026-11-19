@@ -1,10 +1,10 @@
 /**
  * Backspace 行首（架构 §4.5）：
  *   嵌套里 → 先出一层嵌套（Notion 就是这样，得按到位才能降级）；
- *   顶层   → 降级（h3→h2→h1→段落→出列表 / 引用 / toggle），降到段落再按才并进上一块。
+ *   顶层   → 标题一次并进上一块；列表 / 引用 / toggle 先降到段落，再按才并进上一块。
  * 光标不在行首、或者不是折叠选区 → 交回 baseKeymap（选东西删、删原子块那些）。
  */
-import type { Attrs, Node as PMNode, ResolvedPos } from 'prosemirror-model'
+import type { Node as PMNode, ResolvedPos } from 'prosemirror-model'
 import { NodeSelection, TextSelection } from 'prosemirror-state'
 import type { Command, EditorState, Transaction } from 'prosemirror-state'
 
@@ -67,12 +67,8 @@ export const backspace: Command = (state, dispatch) => {
   const name = block.content.type.name
 
   if (name === 'heading') {
-    const level = Number(block.content.attrs.level)
-    if (level > 1) {
-      const attrs: Attrs = { ...block.content.attrs, level: level - 1 }
-      if (dispatch) dispatch(state.tr.setNodeMarkup(block.pos + 1, undefined, attrs))
-      return true
-    }
+    // 行首退格一次就并进上一块 —— 逐级降（h3→h2→h1→段落）要按四次才消失（用户 2026-11-19）。
+    if (mergeUp(state, dispatch, $pos, block)) return true
     if (dispatch) dispatch(state.tr.setNodeMarkup(block.pos + 1, schema.nodes.paragraph))
     return true
   }
