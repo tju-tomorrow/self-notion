@@ -290,6 +290,15 @@ export function Sidebar({ ctx }: { ctx: Context }) {
       select(doc.id)
     })
 
+  /** 行尾那颗 `+`：直接在这篇下面建一个子页面，展开、建完就进去（用户 2026-11-19）。 */
+  const createChild = (doc: DocNode) =>
+    run(async () => {
+      const made = await ctx.rpc.call<DocMeta>('doc:create', { parentId: doc.id, title: '' })
+      setExpanded((prev) => new Set(prev).add(doc.id))
+      await reload()
+      select(made.id)
+    })
+
   const rename = (doc: DocMeta, value: string) =>
     run(async () => {
       if (cancelled.current === doc.id) {
@@ -515,6 +524,17 @@ export function Sidebar({ ctx }: { ctx: Context }) {
           {dragOver?.id === node.id && dragOver.mode === 'child' ? (
             <span className={s.dropHint}>{ctx.i18n.t('sidebar.dropInto')}</span>
           ) : null}
+          <button
+            type="button"
+            className={s.act}
+            title={ctx.i18n.t('sidebar.newChild')}
+            onClick={(e) => {
+              e.stopPropagation()
+              void createChild(node)
+            }}
+          >
+            <PlusIcon width={16} height={16} />
+          </button>
           <button
             type="button"
             className={s.act}

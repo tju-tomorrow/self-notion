@@ -39,6 +39,7 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'search.hint': '↑↓ 选择 · ⏎ 打开 · esc 关闭',
     // 侧栏
     'sidebar.new': '新建文档',
+    'sidebar.newChild': '新建子页面',
     'sidebar.toggle': '折叠侧栏',
     'sidebar.favorite': '收藏',
     'sidebar.trash': '回收站',
@@ -750,6 +751,7 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'search.preview.blank': 'No body text yet',
     'search.hint': '↑↓ to select · ⏎ to open · esc to close',
     'sidebar.new': 'New document',
+    'sidebar.newChild': 'New subpage',
     'sidebar.toggle': 'Toggle sidebar',
     'sidebar.favorite': 'Favorite',
     'sidebar.trash': 'Trash',
