@@ -14,6 +14,9 @@ import type { EditorState } from 'prosemirror-state'
 import { Decoration, DecorationSet } from 'prosemirror-view'
 import type { EditorView } from 'prosemirror-view'
 
+import { reportError } from '../../../src/kernel/errors'
+import { blobUrl } from '../../../src/platform/blob-url'
+import { copyImage } from '../../../src/ui/clipboard'
 import { groupChildren } from '../commands/block'
 import { duplicateBlock } from '../commands/duplicate'
 import { schema } from '../schema'
@@ -37,6 +40,12 @@ interface NestedTarget {
 }
 
 export const blockHandleKey = new PluginKey('blockHandle')
+
+/** 这一块是图片 → 它的 blobId；不是就空串。 */
+function imageBlobId(doc: PMNode, id: string): string {
+  const first = findBlock(doc, id)?.node.firstChild
+  return first?.type.name === 'image' ? String(first.attrs.blobId ?? '') : ''
+}
 
 /** 与 `editor.ts` 的 `blockId()` 同一套形状（那边没导出，三行不引线）。 */
 function newBlockId(): string {
@@ -379,6 +388,13 @@ class BlockHandle {
       menu.appendChild(el)
     }
 
+    // 只有单选一张图时才有这一项。
+    const blobId = ids.length === 1 ? imageBlobId(this.view.state.doc, ids[0]!) : ''
+    if (blobId) {
+      item('复制图片', () => {
+        void copyImage(blobUrl(blobId)).catch((err: unknown) => reportError('block-handle', err))
+      })
+    }
     item('删除', () => this.deleteBlocks(ids))
     item('创建副本', () => this.duplicateBlocks(ids))
 
