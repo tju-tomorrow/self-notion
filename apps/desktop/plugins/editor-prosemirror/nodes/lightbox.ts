@@ -23,6 +23,14 @@ const SWALLOWED = [
   'compositionstart', 'compositionupdate', 'compositionend',
 ] as const
 
+/**
+ * 灯箱开 / 关的广播。原生子 webview（网页版 AI 面板）不吃 CSS —— 它浮在灯箱黑罩上面，
+ * 只能靠这个事件让它先收起来。
+ */
+function notifyLightbox(open: boolean): void {
+  window.dispatchEvent(new CustomEvent('sn:lightbox', { detail: { open } }))
+}
+
 export function openLightbox(src: string): void {
   // 同一时刻只留一个：开着的时候点另一张 = 换图。
   live?.()
@@ -120,9 +128,11 @@ export function openLightbox(src: string): void {
     window.removeEventListener('mousemove', onMove)
     window.removeEventListener('mouseup', onUp)
     host.remove()
+    notifyLightbox(false)
   }
 
   live = close
+  notifyLightbox(true)
   img.addEventListener('mousedown', onDown)
   img.addEventListener('dblclick', onDouble)
   host.addEventListener('wheel', onWheel, { passive: false })

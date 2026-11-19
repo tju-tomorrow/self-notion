@@ -18,6 +18,9 @@ import { getWebAiState, setWebAiState, SITE_ORDER, SITES, useWebAiState, type Si
 import * as watch from './watch'
 import * as s from './ai-web.css'
 
+/** 图片灯箱开着没有。模块级 —— 面板重挂、换站点也认这一份。 */
+let lightboxOpen = false
+
 /* ────────────────────────── 顶栏入口 ────────────────────────── */
 
 /** 网页版 AI 那颗（`doc.header.leading`，动作区**最左端**）。 */
@@ -175,7 +178,30 @@ export function WebAiPanel({ ctx }: { ctx: Context }) {
      *   静止时只剩一条 250ms 的心跳（`beat`：量一次矩形，没变就一个 IPC 都不发），
      *   谁报信（`ResizeObserver` / 窗口尺寸）才起一段逐帧追。
      */
+    /**
+     * 图片灯箱开着时把子 webview 收起来。
+     * ★ 原生 view 不吃 CSS，灯箱那层 DOM 黑罩盖不住它 —— 不收就会顶在灯箱上面，
+     *   还把图挡住一截（用户 2026-11-20 的截图）。
+     */
+    const onLightbox = (e: Event): void => {
+      const open = (e as CustomEvent<{ open?: boolean }>).detail?.open === true
+      if (open === lightboxOpen) return
+      lightboxOpen = open
+      last = null
+      if (open) {
+        chain = chain.then(async () => {
+          await ctx.rpc.call('aiweb:hide')
+          await ctx.rpc.call('aiweb:voice-hide')
+        })
+        void chain.catch((err) => reportError('webai', err))
+      } else {
+        kick()
+      }
+    }
+    window.addEventListener('sn:lightbox', onLightbox)
+
     const look = (): void => {
+      if (lightboxOpen) return
       const box = measure()
       if (!box || (last !== null && box.x === last.x && box.y === last.y && box.w === last.w && box.h === last.h)) return
       last = box
@@ -250,10 +276,13 @@ export function WebAiPanel({ ctx }: { ctx: Context }) {
       try {
         // 先把面板摆出来（webview 建好），再注入 —— 反过来的话 webview 还不存在，注入扑空。
         const box = measure()
-        if (box) {
+        if (box && !lightboxOpen) {
           last = box
           movedAt = performance.now()
           await push(box)
+        } else if (lightboxOpen) {
+          await ctx.rpc.call('aiweb:hide')
+          await ctx.rpc.call('aiweb:voice-hide')
         }
         if (dead) return
         if (siteChanged) void checkSwitch(st.site, prevSite)
@@ -271,6 +300,7 @@ export function WebAiPanel({ ctx }: { ctx: Context }) {
       clearInterval(beat)
       ro.disconnect()
       window.removeEventListener('resize', kick)
+      window.removeEventListener('sn:lightbox', onLightbox)
       // 面板没了就把子 webview 收起来（**只是 hide，不销毁** —— 登录和当前对话都留着）。
       // 关面板那条路自己会调，这里是兜底：哪条路径漏了 hide，原生 view 就会留在屏幕上没人管。
       const now = getWebAiState()
