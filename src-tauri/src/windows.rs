@@ -87,17 +87,17 @@ pub fn menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     //
     // Edit 里其余几项留着：它们虽然也吃按键，但剪贴板那几个的原生实现本来就会派发 DOM 的
     // `copy` / `paste` / `cut`，编辑器那条路照跑（⌘V 就是这么进去的）。
+    // ★ `select_all` 也摘掉：同样是原生键等价，⌘A 到不了 DOM，代码块里就没法先选自己那段。
     if let Some(edit) = submenu(&menu, "Edit") {
         for item in edit.items()? {
             edit.remove(&item)?;
         }
-        let (cut, copy, paste, all) = (
+        let (cut, copy, paste) = (
             PredefinedMenuItem::cut(app, None)?,
             PredefinedMenuItem::copy(app, None)?,
             PredefinedMenuItem::paste(app, None)?,
-            PredefinedMenuItem::select_all(app, None)?,
         );
-        let rows: Vec<&dyn IsMenuItem<R>> = vec![&cut, &copy, &paste, &all];
+        let rows: Vec<&dyn IsMenuItem<R>> = vec![&cut, &copy, &paste];
         edit.append_items(&rows)?;
     }
 
