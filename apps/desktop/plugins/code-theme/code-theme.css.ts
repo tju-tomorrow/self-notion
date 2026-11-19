@@ -45,6 +45,10 @@ for (const theme of THEMES) {
   globalStyle(`${real} .sn-code-text .hl-com, ${preview} .ct-sample .hl-com`, {
     fontStyle: 'italic',
   })
+  // 工具栏「A」上的字色要压过语法配色 —— 否则注释这类 token 怎么点都不变色。
+  for (const kind of KINDS) {
+    globalStyle(`${real} .sn-code-text span[style*="color"] .hl-${kind}`, { color: 'inherit' })
+  }
 }
 
 export const grid = style({
