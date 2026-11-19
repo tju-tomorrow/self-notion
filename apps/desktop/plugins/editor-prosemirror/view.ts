@@ -55,9 +55,10 @@ const listeners = new Set<() => void>()
 /** 栏头要显示的页名。`doc:list` 一次给全（跟标签条同一条路），`DOCS_CHANGED` 后重取。 */
 let titles: ReadonlyMap<string, string> = new Map()
 
-/** 在回收站里的文档 id —— 这些不挂编辑器，只显示一句提示。 */
+/** 在回收站里的文档 id —— 照常挂编辑器，但只读，顶上给一条「恢复」。 */
 let trashed: ReadonlySet<string> = new Set()
-let trashedText = '这篇文档在回收站里'
+let trashBannerText = '这篇文档在回收站里，恢复后才能继续编辑。'
+let restoreText = '恢复'
 
 /** 发事件用。`registerEditorView` 时接上 —— 模块级的订阅者拿不到 ctx。 */
 let bus: Context | undefined
@@ -101,6 +102,14 @@ function focusPane(at: number): void {
   notify()
   const id = panes[at]
   if (id != null) bus?.emit(OPEN_DOC, { id })
+}
+
+/** 从回收站恢复这一篇，然后原地重挂成可编辑。 */
+async function restoreTrashed(id: string): Promise<void> {
+  await bus?.rpc.call('doc:restore', { id })
+  trashed = new Set([...trashed].filter((x) => x !== id))
+  bus?.emit(DOCS_CHANGED)
+  reloadDoc(id)
 }
 
 /** 重读某一篇（恢复历史版本后调）。返回「有没有人接」—— 一篇都没并排着就没人接。 */
@@ -177,8 +186,6 @@ class PaneView {
   private handle: EditorHandle | undefined
   /** 现在真的挂着哪一篇。空栏 / 还没挂完都是 null。 */
   private shown: string | null = null
-  /** 现在显示的是哪一篇的「在回收站」提示。 */
-  private trashShown: string | null = null
   private index = 0
   /** 拖过分隔条就是固定百分比；没拖过就平分（flex-grow）。 */
   private pct: number | null = null
@@ -224,16 +231,6 @@ class PaneView {
     this.label.textContent = want === null ? '' : titles.get(want) || untitledText
     this.label.title = this.label.textContent
     this.applyWidth()
-    if (want !== null && trashed.has(want)) {
-      if (this.trashShown === want) return
-      // 作废还在路上的 open：它回来时看见 seq 变了就不会再挂编辑器。
-      this.seq++
-      this.teardown()
-      this.trashShown = want
-      this.showEmpty(trashedText)
-      return
-    }
-    this.trashShown = null
     const reload = want !== null && forced.delete(want)
     if (want === this.shown && !reload) return
     void this.open(want, reload)
@@ -273,13 +270,17 @@ class PaneView {
     if (reload) editor.dropDoc(want)
 
     try {
-      const handle = await editor.mountEditor(this.body, want, this.side)
+      // 回收站里的那一篇照样挂出来看（只读），顶上压一条「恢复」提示。
+      const handle = await editor.mountEditor(this.body, want, this.side, {
+        readOnly: trashed.has(want),
+      })
       if (mine !== this.seq) {
         handle.unmount()
         return
       }
       this.handle = handle
       this.shown = want
+      if (trashed.has(want)) this.showTrashBanner(want)
       const top = scrollMemory.get(want)
       if (top) this.body.scrollTop = top
     } catch (err) {
@@ -302,6 +303,20 @@ class PaneView {
     // 顺带把「开着没过」也收掉：换一篇不该顶着一列空的 240px。
     this.side.replaceChildren()
     delete this.side.dataset.on
+  }
+
+  /** 回收站那一篇的提示条：正文照常显示，恢复之后重挂成可编辑。 */
+  private showTrashBanner(id: string): void {
+    const bar = document.createElement('div')
+    bar.className = 'sn-trash-banner'
+    const text = document.createElement('span')
+    text.textContent = trashBannerText
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.textContent = restoreText
+    btn.addEventListener('click', () => void restoreTrashed(id))
+    bar.append(text, btn)
+    this.body.prepend(bar)
   }
 
   /** 这一栏走人（关栏 / 拔插件）—— 走的路上把最后一点改动落库。 */
@@ -427,7 +442,8 @@ export function registerEditorView(ctx: Context): () => void {
   paneEmptyText = ctx.i18n.t('editor.paneEmpty')
   closeText = ctx.i18n.t('editor.paneClose')
   untitledText = ctx.i18n.t('doc.untitled')
-  trashedText = ctx.i18n.t('editor.trashed')
+  trashBannerText = ctx.i18n.t('editor.trashedBanner')
+  restoreText = ctx.i18n.t('sidebar.restore')
   // 只记下「怎么问」，不问 —— 这一问就是装载。
   editorReady = () => ctx.editor.ready()
 

@@ -339,10 +339,19 @@ function buildPlugins(parts: {
   return plugins
 }
 
-/** @param side 栏右侧那一列（大纲）。不给就没有大纲 —— 契约 `mount()` 那条口子给不出这一列。 */
-export async function mountEditor(el: HTMLElement, docId: string, side?: HTMLElement): Promise<EditorHandle> {
+/**
+ * @param side 栏右侧那一列（大纲）。不给就没有大纲 —— 契约 `mount()` 那条口子给不出这一列。
+ * @param opts `readOnly` = 回收站里的那一篇：正文照常显示，但不许改（恢复之后才重挂）。
+ */
+export async function mountEditor(
+  el: HTMLElement,
+  docId: string,
+  side?: HTMLElement,
+  opts?: { readOnly?: boolean },
+): Promise<EditorHandle> {
   const handle = await need().hydrate(docId)
-  if (handle.deletedAt != null) {
+  const readOnly = opts?.readOnly === true
+  if (handle.deletedAt != null && !readOnly) {
     dispose(live.get(docId))
     showTrashed(el, docId)
     return { unmount: () => el.replaceChildren() }
@@ -396,6 +405,7 @@ export async function mountEditor(el: HTMLElement, docId: string, side?: HTMLEle
     // 库里那份也可能是干净的旧值 + 正文里混进来的控制符（老版本写的 / 别处灌的），进框之前先清。
     titleEl.value = stripBad(String(doc.attrs.title ?? '')) || adoptTitle
   }
+  if (readOnly) titleEl.readOnly = true
   el.appendChild(titleEl)
 
   // 标题下那行（创建时间 · 字数，图 3）。★ 必须在建 view **之前** append —— ProseMirror 是把自己
@@ -408,11 +418,12 @@ export async function mountEditor(el: HTMLElement, docId: string, side?: HTMLEle
     // 关掉 macOS 那套「自动检查」—— 正文是 markdown 和代码，`"` 变弯引号、句首自动大写、
     // 拼写红线，全是破坏（用户 2026-10-09）。
     attributes: { spellcheck: 'false', autocorrect: 'off', autocapitalize: 'off' },
+    editable: () => !readOnly,
     state: EditorState.create({ doc, plugins: buildPlugins({ body: el, meta: metaEl, side, docId, file }) }),
     nodeViews,
     dispatchTransaction(tr) {
       view!.updateState(view!.state.apply(tr))
-      if (tr.docChanged) markDirty(docId)
+      if (tr.docChanged && !readOnly) markDirty(docId)
     },
   })
 
@@ -497,8 +508,8 @@ export async function mountEditor(el: HTMLElement, docId: string, side?: HTMLEle
     view.focus()
   })
 
-  // 外部文件不进笔记库，没有学习指标这一行。
-  if (!file) startLearn(docId, el, abort.signal)
+  // 外部文件不进笔记库，没有学习指标这一行；回收站里的那一篇也不记（都不是在读自己的笔记）。
+  if (!file && !readOnly) startLearn(docId, el, abort.signal)
 
   return {
     unmount: () => dispose(live.get(docId)),

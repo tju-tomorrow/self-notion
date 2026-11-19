@@ -99,7 +99,90 @@ export const spacer = style({
   minWidth: 0,
   display: 'flex',
   alignItems: 'center',
+  position: 'relative',
 })
+
+/* ── 「+」的页面选择器 ── */
+
+export const pickerScrim = style({
+  position: 'fixed',
+  inset: 0,
+  zIndex: 40,
+})
+
+export const picker = style({
+  position: 'absolute',
+  top: 32,
+  left: 0,
+  zIndex: 41,
+  width: 300,
+  maxHeight: 380,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+  padding: 6,
+  borderRadius: 8,
+  background: 'var(--affine-v2-layer-background-primary)',
+  border: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
+  boxShadow: 'var(--affine-menu-shadow)',
+})
+
+export const pickerInput = style({
+  flex: '0 0 auto',
+  height: 28,
+  padding: '0 8px',
+  border: '1px solid var(--affine-v2-layer-insideBorder-border)',
+  borderRadius: 6,
+  background: 'transparent',
+  color: 'var(--affine-v2-text-primary)',
+  font: 'inherit',
+  fontSize: 13,
+  outline: 'none',
+})
+
+export const pickerList = style({ minHeight: 0, overflowY: 'auto' })
+
+export const pickerItem = style({
+  width: '100%',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '5px 6px',
+  border: 'none',
+  borderRadius: 5,
+  background: 'transparent',
+  color: 'var(--affine-v2-text-primary)',
+  font: 'inherit',
+  fontSize: 13,
+  textAlign: 'left',
+  cursor: 'pointer',
+})
+
+export const pickerItemOn = style({
+  background: 'var(--affine-v2-layer-background-hoverOverlay)',
+})
+
+export const pickerIcon = style({ flex: '0 0 16px', display: 'flex', alignItems: 'center' })
+
+export const pickerTitle = style({
+  flex: 1,
+  minWidth: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+})
+
+export const pickerPath = style({
+  flex: '0 1 auto',
+  minWidth: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  fontSize: 12,
+  color: 'var(--affine-v2-text-tertiary)',
+})
+
+export const pickerEmpty = style({ padding: '10px 6px', fontSize: 12, color: 'var(--affine-v2-text-tertiary)' })
 
 /** 「+」开新标签。外壳那颗 `iconButton` 插件里 import 不到，照抄一份。 */
 export const addTab = style({

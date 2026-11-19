@@ -18,6 +18,7 @@ import {
   type SplitViewEvent,
 } from '../../src/kernel/contract'
 import type { TabsStore } from './tabs'
+import { PagePicker } from './page-picker'
 import * as s from './tabs.css'
 
 /** 标签要的元数据（标题 + 图标）。契约里没有「文档列表」服务，只能问 rpc —— 和侧栏/首页同一条路。
@@ -63,13 +64,11 @@ export function TabBar({ ctx, store }: { ctx: Context; store: TabsStore }) {
   const meta = useDocMeta(ctx, snap.tabs.map((tab) => tab.id).join(','))
   const panes = usePaneCount(ctx)
 
-  /** 「+」：建一篇空文档再走 OPEN_DOC —— 标签由 index.ts 那条监听自己加，这里不碰 store。
-   *  `DOCS_CHANGED` 得跟着发，否则侧栏的树不知道多了一篇。 */
-  const create = () => {
-    void ctx.rpc.call<DocMeta>('doc:create', { parentId: null, title: '' }).then((doc) => {
-      ctx.emit(OPEN_DOC, { id: doc.id })
-      ctx.emit(DOCS_CHANGED)
-    })
+  /** 「+」：出一张页面选择器，挑一篇现有页面打开（标签由 index.ts 那条监听自己加）。 */
+  const [picking, setPicking] = useState(false)
+  const pick = (id: string) => {
+    setPicking(false)
+    ctx.emit(OPEN_DOC, { id })
   }
 
   return (
@@ -93,12 +92,15 @@ export function TabBar({ ctx, store }: { ctx: Context; store: TabsStore }) {
         <button
           type="button"
           className={s.addTab}
-          title={ctx.i18n.t('shell-tabs.new')}
-          aria-label={ctx.i18n.t('shell-tabs.new')}
-          onClick={create}
+          title={ctx.i18n.t('shell-tabs.open')}
+          aria-label={ctx.i18n.t('shell-tabs.open')}
+          onClick={() => setPicking(true)}
         >
           <PlusIcon width={20} height={20} />
         </button>
+        {picking ? (
+          <PagePicker ctx={ctx} docs={meta} onPick={pick} onClose={() => setPicking(false)} />
+        ) : null}
       </div>
     </div>
   )

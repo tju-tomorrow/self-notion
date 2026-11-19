@@ -160,6 +160,9 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'shell-tabs.split': '分屏',
     'shell-tabs.unsplit': '取消分屏',
     'shell-tabs.new': '新建标签',
+    'shell-tabs.open': '打开页面',
+    'shell-tabs.pickPlaceholder': '搜索页面…',
+    'shell-tabs.pickEmpty': '没有匹配的页面',
     // 顶栏左侧的前进/后退
     'nav.back': '后退',
     'nav.forward': '前进',
@@ -399,6 +402,7 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'editor.createdAt': '创建于 {time}',
     'editor.words': '{count} 字',
     'editor.trashed': '这篇文档在回收站里，可从左侧「回收站」还原。',
+    'editor.trashedBanner': '这篇文档在回收站里，恢复后才能继续编辑。',
     // 页面级的两个开关（D-0076），照 Notion ⋯ 菜单那两行
     'doc.smallText': '小字号',
     'doc.wide': '全宽',
@@ -862,6 +866,9 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'shell-tabs.unsplit': 'Exit split view',
     'shell-tabs.closeAll': 'Close all tabs',
     'shell-tabs.new': 'New tab',
+    'shell-tabs.open': 'Open page',
+    'shell-tabs.pickPlaceholder': 'Search pages…',
+    'shell-tabs.pickEmpty': 'No pages found',
     'nav.back': 'Back',
     'nav.forward': 'Forward',
     'settings.title': 'Settings',
@@ -1091,6 +1098,7 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'editor.createdAt': 'Created {time}',
     'editor.words': '{count} words',
     'editor.trashed': 'This page is in Trash. Restore it from Trash in the sidebar.',
+    'editor.trashedBanner': 'This page is in Trash. Restore it to keep editing.',
     // Page-level toggles (D-0076)
     'doc.smallText': 'Small text',
     'doc.wide': 'Full width',

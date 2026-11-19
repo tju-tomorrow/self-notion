@@ -106,6 +106,33 @@ globalStyle('.sn-pane-body', {
     'color-mix(in srgb, var(--sn-paper, var(--sn-paper-default)) calc(var(--sn-paper-alpha, 100) * 1%), transparent)',
 })
 
+/* ── 回收站提示条（正文照常显示，顶上这一条给恢复） ── */
+
+globalStyle('.sn-trash-banner', {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+  maxWidth: COLUMN,
+  margin: '0 auto 16px',
+  padding: '8px 12px',
+  borderRadius: 8,
+  background: 'color-mix(in srgb, #e5a00d 16%, transparent)',
+  fontSize: 13,
+  color: 'var(--sn-text, #333)',
+})
+
+globalStyle('.sn-trash-banner button', {
+  flex: '0 0 auto',
+  padding: '2px 10px',
+  border: '1px solid color-mix(in srgb, #e5a00d 45%, transparent)',
+  borderRadius: 6,
+  background: 'transparent',
+  color: 'inherit',
+  font: 'inherit',
+  fontSize: 12,
+  cursor: 'pointer',
+})
+
 // 大纲那一列。★ 收起时宽度是 **0**、只剩右上角那颗按钮浮着（`outline.css.ts` 给的定位）——
 //   「常驻」和「不占地方」不冲突就靠这一条。
 globalStyle('.sn-pane-side', { position: 'relative', flex: '0 0 auto', width: 0 })
