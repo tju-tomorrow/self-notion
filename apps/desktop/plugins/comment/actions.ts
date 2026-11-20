@@ -288,7 +288,13 @@ async function load(ctx: Context): Promise<void> {
 
 function pushStates(ctx: Context, comments: readonly Comment[]): Promise<void> {
   return callEditor(ctx, (e) =>
-    e.setCommentStates(comments.map((c) => ({ id: c.id, resolved: c.resolved }))),
+    e.setCommentStates(
+      comments.map((c) => ({
+        id: c.id,
+        resolved: c.resolved,
+        blockId: c.anchor === 'block' ? c.blockId : null,
+      })),
+    ),
   )
 }
 

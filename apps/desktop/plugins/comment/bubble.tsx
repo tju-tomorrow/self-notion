@@ -36,7 +36,8 @@ export function CommentBubble({ ctx }: { ctx: Context }) {
 
     const measure = async (): Promise<void> => {
       raf = 0
-      if (getCommentState().docId === null) return setAt(null)
+      const st = getCommentState()
+      if (st.docId === null || st.draft !== null) return setAt(null)
       try {
         await ctx.editor.ready()
         if (!live) return
@@ -58,11 +59,14 @@ export function CommentBubble({ ctx }: { ctx: Context }) {
 
     document.addEventListener('selectionchange', schedule)
     document.addEventListener('pointerup', schedule)
+    // 图片 / 手柄的块选区是在 click 里落的，pointerup 赶在它前面 —— 再补一次 click。
+    document.addEventListener('click', schedule)
     return () => {
       live = false
       if (raf) cancelAnimationFrame(raf)
       document.removeEventListener('selectionchange', schedule)
       document.removeEventListener('pointerup', schedule)
+      document.removeEventListener('click', schedule)
     }
   }, [ctx])
 

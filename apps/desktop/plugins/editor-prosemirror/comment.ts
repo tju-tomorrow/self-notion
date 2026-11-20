@@ -60,6 +60,8 @@ const RETRY_MAX = 40
 
 /** 一条评论解决没有。评论插件每次列表变化推一次 —— 高亮只给未解决的。 */
 let resolved = new Map<string, boolean>()
+/** 块级评论 → 它锚的那个块 id。块锚点不在正文里，摆卡片 / 跳回去只能靠这份映射。 */
+let blockAnchors = new Map<string, string>()
 /** 正在闪的那条（面板里点了一条评论）。 */
 let flash: string | null = null
 /** 回传口子（点高亮 → 开面板）—— `commentApi` 装载时接上，点的时候才读。 */
@@ -231,8 +233,14 @@ export function anchorTop(view: EditorView, blockId: string, index: number): num
   if (!layer) return null
   const hit = findBlock(view.state.doc, blockId)
   if (!hit) return null
-  const range = contentRange({ pos: hit.at, content: contentOf(hit.node) })
-  const pos = range ? Math.min(Math.max(range.from, range.from + index), Math.max(range.from, range.to - 1)) : hit.at + 1
+  const content = contentOf(hit.node)
+  // 原子内容（图片 / 视频）没有「里面」，块内的内容位置就是它自己那一格。
+  const range = content?.isAtom ? null : contentRange({ pos: hit.at, content })
+  const pos = content?.isAtom
+    ? hit.at + 1
+    : range
+      ? Math.min(Math.max(range.from, range.from + index), Math.max(range.from, range.to - 1))
+      : hit.at + 1
   try {
     return Math.max(0, view.coordsAtPos(pos).top - layer.getBoundingClientRect().top)
   } catch {
@@ -280,10 +288,15 @@ function scrollTo(view: EditorView, pos: number): void {
   el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
 }
 
-/** 滚到某条评论的锚点并闪一下（面板里点一条评论）。锚点不在正文里就什么都不做。 */
+/** 滚到某条评论的锚点并闪一下（面板里点一条评论）。块级锚点滚到那个块；页面级什么都不做。 */
 function reveal(view: EditorView, id: string): void {
   const pos = firstAnchor(view.state.doc, id)
-  if (pos < 0) return
+  if (pos < 0) {
+    const blockId = blockAnchors.get(id)
+    const hit = blockId ? findBlock(view.state.doc, blockId) : null
+    if (hit) scrollTo(view, hit.at + 1)
+    return
+  }
   flash = id
   repaint(view)
   scrollTo(view, pos)
@@ -359,7 +372,12 @@ function layoutOf(view: EditorView, ids: readonly string[]): CommentLayout | nul
   const tops: Record<string, number> = {}
   if (mode === 'float') {
     for (const id of ids) {
-      const pos = firstAnchor(view.state.doc, id)
+      let pos = firstAnchor(view.state.doc, id)
+      if (pos < 0) {
+        const blockId = blockAnchors.get(id)
+        const hit = blockId ? findBlock(view.state.doc, blockId) : null
+        if (hit) pos = hit.at + 1
+      }
       if (pos < 0) continue
       try {
         tops[id] = Math.max(0, view.coordsAtPos(pos).top - layerTop)
@@ -527,7 +545,11 @@ export function commentApi(currentView: () => EditorView | null, next?: CommentH
     setStates: (states) => {
       try {
         resolved = new Map(states.map((s) => [s.id, s.resolved]))
+        blockAnchors = new Map(
+          states.filter((s) => s.blockId).map((s) => [s.id, String(s.blockId)]),
+        )
         repaintCurrent()
+        notifyLayout()
       } catch (err) {
         reportError('comment', err)
       }

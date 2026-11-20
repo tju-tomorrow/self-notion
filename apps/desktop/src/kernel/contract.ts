@@ -212,6 +212,8 @@ export type CommentTarget =
 export interface CommentState {
   id: string
   resolved: boolean
+  /** 块级评论锚在哪个块。卡片要贴到那个块旁边，点的时候也滚到那儿。行内 / 页面级为空。 */
+  blockId?: string | null
 }
 
 /** 唯一的对外通道：桥到 Tauri / Rust。类型源是本文件（D-0049 推翻了 tauri-specta）。 */

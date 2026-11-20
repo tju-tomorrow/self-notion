@@ -39,11 +39,11 @@ export function CommentLayer({ ctx }: { ctx: Context }) {
     return [...open, ...threads.filter((t) => t.root.resolved)]
   }, [threads, st.showResolved])
 
-  // 要摆位的只有**有正文锚点**的那些 —— 页面级 / 块级量不出 Y，排在末尾。
+  // 要摆位的只有**有正文锚点**的那些 —— 页面级量不出 Y，排在末尾。块级按块 id 量（`comment.ts`）。
   const ids = useMemo(() => {
-    const inline = shown.filter((t) => t.root.anchor === 'inline').map((t) => t.root.id)
+    const anchored = shown.filter((t) => t.root.anchor !== 'page').map((t) => t.root.id)
     // 有输入框也要把右侧留白打开，不然它只能退到窄栏里。
-    return st.draft ? [...inline, DRAFT_ID] : inline
+    return st.draft ? [...anchored, DRAFT_ID] : anchored
   }, [shown, st.draft])
 
   const open = st.open
