@@ -204,6 +204,10 @@ function createBar(
       if (from === to) return
       closePopovers()
       onRead({ from, to })
+      // 读起来之后原生选区就没用了：留着是一大片蓝，盖住「正在念」那句的高亮，
+      // 用户点一下还以为没清掉。落个光标就走。
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, from)))
+      view.focus()
     })
     strip.appendChild(readBtn)
   }

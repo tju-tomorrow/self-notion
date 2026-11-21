@@ -84,6 +84,52 @@ pub fn chat(
     Ok(json!({ "started": true }))
 }
 
+/// reqwest 的 `Display` 只有一句「error sending request for url (...)」—— 真正的原因在
+/// `source()` 里（连接被重置 / TLS / 超时）。日志里只留那句废话，谁也判断不了是不是网络
+/// （同 `backup::http::chain`）。
+fn chain(e: &reqwest::Error) -> String {
+    use std::error::Error;
+    let mut out = e.to_string();
+    let mut src = e.source();
+    while let Some(s) = src {
+        out.push_str(" ← ");
+        out.push_str(&s.to_string());
+        src = s.source();
+    }
+    out
+}
+
+/// 发那一条 POST。传输层失败再试一次 —— 6 轮工具调用后因为一次网络抖动整轮打掉太亏。
+/// 只在 `.send()` 失败时重试；流一旦开始读，重试会重复输出，绝不干。
+fn send(
+    client: &reqwest::blocking::Client,
+    cfg: &Config,
+    body: &str,
+) -> Result<reqwest::blocking::Response, String> {
+    let mut last = String::new();
+    for attempt in 0..2 {
+        let mut req = client
+            .post(cfg.base_url.trim_end_matches('/'))
+            .header("Authorization", format!("Bearer {}", cfg.api_key))
+            .header("Content-Type", "application/json")
+            .header("Accept", "text/event-stream");
+        // opencode 的 zen/go 网关要一个像样的 UA + 一个稳定的 session 头（见 `mod.rs` 的 `gateway_headers`）。
+        for (k, v) in crate::ai::gateway_headers(&cfg.base_url) {
+            req = req.header(k, v);
+        }
+        match req.body(body.to_owned()).send() {
+            Ok(resp) => return Ok(resp),
+            Err(e) => {
+                last = chain(&e);
+                if attempt == 0 {
+                    std::thread::sleep(Duration::from_millis(500));
+                }
+            }
+        }
+    }
+    Err(last)
+}
+
 /// 把 provider 的 SSE 归一化成 `AiChunk` 发出去。`Err` = 这条流死了（命令层据此发 `ai:error`）。
 fn stream(app: &tauri::AppHandle, cfg: &Config, a: &Args, win: &str) -> Result<(), String> {
     let client = reqwest::blocking::Client::builder()
@@ -91,19 +137,8 @@ fn stream(app: &tauri::AppHandle, cfg: &Config, a: &Args, win: &str) -> Result<(
         .build()
         .map_err(|e| e.to_string())?;
 
-    let mut req = client
-        .post(cfg.base_url.trim_end_matches('/'))
-        .header("Authorization", format!("Bearer {}", cfg.api_key))
-        .header("Content-Type", "application/json")
-        .header("Accept", "text/event-stream");
-    // opencode 的 zen/go 网关要一个像样的 UA + 一个稳定的 session 头（见 `mod.rs` 的 `gateway_headers`）。
-    for (k, v) in crate::ai::gateway_headers(&cfg.base_url) {
-        req = req.header(k, v);
-    }
-    let resp = req
-        .body(build_payload(cfg, a).to_string())
-        .send()
-        .map_err(|e| e.to_string())?;
+    let body = build_payload(cfg, a).to_string();
+    let resp = send(&client, cfg, &body)?;
 
     let status = resp.status().as_u16();
     if !(200..300).contains(&status) {
