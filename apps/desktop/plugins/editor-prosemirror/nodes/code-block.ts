@@ -50,6 +50,9 @@ type BlockView = 'code' | 'preview' | 'split'
 /** 打字到图出来之间的静默期 —— 敲一个字就重画一次，mermaid 扛不住。 */
 const DEBOUNCE = 300
 
+/** 手机上 mermaid 默认源码态：不自动拉 500KB 的引擎画图，用户点「预览」再渲染。 */
+const isMobile = (): boolean => document.documentElement.dataset.mobile === '1'
+
 export const codeBlockView: NodeViewConstructor = (node, view, getPos) => {
   const dom = document.createElement('div')
   dom.className = 'sn-codeblock'
@@ -92,8 +95,9 @@ export const codeBlockView: NodeViewConstructor = (node, view, getPos) => {
   dom.append(bar, pre, figure)
 
   // 显示模式是**内存态**，不落 attr —— 它是看的偏好、不是内容，导出的 markdown 里不该夹这一笔（契约 D3）。
-  let blockView: BlockView = 'split'
+  let blockView: BlockView = isMobile() ? 'code' : 'split'
   dom.dataset.view = blockView
+  const autoDraw = (): boolean => !isMobile() || blockView !== 'code'
 
   let isMermaid = false
   let drawn = ''
@@ -148,6 +152,12 @@ export const codeBlockView: NodeViewConstructor = (node, view, getPos) => {
   const onPickView = () => {
     blockView = viewPicker.value as BlockView
     dom.dataset.view = blockView
+    // 手机上从源码切到预览/分栏才第一次渲染图（桌面照旧自动画）。
+    if (isMobile() && blockView !== 'code') {
+      const pos = getPos()
+      const cur = pos === undefined ? undefined : view.state.doc.nodeAt(pos)
+      if (cur && asString(cur.attrs.language) === 'mermaid') void draw()
+    }
   }
   viewPicker.addEventListener('change', onPickView)
   viewPicker.value = blockView
@@ -164,13 +174,14 @@ export const codeBlockView: NodeViewConstructor = (node, view, getPos) => {
       picker.value = language
     }
     pre.dataset.language = language
-    dom.dataset.mermaid = isMermaid ? 'true' : 'false'
+    // 手机上一进来就得让「预览」那颗下拉露出来，别等第一次 update 才认出是 mermaid。
+    dom.dataset.mermaid = isMermaid || (isMobile() && language === 'mermaid') ? 'true' : 'false'
   }
   paint(node)
 
   // 明暗换档要把已经画好的图按新配色重来一遍（契约 D10）。
   const offScheme = onSchemeChange(() => {
-    if (isMermaid) void draw()
+    if (isMermaid && autoDraw()) void draw()
   })
 
   return {
@@ -191,7 +202,7 @@ export const codeBlockView: NodeViewConstructor = (node, view, getPos) => {
         return true
       }
       const text = next.textContent
-      if (entered || text !== drawn) schedule()
+      if (autoDraw() && (entered || text !== drawn)) schedule()
       return true
     },
     // 不吃掉选择器的点击，原生下拉才打得开（也顺手躲开 PM 的选区处理）。

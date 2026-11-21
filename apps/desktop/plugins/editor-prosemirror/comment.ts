@@ -44,6 +44,8 @@ export interface CommentHooks {
   open(id: string): void
   /** 工具条那颗「评论」点了 → 把量好的文字选区交出去（`TextAnchorInfo` 去掉 `rect` 的那几个字段）。 */
   selection(at: { blockId: string; index: number; length: number; quote: string }): void
+  /** 整块选中（拖手柄 / 块选区）时那颗「评论」—— 代码块这类没法只评一段的走这儿。 */
+  block(at: { blockId: string; quote: string }): void
   /** 正文的几何变了（打字 / 换行 / 改尺寸 / 换文档）→ 卡片该重摆一次（D-0172）。 */
   layout(): void
 }
@@ -156,17 +158,29 @@ export function selectionText(view: EditorView): string | null {
   return text ? text.slice(0, PICK_MAX) : null
 }
 
-/** 当前块选区（点拖拽手柄 / 拖过一串块选中的那些）→ 拿第一块。图片 / 表格这类没法选文字的靠它。 */
-function blockSelection(view: EditorView): BlockAnchorInfo | null {
-  const id = selectedBlockIds(view.state)[0]
+/** 整块选区的锚（不带 rect）—— 浮出按钮和工具条那颗「评论」共用同一份文字换算。 */
+export function blockAnchor(state: EditorState): { blockId: string; quote: string } | null {
+  const id = selectedBlockIds(state)[0]
   if (!id) return null
-  const hit = findBlock(view.state.doc, id)
+  const hit = findBlock(state.doc, id)
   if (!hit) return null
   const content = contentOf(hit.node)
-  const dom = view.nodeDOM(hit.at)
+  return { blockId: id, quote: content ? content.textContent.trim().slice(0, QUOTE_MAX) : '' }
+}
+
+/** 当前块选区（点拖拽手柄 / 拖过一串块选中的那些）→ 拿第一块。图片 / 表格这类没法选文字的靠它。 */
+function blockSelection(view: EditorView): BlockAnchorInfo | null {
+  const at = blockAnchor(view.state)
+  if (!at) return null
+  const hit = findBlock(view.state.doc, at.blockId)
+  const node = hit ? view.nodeDOM(hit.at) : null
+  // 块内容有 NodeView（代码块 / 表格）时 nodeDOM 不保证给到块那层 —— 按 data-id 兜底。
+  const dom =
+    node instanceof HTMLElement
+      ? node
+      : view.dom.querySelector<HTMLElement>(`.sn-block[data-id="${at.blockId}"]`)
   return {
-    blockId: id,
-    quote: content ? content.textContent.trim().slice(0, QUOTE_MAX) : '',
+    ...at,
     // 量不到就给个空的 DOMRect —— 浮出按钮那边自己会因此不显示（`bubble.tsx` 的 `usable`）。
     rect: dom instanceof HTMLElement ? dom.getBoundingClientRect() : new DOMRect(),
   }

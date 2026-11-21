@@ -19,7 +19,9 @@ import { blobUrl } from '../../../src/platform/blob-url'
 import { copyImage as copyImageByDom } from '../../../src/ui/clipboard'
 import { groupChildren } from '../commands/block'
 import { duplicateBlock } from '../commands/duplicate'
+import { moveBlockDown, moveBlockUp } from '../commands/move-block'
 import { schema } from '../schema'
+import { insertImageAt } from './image-insert'
 import { BlockSelection, findBlock, selectBlockRange, selectedBlockIds } from './block-selection'
 import { COLORS, TURN_INTO } from './inline-toolbar'
 import './block-handle.css'
@@ -30,6 +32,19 @@ const GUTTER = 44
 const HANDLE_H = 24
 /** 每层缩进量 —— 跟 `editor.css.ts` 的 `.sn-block > .sn-group { paddingLeft: 24 }` 是同一个数。 */
 const INDENT = 24
+/** 触屏长按起菜单的等待；移动超过这个阈值就当滚动，不算长按。 */
+const LONG_PRESS_MS = 450
+const LONG_PRESS_SLOP = 10
+
+const isMobile = (): boolean => document.documentElement.getAttribute('data-mobile') === '1'
+
+/** 浮层定位优先取可视视口：软键盘弹起时 innerHeight 不缩，只有它缩。 */
+function viewport(): { width: number; height: number; top: number; left: number } {
+  const v = window.visualViewport
+  return v
+    ? { width: v.width, height: v.height, top: v.offsetTop, left: v.offsetLeft }
+    : { width: window.innerWidth, height: window.innerHeight, top: 0, left: 0 }
+}
 
 /** 一次嵌套落点：嵌进哪个块（文档位置），以及那条线画在哪（视口坐标）。 */
 interface NestedTarget {
@@ -95,6 +110,17 @@ class BlockHandle {
   private cursorMuted = false
   /** `⋮⋮` / 右键弹出来的块菜单（同一时间只开一个）。 */
   private menu: HTMLDivElement | null = null
+  /** 触屏长按的会话：够时间没挪动才起菜单。 */
+  private press: {
+    id: string
+    el: HTMLElement
+    pointerId: number
+    x: number
+    y: number
+    timer: number
+  } | null = null
+  /** 长按刚弹过菜单的时刻：压住 iOS 随后补发的 contextmenu，别把 sheet 重开一遍。 */
+  private pressAt = 0
 
   /** 写图片剪贴板走 Rust 的 NSPasteboard —— webview 自己那份 execCommand 别的应用读不到。 */
   constructor(
@@ -124,6 +150,10 @@ class BlockHandle {
     document.addEventListener('mousemove', this.onMouseMove, true)
     document.addEventListener('scroll', this.onScroll, true)
     this.view.dom.addEventListener('contextmenu', this.onContextMenu)
+    this.view.dom.addEventListener('pointerdown', this.onBlockPointerDown)
+    window.addEventListener('pointermove', this.onBlockPointerMove)
+    window.addEventListener('pointerup', this.cancelPress)
+    window.addEventListener('pointercancel', this.cancelPress)
     window.addEventListener('resize', this.onResize)
     // 挂在 document 的冒泡段：`dropCursor` 的监听在 `view.dom`，冒泡到这里时它已经画完了 ——
     // 我们要在它之后把线让开 / 摆正。挂 view.dom 上会反着来。
@@ -158,8 +188,13 @@ class BlockHandle {
     document.removeEventListener('mousemove', this.onMouseMove, true)
     document.removeEventListener('scroll', this.onScroll, true)
     this.view.dom.removeEventListener('contextmenu', this.onContextMenu)
+    this.view.dom.removeEventListener('pointerdown', this.onBlockPointerDown)
+    window.removeEventListener('pointermove', this.onBlockPointerMove)
+    window.removeEventListener('pointerup', this.cancelPress)
+    window.removeEventListener('pointercancel', this.cancelPress)
     window.removeEventListener('resize', this.onResize)
     document.removeEventListener('dragover', this.onDragOver)
+    this.cancelPress()
     this.clearGhost()
     this.hideLine()
     this.closeMenu()
@@ -335,19 +370,59 @@ class BlockHandle {
     const id = el.getAttribute('data-id') ?? ''
     if (id === '') return
     e.preventDefault()
+    if (isMobile() && Date.now() - this.pressAt < 800) return
     const ids = selectedBlockIds(this.view.state)
     const targets = ids.includes(id) ? ids : [id]
     if (!ids.includes(id)) selectBlockRange(this.view, id)
     this.openMenu(targets, el)
   }
 
+  /** 触屏 / 手写笔长按某块 450ms 且没挪动 → 选中它、弹菜单。鼠标路径一字不动。 */
+  private onBlockPointerDown = (e: PointerEvent): void => {
+    if (e.pointerType === 'mouse' || !e.isPrimary) return
+    this.cancelPress()
+    // 表格单元里的手势归表格插件（列宽/手柄），别再弹块菜单。
+    if (e.target instanceof Element && e.target.closest('table')) return
+    const el = e.target instanceof Element ? e.target.closest('.sn-block') : null
+    if (!(el instanceof HTMLElement) || !this.view.dom.contains(el)) return
+    const id = el.getAttribute('data-id') ?? ''
+    if (id === '') return
+    const x = e.clientX
+    const y = e.clientY
+    const pointerId = e.pointerId
+    const timer = window.setTimeout(() => {
+      if (this.press?.pointerId !== pointerId) return
+      this.press = null
+      this.pressAt = Date.now()
+      this.anchorId = id
+      selectBlockRange(this.view, id)
+      this.openMenu([id], el)
+    }, LONG_PRESS_MS)
+    this.press = { id, el, pointerId, x, y, timer }
+  }
+
+  private onBlockPointerMove = (e: PointerEvent): void => {
+    const p = this.press
+    if (!p || e.pointerId !== p.pointerId) return
+    if (Math.hypot(e.clientX - p.x, e.clientY - p.y) > LONG_PRESS_SLOP) this.cancelPress()
+  }
+
+  private cancelPress = (): void => {
+    if (!this.press) return
+    window.clearTimeout(this.press.timer)
+    this.press = null
+  }
+
   private menuDown = (e: MouseEvent): void => {
     const target = e.target
     if (target instanceof Node && this.menu?.contains(target)) {
-      e.preventDefault()
+      // 只压 mousedown 保选区；pointerdown 压了会连带吞掉触屏上的 click。
+      if (e.type === 'mousedown') e.preventDefault()
       return
     }
     if (target instanceof Node && this.dom.contains(target)) return
+    // 长按刚弹的 sheet，别被 iOS 随后补发的兼容 mousedown 顺手关掉。
+    if (e.type === 'mousedown' && isMobile() && Date.now() - this.pressAt < 800) return
     this.closeMenu()
   }
 
@@ -358,6 +433,7 @@ class BlockHandle {
   private closeMenu(): void {
     if (this.menu === null) return
     document.removeEventListener('mousedown', this.menuDown, true)
+    document.removeEventListener('pointerdown', this.menuDown, true)
     document.removeEventListener('keydown', this.menuKey, true)
     this.menu.remove()
     this.menu = null
@@ -403,6 +479,15 @@ class BlockHandle {
     }
     item('删除', () => this.deleteBlocks(ids))
     item('创建副本', () => this.duplicateBlocks(ids))
+    item('上移', () => moveBlockUp(this.view.state, this.view.dispatch, this.view))
+    item('下移', () => moveBlockDown(this.view.state, this.view.dispatch, this.view))
+    item('图片', () => {
+      const after = ids[ids.length - 1]
+      if (after === undefined) return
+      void insertImageAt(this.view, { afterBlockId: after }).catch((err: unknown) =>
+        reportError('block-handle', err),
+      )
+    })
 
     label('转化为')
     const grid = document.createElement('div')
@@ -419,22 +504,33 @@ class BlockHandle {
 
     document.body.appendChild(menu)
     this.menu = menu
-    // 优先摆到版心右边那条留白里（一个字都不挡）；窄窗口再退到这块下面，不压住这一行的字。
-    const box = this.anchorBox(blockEl)
-    const menuRect = menu.getBoundingClientRect()
-    let left = box.left - 2
-    let top = box.bottom + 6
-    if (box.right + 12 + menuRect.width <= window.innerWidth - 8) {
-      left = box.right + 12
-      top = Math.max(8, Math.min(box.top, window.innerHeight - menuRect.height - 8))
-    } else if (top + menuRect.height > window.innerHeight - 8) {
-      top = box.top - menuRect.height - 6
+    if (isMobile()) {
+      // 手机走底部 sheet：位置交给 CSS（含安全区 / 键盘 inset），这里只按可视视口封顶。
+      menu.classList.add('sn-block-menu-sheet')
+      menu.style.maxHeight = `${Math.round(viewport().height * 0.6)}px`
+    } else {
+      // 优先摆到版心右边那条留白里（一个字都不挡）；窄窗口再退到这块下面，不压住这一行的字。
+      const box = this.anchorBox(blockEl)
+      const menuRect = menu.getBoundingClientRect()
+      const vp = viewport()
+      const right = vp.left + vp.width
+      const bottom = vp.top + vp.height
+      let left = box.left - 2
+      let top = box.bottom + 6
+      if (box.right + 12 + menuRect.width <= right - 8) {
+        left = box.right + 12
+        top = Math.max(vp.top + 8, Math.min(box.top, bottom - menuRect.height - 8))
+      } else if (top + menuRect.height > bottom - 8) {
+        top = box.top - menuRect.height - 6
+      }
+      if (top < vp.top + 8) top = Math.max(vp.top + 8, bottom - menuRect.height - 8)
+      left = Math.max(vp.left + 8, Math.min(left, right - menuRect.width - 8))
+      menu.style.left = `${left}px`
+      menu.style.top = `${top}px`
     }
-    if (top < 8) top = Math.max(8, window.innerHeight - menuRect.height - 8)
-    left = Math.max(8, Math.min(left, window.innerWidth - menuRect.width - 8))
-    menu.style.left = `${left}px`
-    menu.style.top = `${top}px`
     document.addEventListener('mousedown', this.menuDown, true)
+    // 只给手机 sheet 补 pointerdown 的点外面关闭；桌面仍只走 mousedown。
+    if (isMobile()) document.addEventListener('pointerdown', this.menuDown, true)
     document.addEventListener('keydown', this.menuKey, true)
   }
 

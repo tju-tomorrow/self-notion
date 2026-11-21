@@ -511,6 +511,14 @@ pub fn dispatch(
             to_value(vfs::stat(db, &a.path)?)
         }
 
+        // ── 有范围的预检索（D-0200，`docs/ai-rag.md`）──────────────────────────
+        // ★ 也不走 `call`：`rag::search` 自己 `db.with`，并且还要进 vfs 建树。
+        "rag:scopes" => to_value(vfs::tree_scopes(db)?),
+        "rag:search" => {
+            let a: crate::rag::SearchArgs = parse(args)?;
+            to_value(crate::rag::search(db, a)?)
+        }
+
         // ── 外部 Markdown 文件（D-0137，全文见 docs/external-md.md）─────────────
         // 双击一个 .md → 直接编辑那个文件，文件是唯一真相源，正文不落库。
         // ★ 这 8 条**故意不走 `call`**：读写盘是几毫秒到几十毫秒的 I/O，攥着库锁会把别的

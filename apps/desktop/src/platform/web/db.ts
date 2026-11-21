@@ -4,10 +4,11 @@
  * ★ 元数据和正文分两张表：`doc:list` 每次都要全量读，而正文可能有几十 MB。
  *   放一张表里就等于每次刷新侧栏都把所有正文搬一遍。
  */
-import type { DocMeta } from '../../kernel/contract'
+import type { Comment, DocMeta } from '../../kernel/contract'
 
 const NAME = 'self-notion-web'
-const VERSION = 1
+// ★ 2 = 加评论表（D-0199）。Service Worker 里那份建库清单必须同步（public/sw.js）。
+const VERSION = 2
 
 /** 一篇的元数据 + 同步状态。`doc:list` 只读这张表。 */
 export interface DocRecord extends DocMeta {
@@ -41,6 +42,12 @@ export interface Tombstone {
   at: number
 }
 
+/** 评论的本地副本。`deleted` 是等推给服务端的墓碑，推成功才物理删。 */
+export interface CommentRecord extends Comment {
+  dirty: boolean
+  deleted: boolean
+}
+
 let dbp: Promise<IDBDatabase> | null = null
 
 function open(): Promise<IDBDatabase> {
@@ -57,6 +64,7 @@ function open(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains('syncsrc')) db.createObjectStore('syncsrc', { keyPath: 'id' })
       if (!db.objectStoreNames.contains('tombstones'))
         db.createObjectStore('tombstones', { keyPath: 'id' })
+      if (!db.objectStoreNames.contains('comments')) db.createObjectStore('comments', { keyPath: 'id' })
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error ?? new Error('indexedDB 打不开'))
@@ -96,21 +104,36 @@ export async function clearStore(name: string): Promise<void> {
   await wrap((await store(name, 'readwrite')).clear())
 }
 
+/* ── 数据版本（搜索缓存用：任何正文/元数据写入都会 +1） ── */
+
+let revision = 0
+export const dataRevision = (): number => revision
+function bump(): void {
+  revision += 1
+}
+
 /* ── 文档元数据 ── */
 
 export const getDoc = (id: string) => getOne<DocRecord>('docs', id)
 export const allDocs = () => getAll<DocRecord>('docs')
-export const putDoc = (rec: DocRecord) => putOne('docs', rec)
+export async function putDoc(rec: DocRecord): Promise<void> {
+  await putOne('docs', rec)
+  bump()
+}
 
 export async function delDoc(id: string): Promise<void> {
   await delOne('docs', id)
   await delOne('contents', id)
+  bump()
 }
 
 /* ── 正文 ── */
 
 export const getContent = (id: string) => getOne<ContentRecord>('contents', id)
-export const putContent = (rec: ContentRecord) => putOne('contents', rec)
+export async function putContent(rec: ContentRecord): Promise<void> {
+  await putOne('contents', rec)
+  bump()
+}
 export const allContents = () => getAll<ContentRecord>('contents')
 
 /* ── meta / 同步块 / 墓碑 ── */
@@ -136,6 +159,13 @@ export const putSrc = (rec: SyncSource) => putOne('syncsrc', rec)
 export const allTombstones = () => getAll<Tombstone>('tombstones')
 export const putTombstone = (t: Tombstone) => putOne('tombstones', t)
 export const delTombstone = (id: string) => delOne('tombstones', id)
+
+/* ── 评论（D-0199） ── */
+
+export const getComment = (id: string) => getOne<CommentRecord>('comments', id)
+export const allComments = () => getAll<CommentRecord>('comments')
+export const putComment = (rec: CommentRecord) => putOne('comments', rec)
+export const delComment = (id: string) => delOne('comments', id)
 
 /* ── blob ── */
 

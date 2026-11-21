@@ -5,8 +5,15 @@
  *   正文的宽度一点不被占，标题和正文从同一个左缘开始。这是本插件自己的样式，没吃外壳的 CSS 模块。
  */
 import { globalStyle } from '@vanilla-extract/css'
+import type { GlobalStyleRule } from '@vanilla-extract/css'
 
 const GUTTER = 44
+
+/** 外壳的 mobile 判定含 UA，移动规则得同时写 data 标记和窄屏 media 两份。 */
+function mobile(selector: string, rule: GlobalStyleRule): void {
+  globalStyle(`html[data-mobile="1"] ${selector}`, rule)
+  globalStyle(selector, { '@media': { '(max-width: 720px)': rule } } as unknown as GlobalStyleRule)
+}
 
 // 选择器多带一层（`.ProseMirror` / `.sn-pane-body`）是为了赢过 `editor.css.ts` 里的 `padding` 简写 ——
 // 两份都是 globalStyle，谁赢只看规则顺序，靠顺序太脆。
@@ -172,3 +179,24 @@ globalStyle('.sn-block-menu-swatch-none', {
   backgroundImage:
     'linear-gradient(135deg, transparent 44%, color-mix(in srgb, currentColor 55%, transparent) 44%, color-mix(in srgb, currentColor 55%, transparent) 56%, transparent 56%)',
 })
+
+// 手机：块菜单改底部 sheet。键盘由外壳的 --sn-keyboard-inset 抬起来，不自己再算。
+mobile('.sn-block-menu-sheet', {
+  top: 'auto',
+  left: 0,
+  right: 0,
+  bottom: 'calc(var(--sn-keyboard-inset, 0px) + env(safe-area-inset-bottom))',
+  width: 'auto',
+  maxHeight: '60dvh',
+  borderRadius: '16px 16px 0 0',
+  paddingBottom: 'calc(6px + env(safe-area-inset-bottom))',
+  overflowY: 'auto',
+  overscrollBehavior: 'contain',
+})
+
+mobile('.sn-block-menu-sheet .sn-block-menu-item', { height: 44 })
+mobile('.sn-block-menu-sheet .sn-block-menu-cell', { height: 44 })
+mobile('.sn-block-menu-sheet .sn-block-menu-swatch', { maxWidth: 20, maxHeight: 20 })
+
+// 长按起菜单时别让 iOS 弹文字选择的浮条抢手势。
+mobile('.sn-block', { WebkitTouchCallout: 'none' })

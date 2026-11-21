@@ -11,6 +11,8 @@ interface Status {
   caUrl?: string
   code?: string
   paired?: boolean
+  pairUrl?: string
+  qrSvg?: string
 }
 
 async function copy(text: string): Promise<void> {
@@ -29,6 +31,8 @@ async function copy(text: string): Promise<void> {
 export function MobileSection({ ctx }: { ctx: Context }) {
   const [st, setSt] = useState<Status>({ running: false })
   const [copied, setCopied] = useState('')
+  const pairUrl = st.pairUrl
+  const qrSvg = st.qrSvg
 
   useEffect(() => {
     let dead = false
@@ -52,8 +56,14 @@ export function MobileSection({ ctx }: { ctx: Context }) {
 
   const rotate = async () => {
     try {
-      const r = await ctx.rpc.call<{ code: string }>('mobile:code')
-      setSt((v) => ({ ...v, code: r.code }))
+      const r = await ctx.rpc.call<{ code: string; pairUrl?: string; qrSvg?: string }>('mobile:code')
+      // 换码后二维码也得跟着换，否则还指着旧码。
+      setSt((v) => ({
+        ...v,
+        code: r.code,
+        pairUrl: r.pairUrl ?? v.pairUrl,
+        qrSvg: r.qrSvg ?? v.qrSvg,
+      }))
     } catch (err) {
       reportError('mobile-sync', err)
     }
@@ -101,6 +111,31 @@ export function MobileSection({ ctx }: { ctx: Context }) {
           </div>
         ) : null}
       </div>
+
+      {qrSvg ? (
+        <div className={s.pairBlock}>
+          {/* 桌面端生成的 svg，不是用户内容。 */}
+          <div className={s.qr} dangerouslySetInnerHTML={{ __html: qrSvg }} />
+          <div className={s.pairInfo}>
+            {pairUrl ? (
+              <div className={s.row}>
+                <span className={s.label}>{ctx.i18n.t('mobile.pairUrl')}</span>
+                <div className={s.value}>
+                  <span className={s.url}>{pairUrl}</span>
+                  <button
+                    type="button"
+                    className={s.btn}
+                    onClick={() => pairUrl && void put('pair', pairUrl)}
+                  >
+                    {copied === 'pair' ? ctx.i18n.t('mobile.copied') : ctx.i18n.t('mobile.copy')}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            <p className={s.note}>{ctx.i18n.t('mobile.scanHint')}</p>
+          </div>
+        </div>
+      ) : null}
 
       <div className={s.row}>
         <span className={s.label}>{ctx.i18n.t('mobile.code')}</span>

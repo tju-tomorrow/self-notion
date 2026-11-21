@@ -48,6 +48,11 @@ export async function setDoc(ctx: Context, docId: string | null): Promise<void> 
   await dropOrphans(ctx)
 }
 
+/** 另一个设备经同步改了评论 → 重读当前这篇的列表（D-0199）。 */
+export function refreshComments(ctx: Context): void {
+  void load(ctx)
+}
+
 export async function openPanel(ctx: Context, id?: string): Promise<void> {
   const cur = getCommentState()
   // 再点同一条高亮 = 收起。没点到具体的一条（顶栏那颗）就维持现在展开的。

@@ -522,6 +522,8 @@ export const checkHit = style({
   cursor: 'pointer',
   opacity: 0,
   transition: 'opacity 120ms ease-out',
+  // 触屏没有 hover：勾常显，批量选择才够得着。
+  '@media': { '(hover: none)': { opacity: 1 } },
   selectors: {
     // 行的内边距 4 —— 勾正好落在图标自己那一格里
     [`${row} &`]: { left: 4 },
@@ -530,6 +532,7 @@ export const checkHit = style({
     [`${row}:hover &`]: { opacity: 1 },
     [`${card}:hover &`]: { opacity: 1 },
     '&:focus-within': { opacity: 1 },
+    'html[data-mobile="1"] &': { opacity: 1 },
   },
 })
 
@@ -551,9 +554,12 @@ export const check = style({
 /** 跟勾同一格的图标：悬停时让位。 */
 export const iconYield = style({
   transition: 'opacity 120ms ease-out',
+  // 触屏上勾常显，图标得一直让位，不然和勾叠在一起。
+  '@media': { '(hover: none)': { opacity: 0 } },
   selectors: {
     [`${row}:hover &`]: { opacity: 0 },
     [`${card}:hover &`]: { opacity: 0 },
+    'html[data-mobile="1"] &': { opacity: 0 },
   },
 })
 

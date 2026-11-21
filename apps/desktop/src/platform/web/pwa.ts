@@ -10,7 +10,9 @@ export function installPwa(): void {
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (once) return
       once = true
-      location.reload()
+      // 给编辑器一点时间把攒着的改动落库（D-0199），别在打字途中把人刷掉。
+      window.dispatchEvent(new CustomEvent('sn:before-update'))
+      window.setTimeout(() => location.reload(), 1200)
     })
   }
   // iOS 15+ / Chrome 支持。拒绝也无所谓 —— 桌面还有一份。

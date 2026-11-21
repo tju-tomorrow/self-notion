@@ -6,9 +6,16 @@
  * 颜色走 `--affine-*`（那张表挂在 `<html>` 上），取不到退回中性色。
  */
 import { globalStyle } from '@vanilla-extract/css'
+import type { GlobalStyleRule } from '@vanilla-extract/css'
 
 const BORDER = 'color-mix(in srgb, currentColor 34%, transparent)'
 const SELECT = 'var(--affine-primary-color, #1e96eb)'
+
+/** 外壳的 mobile 判定含 UA，移动规则得同时写 data 标记和窄屏 media 两份。 */
+function mobile(selector: string, rule: GlobalStyleRule): void {
+  globalStyle(`html[data-mobile="1"] ${selector}`, rule)
+  globalStyle(selector, { '@media': { '(max-width: 720px)': rule } } as unknown as GlobalStyleRule)
+}
 
 // 滚动条只出在表格这一块上。版心本身不跟着变宽（Notion 同款）。
 globalStyle('.sn-table-wrap', {
@@ -115,6 +122,7 @@ globalStyle('.sn-table-grip', {
   background: 'var(--sn-bg, #fff)',
   cursor: 'grab',
   opacity: 0.85,
+  touchAction: 'none',
 })
 
 globalStyle('.sn-table-grip-row', { cursor: 'row-resize' })
@@ -130,3 +138,12 @@ globalStyle('.sn-table-drop', {
 })
 
 globalStyle('.sn-table-drop[hidden]', { display: 'none' })
+
+// 手机：光标在表里就常显（由 placeFromSelection 摆位），命中区放大且压住拖拽滚动。
+mobile('.sn-table-grip', {
+  width: 28,
+  height: 28,
+  opacity: 1,
+  touchAction: 'none',
+})
+mobile('.sn-table-bar-btn', { minHeight: 36, padding: '6px 10px' })

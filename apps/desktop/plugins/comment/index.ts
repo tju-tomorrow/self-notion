@@ -7,8 +7,16 @@
  */
 import { createElement } from 'react'
 import type { Context } from 'cordis'
-import { CLOSE_ALL, COMMENT_LAYOUT, OPEN_DOC, SHOW_LIST, type OpenDocEvent } from '../../src/kernel/contract'
-import { commentOnSelection, dropOrphans, openPanel, setDoc } from './actions'
+import {
+  CLOSE_ALL,
+  COMMENT_LAYOUT,
+  DOCS_CHANGED,
+  OPEN_DOC,
+  SHOW_LIST,
+  type OpenDocEvent,
+} from '../../src/kernel/contract'
+import { appListen } from '../../src/platform/events'
+import { commentOnSelection, dropOrphans, openPanel, refreshComments, setDoc } from './actions'
 import { CommentHeader } from './header'
 import { CommentLayer } from './layer'
 
@@ -25,6 +33,15 @@ export function apply(ctx: Context) {
   ctx.on(SHOW_LIST, close)
   // 正文一改（删字、删块）就对一下锚点。几何变化也会来，对不上就什么都不删。
   ctx.on(COMMENT_LAYOUT, () => void dropOrphans(ctx))
+  // 另一个设备（手机）写的评论经同步进来 → 重读列表（D-0199）。
+  ctx.on(DOCS_CHANGED, () => refreshComments(ctx))
+  ctx.effect(() => {
+    let off = (): void => {}
+    void appListen('sn:comments', () => refreshComments(ctx)).then((u) => {
+      off = u
+    })
+    return () => off()
+  })
 
   ctx.effect(() => [
     // 软依赖的另一端：编辑器点正文里的高亮时调这个（拿不到就只是点不动）。
@@ -32,6 +49,8 @@ export function apply(ctx: Context) {
       open: (id?: string) => void openPanel(ctx, id),
       // 工具条上那颗「评论」点了：只打开输入框，写了字才进库。
       onSelection: (at) => commentOnSelection(ctx, { kind: 'inline', ...at }),
+      // 整块选中（代码块 / 图片 / 表格）也走同一颗按钮。
+      onBlock: (at) => commentOnSelection(ctx, { kind: 'block', ...at }),
     }),
     ctx.slot.register('doc.aside', () => createElement(CommentLayer, { ctx })),
     // ★ 入口在顶栗那一行的**最右端**（D-0070）—— 原来挂在 `doc.header` 里，

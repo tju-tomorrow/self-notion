@@ -35,6 +35,9 @@ function applyScheme(scheme: Scheme) {
   // PWA 最上面那条是 iOS 状态栏，不是 app 画的：深色 app 用实黑，浅色用默认白。
   const meta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')
   if (meta) meta.setAttribute('content', scheme === 'dark' ? 'black' : 'default')
+  // Android 的地址栏 / 状态栏跟 theme-color 走（D-0199）。
+  const theme = document.querySelector('meta[name="theme-color"]')
+  if (theme) theme.setAttribute('content', scheme === 'dark' ? '#191919' : '#faf9f7')
 }
 
 /** 契约的 `ThemeService` 是一条只读通道 —— 没有 `set`。见文件末尾。 */

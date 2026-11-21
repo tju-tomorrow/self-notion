@@ -9,15 +9,28 @@
  */
 import { Fragment, memo, type ReactNode } from 'react'
 import * as s from './ai.css'
+import type { RagChunk } from './rag'
 
-const INLINE = /(\*\*[^*]+\*\*|`[^`\n]+`|\*[^*\n]+\*|\[[^\]\n]+\]\([^)\s]+\))/g
+/** 引用那一组的上下文：编号 → 片段，点一下回原文。 */
+export interface CiteCtx {
+  chunks: readonly RagChunk[]
+  open: (chunk: RagChunk) => void
+}
+
+const INLINE = /(\*\*[^*]+\*\*|`[^`\n]+`|\*[^*\n]+\*|\[[^\]\n]+\]\([^)\s]+\)|\[\d{1,2}\](?!\())/g
 const FENCE = /^\s*```/
 const HEADING = /^(#{1,6})\s+(.*)$/
 const HR = /^\s*(?:[-*_])\s*(?:[-*_])\s*(?:[-*_])[\s\-*_]*$/
 const QUOTE = /^\s*>\s?(.*)$/
 const ITEM = /^(\s*)(?:([-*+])|(\d+)[.)])\s+(.*)$/
 
-export const Markdown = memo(function Markdown({ text }: { text: string }): ReactNode {
+export const Markdown = memo(function Markdown({
+  text,
+  cite,
+}: {
+  text: string
+  cite?: CiteCtx
+}): ReactNode {
   const lines = text.split('\n')
   const blocks: ReactNode[] = []
   let i = 0
@@ -50,7 +63,7 @@ export const Markdown = memo(function Markdown({ text }: { text: string }): Reac
       // 六级标题一律一个尺寸：聊天里没人靠字号分辨 3 级还是 4 级。
       blocks.push(
         <h3 key={blocks.length} className={s.mdH}>
-          {inline(head[2] ?? '')}
+          {inline(head[2] ?? '', cite)}
         </h3>,
       )
       i++
@@ -73,7 +86,7 @@ export const Markdown = memo(function Markdown({ text }: { text: string }): Reac
       }
       blocks.push(
         <blockquote key={blocks.length} className={s.mdQuote}>
-          <Markdown text={quote.join('\n')} />
+          <Markdown text={quote.join('\n')} cite={cite} />
         </blockquote>,
       )
       continue
@@ -94,7 +107,7 @@ export const Markdown = memo(function Markdown({ text }: { text: string }): Reac
           {items.map((item, n) => (
             // 层次靠缩进推 —— 不套嵌套列表，省一层标签
             <li key={n} className={s.mdLi} style={{ marginLeft: item.depth * 16 }}>
-              {inline(item.text)}
+              {inline(item.text, cite)}
             </li>
           ))}
         </List>,
@@ -117,7 +130,7 @@ export const Markdown = memo(function Markdown({ text }: { text: string }): Reac
         {para.map((one, n) => (
           <Fragment key={n}>
             {n > 0 ? <br /> : null}
-            {inline(one)}
+            {inline(one, cite)}
           </Fragment>
         ))}
       </p>,
@@ -127,8 +140,8 @@ export const Markdown = memo(function Markdown({ text }: { text: string }): Reac
   return blocks
 })
 
-/** 行内那一层：加粗、行内码、斜体、链接。**不认转义** —— 模型回的字里没有这种需求。 */
-function inline(text: string): ReactNode[] {
+/** 行内那一层：加粗、行内码、斜体、链接、引用角标。**不认转义** —— 模型回的字里没有这种需求。 */
+function inline(text: string, cite?: CiteCtx): ReactNode[] {
   const out: ReactNode[] = []
   let last = 0
   const re = new RegExp(INLINE.source, 'g')
@@ -144,7 +157,24 @@ function inline(text: string): ReactNode[] {
           {token.slice(1, -1)}
         </code>,
       )
-    else if (token.startsWith('[')) {
+    else if (/^\[\d{1,2}\]$/.test(token)) {
+      const n = Number(token.slice(1, -1))
+      const chunk = cite?.chunks.find((one) => one.n === n)
+      if (chunk && cite) {
+        out.push(
+          <button
+            key={key}
+            type="button"
+            className={s.cite}
+            title={`${n} · ${chunk.title}\n${chunk.text.slice(0, 120)}`}
+            aria-label={`${n} · ${chunk.title}`}
+            onClick={() => cite.open(chunk)}
+          >
+            {n}
+          </button>,
+        )
+      } else out.push(token)
+    } else if (token.startsWith('[')) {
       const link = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(token)
       out.push(
         <a key={key} className={s.mdLink} href={link?.[2] ?? '#'} target="_blank" rel="noreferrer">

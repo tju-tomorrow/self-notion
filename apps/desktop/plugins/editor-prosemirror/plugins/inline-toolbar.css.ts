@@ -4,6 +4,13 @@
  * 配色口径照同目录的 `editor.css.ts`：`--sn-*` 带兜底值，**不吃 `--affine-*`**（基座换了那批变量没了）。
  */
 import { globalStyle } from '@vanilla-extract/css'
+import type { GlobalStyleRule } from '@vanilla-extract/css'
+
+/** 外壳的 mobile 判定含 UA，移动规则得同时写 data 标记和窄屏 media 两份。 */
+function mobile(selector: string, rule: GlobalStyleRule): void {
+  globalStyle(`html[data-mobile="1"] ${selector}`, rule)
+  globalStyle(selector, { '@media': { '(max-width: 720px)': rule } } as unknown as GlobalStyleRule)
+}
 
 const BG = 'var(--sn-panel, #ffffff)'
 const LINE = 'var(--sn-line, rgba(0, 0, 0, .1))'
@@ -28,6 +35,14 @@ globalStyle('.sn-itb', {
 })
 
 globalStyle('.sn-itb.sn-itb-on', { display: 'flex' })
+
+// 按钮这一层：桌面照旧单行；手机上可横滚，色板/菜单挂在 root 上不吃这个裁切。
+globalStyle('.sn-itb-strip', {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 2,
+  minWidth: 0,
+})
 
 globalStyle('.sn-itb-btn', {
   display: 'flex',
@@ -165,3 +180,21 @@ globalStyle('.sn-itb-input', {
 })
 
 globalStyle('.sn-itb-input:focus', { borderColor: ACCENT })
+
+// 手机：整条不超屏宽；横滚只落在 strip 上，root 不裁切绝对定位的色板/菜单。
+mobile('.sn-itb', { maxWidth: 'calc(100vw - 8px)' })
+mobile('.sn-itb-strip', {
+  overflowX: 'auto',
+  overscrollBehaviorX: 'contain',
+  touchAction: 'pan-x',
+})
+mobile('.sn-itb-btn', {
+  width: 36,
+  minWidth: 36,
+  height: 36,
+  fontSize: 15,
+  flexShrink: 0,
+})
+mobile('.sn-itb-turn', { width: 'auto' })
+mobile('.sn-itb-sep', { height: 22, flexShrink: 0 })
+mobile('.sn-itb-swatch', { width: 28, height: 28 })

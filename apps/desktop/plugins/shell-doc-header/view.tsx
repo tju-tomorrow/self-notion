@@ -383,6 +383,7 @@ function PageMenu({
     /** 有它就是开关行（右端一个 Switch），没有就是普通动作行。 */
     toggle?: { on: boolean; set: (next: boolean) => void }
     onClick?: () => void
+    show?: boolean
   }[] = [
     // 图标在第一位 —— Notion 里给一页挑 emoji 是最常用的一个动作。
     {
@@ -441,7 +442,8 @@ function PageMenu({
       key: 'history',
       label: ctx.i18n.t('doc.history'),
       icon: HistoryIcon,
-      // 面板本体在 `version-history` 插件里（软依赖：它不在就没有这个入口）。
+      // web 没装 version-history，拿不到就不画，别留点了没反应的死入口。
+      show: Boolean(ctx.get('version')),
       onClick: () => {
         onClose()
         ctx.get('version')?.open()
@@ -471,7 +473,7 @@ function PageMenu({
       ) : view === 'tags' && here ? (
         <TagPanel ctx={ctx} doc={here} />
       ) : (
-        items.map((it) =>
+        items.filter((it) => it.show !== false).map((it) =>
           it.toggle ? (
             // ★ 开关行是 `div` 不是 `button`：`Switch` 自己就是一个 button，套在 button 里是非法 HTML。
             //   整行可点（Notion 也是），所以开关那层要把点击拦一下，不然一次点两个翻两次等于没动。

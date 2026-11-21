@@ -14,6 +14,8 @@
  * 带 `note` 的那几个是自带包，其余是系统字体 —— 名字写错不会报错，只会静默回退，
  * 所以只列这台机器上确实有的。
  */
+import { isWeb } from '../../src/platform/env'
+
 export const UI_FONT_KEY = 'ui.font'/** 沿用旧 key：上一版存的 `default` / `serif` / `mono` 还在各家机器上，映射见 `LEGACY`。 */
 export const DOC_FONT_KEY = 'editor.font'
 export const CODE_FONT_KEY = 'editor.codeFont'
@@ -75,9 +77,12 @@ const SYSTEM_CJK = "'PingFang SC','Hiragino Sans GB',system-ui,sans-serif"
 // 代码栈的尾巴：中文还是要能显示，但拉丁部分不许掉到比例字体上
 const CODE_CJK = "'PingFang SC','Hiragino Sans GB',ui-monospace,monospace"
 
+// 网页端不拉 803KB 的 Inter：默认项走系统栈，手选的字体照旧。
+const WEB_UI_STACK = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif"
+
 export const FONTS: readonly FontEntry[] = [
   // ── 英文（含兜底那一条）──
-  { id: DEFAULT_FONT, name: '默认', note: 'Inter · 系统字体', group: 'en', stack: `'Inter',${SYSTEM_CJK}` },
+  { id: DEFAULT_FONT, name: '默认', note: 'Inter · 系统字体', group: 'en', stack: isWeb ? WEB_UI_STACK : `'Inter',${SYSTEM_CJK}` },
   { id: 'en-lora', name: 'Lora', note: '衬线 · 自带', group: 'en', stack: "'Lora',Georgia,'Songti SC',serif" },
   {
     id: 'en-source-serif',

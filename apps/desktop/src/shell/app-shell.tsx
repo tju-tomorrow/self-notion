@@ -162,6 +162,38 @@ function MobileBar({ ctx, view }: { ctx: Context; view: MainView }) {
 export function AppShell({ ctx }: { ctx: Context }) {
   const { view, id } = useDocView(ctx)
   const mobile = useIsMobile()
+  const [keyboardOpen, setKeyboardOpen] = useState(false)
+
+  // 移动标记也写到 <html>：CSS 移动规则同时认 @media 和这个属性（D-0199）。
+  useEffect(() => {
+    document.documentElement.dataset.mobile = mobile ? '1' : '0'
+  }, [mobile])
+
+  // 软键盘压住的那段高度写进 --sn-keyboard-inset，弹起时收起底部导航。
+  useEffect(() => {
+    const root = document.documentElement
+    const vv = window.visualViewport
+    if (!mobile || !vv) {
+      root.style.removeProperty('--sn-keyboard-inset')
+      setKeyboardOpen(false)
+      return
+    }
+    const update = () => {
+      const covered = Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+      const inset = covered < 80 ? 0 : covered
+      root.style.setProperty('--sn-keyboard-inset', `${inset}px`)
+      setKeyboardOpen(inset > 0)
+    }
+    vv.addEventListener('resize', update)
+    vv.addEventListener('scroll', update)
+    update()
+    return () => {
+      vv.removeEventListener('resize', update)
+      vv.removeEventListener('scroll', update)
+      root.style.removeProperty('--sn-keyboard-inset')
+    }
+  }, [mobile])
+
   const [collapsed, setCollapsed] = useState(
     () =>
       (typeof window !== 'undefined' && window.matchMedia('(max-width: 720px)').matches) ||
@@ -363,7 +395,7 @@ export function AppShell({ ctx }: { ctx: Context }) {
           )}
         </main>
       </div>
-      {mobile ? <MobileBar ctx={ctx} view={view} /> : null}
+      {mobile && !keyboardOpen ? <MobileBar ctx={ctx} view={view} /> : null}
     </div>
   )
 }

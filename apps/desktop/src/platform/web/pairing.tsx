@@ -3,7 +3,7 @@
  *
  * 离线（fetch 直接失败）不当成未配对 —— 本地库还在，先让应用起来。
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 export async function authState(): Promise<'ok' | 'pair'> {
   try {
@@ -19,16 +19,9 @@ export function PairingScreen() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [url, setUrl] = useState('')
+  const tried = useRef(false)
 
-  useEffect(() => {
-    setUrl(location.origin)
-    const onNeed = () => setError('配对已失效，请重新输入桌面端显示的 6 位码')
-    window.addEventListener('sn:need-pair', onNeed)
-    return () => window.removeEventListener('sn:need-pair', onNeed)
-  }, [])
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  async function pair(raw: string): Promise<void> {
     if (busy) return
     setBusy(true)
     setError('')
@@ -37,18 +30,39 @@ export function PairingScreen() {
         method: 'POST',
         credentials: 'include',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ code: code.trim() }),
+        body: JSON.stringify({ code: raw.trim() }),
       })
       if (!res.ok) {
         setError(res.status === 403 ? '配对码不对或已过期' : '配对失败，稍后再试')
         return
       }
+      // 码已用掉，别留在地址栏 / 历史记录里。
+      history.replaceState(null, '', '/')
       location.reload()
     } catch {
       setError('连不上桌面端，确认手机和电脑在同一个 Wi-Fi')
     } finally {
       setBusy(false)
     }
+  }
+
+  useEffect(() => {
+    setUrl(location.origin)
+    const onNeed = () => setError('配对已失效，请重新输入桌面端显示的 6 位码')
+    window.addEventListener('sn:need-pair', onNeed)
+    // 桌面设置页的二维码把码带在 ?code= 里 —— 扫一下就直接连（D-0199）。
+    const fromUrl = new URLSearchParams(location.search).get('code') ?? ''
+    if (!tried.current && /^\d{6}$/.test(fromUrl)) {
+      tried.current = true
+      setCode(fromUrl)
+      void pair(fromUrl)
+    }
+    return () => window.removeEventListener('sn:need-pair', onNeed)
+  }, [])
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault()
+    void pair(code)
   }
 
   return (

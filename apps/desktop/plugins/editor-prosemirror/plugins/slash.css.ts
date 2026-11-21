@@ -77,3 +77,8 @@ globalStyle('.sn-slash-none', { padding: '6px 8px', color: MUTED })
 
 // 触发符到光标那段：让人看清菜单绑在哪几个字上（只上底色，不动字形，免得看着像选区）。
 globalStyle('.sn-slash-hit', { background: HOVER, borderRadius: 2 })
+
+// 手机上可视高度被键盘吃掉一大截，菜单别顶出屏幕；两套断点跟外壳对齐。
+const MOBILE = { maxWidth: 'calc(100vw - 16px)', maxHeight: 'min(320px, 42dvh)' } as const
+globalStyle('html[data-mobile="1"] .sn-slash', MOBILE)
+globalStyle('.sn-slash', { '@media': { '(max-width: 720px)': MOBILE } })

@@ -327,6 +327,8 @@ function Composer({
           e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`
         }}
         onKeyDown={(e) => {
+          // 输入法选词时的回车是在上屏，不是发送。
+          if (e.nativeEvent.isComposing) return
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
             send()

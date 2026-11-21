@@ -10,9 +10,42 @@
  *   它决定「够不够浮卡」和「正文让出多少留白」。改这里要一起改。
  * ★ 插件不许 import 外壳的样式，所以自己写一份 token 兜底。
  */
-import { style } from '@vanilla-extract/css'
+import { style, type CSSProperties } from '@vanilla-extract/css'
 import * as motion from '../../src/ui/motion.css'
 import { CARD_W, GAP } from './size'
+
+/* 手机规则双匹配：宽度断点 + 外壳标记；UA 命中的 iPad / 横屏只有后者认得出。 */
+const MOBILE_MEDIA = '(max-width: 720px)'
+const M_HTML = 'html[data-mobile="1"] &'
+const M_SHELL = '[data-sn-shell][data-mobile="1"] &'
+
+const dockSheet: CSSProperties = {
+  position: 'fixed',
+  left: 0,
+  right: 0,
+  bottom: 'calc(env(safe-area-inset-bottom) + var(--sn-keyboard-inset, 0px))',
+  width: '100%',
+  height: 'auto',
+  flex: 'none',
+  maxHeight: '60dvh',
+  zIndex: 400,
+  borderRadius: '16px 16px 0 0',
+  borderLeft: 'none',
+  borderTop: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
+  boxShadow: '0 -8px 30px rgba(0, 0, 0, .18)',
+  // portal 到 body 后拿不到外壳那层设的界面字体
+  fontFamily: 'var(--affine-font-family, Inter, "PingFang SC", system-ui, sans-serif)',
+}
+
+const stackSheet: CSSProperties = {
+  flex: '1 1 auto',
+  minHeight: 0,
+  overscrollBehavior: 'contain',
+  paddingTop: 8,
+}
+
+const hit40: CSSProperties = { width: 40, height: 40 }
+const bubble40: CSSProperties = { height: 40 }
 
 /* ────────────────────────── 窄栏（栏宽不够时的退路） ────────────────────────── */
 
@@ -30,9 +63,17 @@ export const dock = style([
     borderLeft: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
     background: 'var(--affine-v2-layer-background-primary)',
     // 暗色那档跟正文同一个画布色（D-0171）—— 这一列是正文的一部分，不该比正文深一截。
-    selectors: { '[data-theme="dark"] &': { background: '#191919' } },
+    selectors: {
+      '[data-theme="dark"] &': { background: '#191919' },
+      [M_HTML]: dockSheet,
+      [M_SHELL]: dockSheet,
+    },
+    '@media': { [MOBILE_MEDIA]: dockSheet },
   },
 ])
+
+/** 外壳还没往 <html> 写标记时，JS 判定命中靠这一颗兜底。 */
+export const dockSheetOn = style(dockSheet)
 
 export const stack = style({
   display: 'flex',
@@ -40,7 +81,11 @@ export const stack = style({
   gap: GAP,
   padding: '16px 0 24px',
   overflowY: 'auto',
+  selectors: { [M_HTML]: stackSheet, [M_SHELL]: stackSheet },
+  '@media': { [MOBILE_MEDIA]: stackSheet },
 })
+
+export const stackSheetOn = style(stackSheet)
 
 /** 浮卡那一层（挂在编辑器的 `.sn-pane-float` 里）—— 只有卡片，没有别的壳。 */
 export const float = style({ position: 'absolute', top: 0, right: 0, width: CARD_W })
@@ -300,7 +345,12 @@ export const iconButton = style({
   background: 'transparent',
   color: 'var(--affine-v2-icon-primary)',
   cursor: 'pointer',
-  selectors: { '&:hover': { background: 'var(--affine-v2-layer-background-hoverOverlay)' } },
+  selectors: {
+    '&:hover': { background: 'var(--affine-v2-layer-background-hoverOverlay)' },
+    [M_HTML]: hit40,
+    [M_SHELL]: hit40,
+  },
+  '@media': { [MOBILE_MEDIA]: hit40 },
 })
 
 export const iconButtonOn = style({
@@ -388,6 +438,49 @@ export const bubble = style({
   fontSize: 13,
   fontWeight: 500,
   whiteSpace: 'nowrap',
+  cursor: 'pointer',
+  selectors: {
+    '&:hover': { background: 'var(--affine-v2-layer-background-hoverOverlay)' },
+    [M_HTML]: bubble40,
+    [M_SHELL]: bubble40,
+  },
+  '@media': { [MOBILE_MEDIA]: bubble40 },
+})
+
+/* ────────────────────────── 手机 sheet 顶上那一条 ────────────────────────── */
+
+export const sheetBar = style({
+  flex: '0 0 auto',
+  position: 'relative',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'flex-end',
+  height: 44,
+  padding: '0 4px',
+})
+
+export const sheetGrip = style({
+  position: 'absolute',
+  top: 6,
+  left: '50%',
+  transform: 'translateX(-50%)',
+  width: 36,
+  height: 4,
+  borderRadius: 2,
+  background: 'var(--affine-v2-layer-insideBorder-border)',
+  pointerEvents: 'none',
+})
+
+export const sheetClose = style({
+  minWidth: 40,
+  minHeight: 40,
+  padding: '0 12px',
+  border: 'none',
+  borderRadius: 8,
+  background: 'transparent',
+  color: 'var(--affine-v2-text-secondary)',
+  fontFamily: 'inherit',
+  fontSize: 13,
   cursor: 'pointer',
   selectors: { '&:hover': { background: 'var(--affine-v2-layer-background-hoverOverlay)' } },
 })

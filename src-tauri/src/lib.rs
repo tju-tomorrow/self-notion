@@ -22,6 +22,7 @@ mod log;
 pub mod mcp;
 mod mem;
 mod perf;
+mod rag;
 mod store;
 mod syncing;
 mod tts;

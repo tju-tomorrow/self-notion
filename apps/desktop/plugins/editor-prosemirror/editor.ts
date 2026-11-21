@@ -30,6 +30,7 @@ import { allDocs, metaOf, subscribe } from './doc-meta'
 import { docsBacking, type DocPayload, type DocsBacking } from './doc-source'
 import { createFindApi, findPlugin, type FindApi } from './find'
 import { collectSpans, paintRead, readPlugin, type ReadSpan } from './read-mark'
+import { setRevealViews } from './reveal'
 import { startLearn } from './learn'
 import { nodeViews } from './nodes'
 import { outlinePlugin } from './outline'
@@ -43,6 +44,7 @@ import { inlineToolbarPlugin } from './plugins/inline-toolbar'
 import { inputRulesPlugin } from './plugins/input-rules'
 import { listNumberPlugin } from './plugins/list-number'
 import { mentionPlugin } from './plugins/mention'
+import { mobileInsertPlugin } from './plugins/mobile-insert'
 import { pastePlugin } from './plugins/paste'
 import { slashPlugin } from './plugins/slash'
 import { tablePlugin } from './plugins/table'
@@ -274,6 +276,7 @@ function buildPlugins(parts: {
   side: HTMLElement | undefined
   docId: string
   file: boolean
+  readOnly: boolean
 }): Plugin[] {
   const plugins: Plugin[] = [
     // 自动格式刚触发时 ⌘Z 先只退那一下（不然 history 会把前面打的字一起撤掉）。
@@ -300,7 +303,8 @@ function buildPlugins(parts: {
     // ★ 文件模式**也不建**：锚点按 docId 写进 `comment` 表，而外部文件不进库（D-0140）。
     inlineToolbarPlugin(
       parts.file ? undefined : (at) => wiring?.comment.selection(at),
-      (range) => wiring?.read?.(range),
+      wiring?.read,
+      parts.file ? undefined : (at) => wiring?.comment.block(at),
     ),
     // 朗读划线。不写进正文，只在正在念的那句上盖一层。
     readPlugin,
@@ -338,6 +342,8 @@ function buildPlugins(parts: {
       }),
     )
   }
+  // 回收站里只读，不给一个点了不改库的插块入口。
+  if (!parts.readOnly) plugins.push(mobileInsertPlugin())
   return plugins
 }
 
@@ -421,7 +427,7 @@ export async function mountEditor(
     // 拼写红线，全是破坏（用户 2026-10-09）。
     attributes: { spellcheck: 'false', autocorrect: 'off', autocapitalize: 'off' },
     editable: () => !readOnly,
-    state: EditorState.create({ doc, plugins: buildPlugins({ body: el, meta: metaEl, side, docId, file }) }),
+    state: EditorState.create({ doc, plugins: buildPlugins({ body: el, meta: metaEl, side, docId, file, readOnly }) }),
     nodeViews,
     dispatchTransaction(tr) {
       view!.updateState(view!.state.apply(tr))
@@ -434,12 +440,24 @@ export async function mountEditor(
 
   // 点标题 / 正文底下那片空白 → 光标落到文末（Notion 的习惯）：不用精确点中文字才能写。
   // ★ `el` 是复用的栏体，监听必须能收 —— 不然换一篇就多挂一个。
+  // ★ 只有**从留白按下**才算。从文字拖到右边的留白松手，click 的 target 也会是 `el` ——
+  //   不挡的话划一段就把光标甩到文末、页面一路滚到底（2026-11-21）。
   const abort = new AbortController()
+  let blankDown = false
+  el.addEventListener(
+    'mousedown',
+    (e) => {
+      blankDown = e.target === el
+    },
+    { signal: abort.signal },
+  )
   el.addEventListener(
     'click',
     (e) => {
       const v = view
-      if (e.target !== el || !v) return
+      const fromBlank = blankDown
+      blankDown = false
+      if (!fromBlank || e.target !== el || !v || !v.state.selection.empty) return
       v.dispatch(v.state.tr.setSelection(Selection.atEnd(v.state.doc)).scrollIntoView())
       v.focus()
     },
@@ -805,3 +823,7 @@ export function commentAnchorTop(docId: string, blockId: string, index: number):
   if (!view) return null
   return anchorTop(view, blockId, index)
 }
+
+/** 引用回原文（D-0200）：滚到含 anchor 的块并闪一下。 */
+setRevealViews(() => liveDocs())
+export { revealText } from './reveal'

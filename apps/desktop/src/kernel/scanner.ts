@@ -35,6 +35,10 @@ const WEB_PLUGINS = new Set([
   'shell-doc-header',
   'shell-nav',
   'shell-settings',
+  // D-0199：手机端补评论、导出、同步状态。
+  'comment',
+  'export',
+  'web-sync-status',
 ])
 
 function idOf(path: string): string {

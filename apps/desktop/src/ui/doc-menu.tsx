@@ -445,6 +445,7 @@ export function InlineRename({
           .catch((err: unknown) => reportError('doc.rename', err))
       }}
       onKeyDown={(e) => {
+        if (e.nativeEvent.isComposing) return // 输入法选词的回车不是落地
         // Enter 交给 onBlur 落地 —— 提交只留一条路径。
         if (e.key === 'Enter') e.currentTarget.blur()
         else if (e.key === 'Escape') cancelled.current = true

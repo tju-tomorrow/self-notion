@@ -6,10 +6,17 @@
  * 半透明灰能在浅色 / 深色两种主题下都活着，不用再去判 `[data-theme]`。
  */
 import { globalStyle } from '@vanilla-extract/css'
+import type { GlobalStyleRule } from '@vanilla-extract/css'
 
 const ACCENT = 'var(--sn-accent, #1e96eb)'
 const LINE = 'rgba(128, 128, 128, .4)'
 const WASH = 'rgba(128, 128, 128, .12)'
+
+/** 外壳的 mobile 判定含 UA，移动规则得同时写 data 标记和窄屏 media 两份。 */
+function mobile(selector: string, rule: GlobalStyleRule): void {
+  globalStyle(`html[data-mobile="1"] ${selector}`, rule)
+  globalStyle(selector, { '@media': { '(max-width: 720px)': rule } } as unknown as GlobalStyleRule)
+}
 
 /* ── todoItem ── */
 
@@ -155,9 +162,20 @@ globalStyle('.sn-image-grip', {
   cursor: 'nwse-resize',
   opacity: 0,
   transition: 'opacity .12s',
+  touchAction: 'none',
 })
 
 globalStyle('.sn-image:hover .sn-image-grip, .sn-image.ProseMirror-selectednode .sn-image-grip', { opacity: 1 })
+
+// 手机：拖宽把手常显、命中区 ≥20px、拖拽时压住页面滚动。
+mobile('.sn-image-grip', {
+  width: 24,
+  height: 24,
+  right: -8,
+  bottom: -8,
+  opacity: 1,
+  touchAction: 'none',
+})
 
 globalStyle('.sn-image-caption', {
   width: '100%',

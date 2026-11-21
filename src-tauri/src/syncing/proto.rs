@@ -12,6 +12,44 @@ pub struct PushBody {
     pub docs: Vec<PushDoc>,
     #[serde(default)]
     pub sources: Vec<PushSource>,
+    #[serde(default)]
+    pub comments: Vec<PushComment>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PushComment {
+    pub id: String,
+    /// put / delete
+    #[serde(default = "put")]
+    pub mode: String,
+    #[serde(default)]
+    pub doc_id: String,
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    #[serde(default)]
+    pub anchor: String,
+    #[serde(default)]
+    pub block_id: Option<String>,
+    #[serde(default)]
+    pub quote: String,
+    #[serde(default)]
+    pub body: String,
+    #[serde(default)]
+    pub resolved: bool,
+    #[serde(default)]
+    pub created_at: Option<i64>,
+    /// 最后写入者胜的判据；0 = 没带，按现在算。
+    #[serde(default)]
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommentPushResult {
+    pub id: String,
+    pub status: &'static str,
+    pub comment: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

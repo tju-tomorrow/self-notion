@@ -140,10 +140,12 @@ export function apply(ctx: Context) {
         comment: {
           open: (id) => ctx.get('comment')?.open(id),
           selection: (at) => ctx.get('comment')?.onSelection(at),
+          block: (at) => ctx.get('comment')?.onBlock(at),
           // 正文几何变了 → 广播，评论插件重摆卡片（D-0172）。
           layout: () => ctx.emit(COMMENT_LAYOUT),
         },
-        read: (range) => ctx.get('readaloud')?.speakSelection(range),
+        // 网页端没有朗读插件：给 undefined，别在工具条上留一颗点了没反应的「读」。
+        read: isWeb ? undefined : (range) => ctx.get('readaloud')?.speakSelection(range),
       })
       mod = editor
       // 判据（D-0126）：DOM 与模型那一组不变量。★ 装在**懒装载这一侧** —— `./diagnose` 要读
@@ -224,6 +226,9 @@ export function apply(ctx: Context) {
       /** 语音草稿落正文（契约 `insertText`）：没装载 / 这篇没开着 → false。 */
       insertText: (id: string, text: string, at?: 'caret' | 'end') =>
         mod?.insertTextAt(id, text, at) ?? false,
+
+      /** 引用回原文（D-0200）：滚到含 anchor 的块并闪一下。 */
+      revealText: (id: string, anchor: string) => mod?.revealText(id, anchor),
 
       /**
        * 库里这篇的字节换过了（恢复历史版本，D-0043）→ 丢掉手里的活编辑器、用库里那份重建。
@@ -354,13 +359,23 @@ export function apply(ctx: Context) {
   ctx.effect(() => {
     if (typeof window === 'undefined') return () => {}
     if (isWeb) {
-      // 网页端没有「关窗口」这个钩子；切到后台 / 关标签页前把攒着的改动落完。
-      const flush = () => {
-        if (document.visibilityState !== 'hidden') return
-        void load().then((editor) => editor.flushAll()).catch((err: unknown) => reportError('editor-prosemirror', err))
+      // 网页端没有「关窗口」钩子：切后台 / 关标签页 / SW 接管前把攒着的改动落完。
+      const flushNow = () => {
+        void load()
+          .then((editor) => editor.flushAll())
+          .catch((err: unknown) => reportError('editor-prosemirror', err))
       }
-      document.addEventListener('visibilitychange', flush)
-      return () => document.removeEventListener('visibilitychange', flush)
+      const onHidden = () => {
+        if (document.visibilityState === 'hidden') flushNow()
+      }
+      document.addEventListener('visibilitychange', onHidden)
+      window.addEventListener('pagehide', flushNow)
+      window.addEventListener('sn:before-update', flushNow)
+      return () => {
+        document.removeEventListener('visibilitychange', onHidden)
+        window.removeEventListener('pagehide', flushNow)
+        window.removeEventListener('sn:before-update', flushNow)
+      }
     }
     let unlisten: (() => void) | undefined
     let dead = false

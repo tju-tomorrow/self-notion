@@ -88,26 +88,38 @@ export const imageView: NodeViewConstructor = (node, view, getPos) => {
   }
 
   // 拖右下角改宽度。拖动过程只改 DOM，松手才写回属性（不然一步一个历史记录）。
-  let drag: { x: number; width: number } | null = null
-  const onMove = (e: MouseEvent): void => {
-    if (!drag) return
+  let drag: { pointerId: number; x: number; width: number } | null = null
+  const onMove = (e: PointerEvent): void => {
+    if (!drag || e.pointerId !== drag.pointerId) return
+    e.preventDefault()
     const width = Math.max(MIN_WIDTH, Math.round(drag.width + e.clientX - drag.x))
     img.style.width = `${width}px`
   }
-  const onUp = (): void => {
-    if (!drag) return
+  const cleanup = (): void => {
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp)
+    window.removeEventListener('pointercancel', onCancel)
+  }
+  const onUp = (e: PointerEvent): void => {
+    if (!drag || e.pointerId !== drag.pointerId) return
     const width = Math.round(img.getBoundingClientRect().width)
     drag = null
-    window.removeEventListener('mousemove', onMove)
-    window.removeEventListener('mouseup', onUp)
+    cleanup()
     if (width >= MIN_WIDTH) setAttr({ width })
   }
-  grip.addEventListener('mousedown', (e) => {
+  const onCancel = (e: PointerEvent): void => {
+    if (!drag || e.pointerId !== drag.pointerId) return
+    drag = null
+    cleanup()
+  }
+  grip.addEventListener('pointerdown', (e) => {
     e.preventDefault()
     e.stopPropagation()
-    drag = { x: e.clientX, width: img.getBoundingClientRect().width }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
+    drag = { pointerId: e.pointerId, x: e.clientX, width: img.getBoundingClientRect().width }
+    grip.setPointerCapture(e.pointerId)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onCancel)
   })
 
   // 图注：失焦 / 回车时落库。
@@ -158,8 +170,7 @@ export const imageView: NodeViewConstructor = (node, view, getPos) => {
       return true
     },
     destroy: () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
+      cleanup()
     },
   }
 }

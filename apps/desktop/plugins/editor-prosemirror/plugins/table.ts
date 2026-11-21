@@ -37,6 +37,18 @@ const CELL_MIN = 48
 /** 还没拖过的列按这个宽算，列多了就超出版心，由外层横向滚动。 */
 const CELL_DEFAULT = 120
 const HANDLE = 6
+/** 触屏列边命中区，比鼠标那条 6px 线宽得多。 */
+const TOUCH_EDGE = 20
+
+const isMobile = (): boolean => document.documentElement.getAttribute('data-mobile') === '1'
+
+/** 浮层定位优先取可视视口。 */
+function viewport(): { width: number; height: number; top: number; left: number } {
+  const v = window.visualViewport
+  return v
+    ? { width: v.width, height: v.height, top: v.offsetTop, left: v.offsetLeft }
+    : { width: window.innerWidth, height: window.innerHeight, top: 0, left: 0 }
+}
 
 export function tablePlugin(): Plugin[] {
   return [
@@ -50,6 +62,8 @@ export function tablePlugin(): Plugin[] {
     }),
     tableEditing(),
     tableBarPlugin(),
+    // 官方 columnResizing 只听 mouse；触屏这条自己按 Pointer Events 改列宽。
+    columnResizePointersPlugin(),
   ]
 }
 
@@ -140,12 +154,14 @@ function tableBarPlugin(): Plugin {
         const rowRect = rowEl.getBoundingClientRect()
         const cellRect = cellEl.getBoundingClientRect()
         rowGrip.hidden = false
+        const vp = viewport()
+        const half = isMobile() ? 14 : 8
         // 放手柄槽右侧：左边已经被块手柄占了（表格第一行两个会叠在一起）。
-        rowGrip.style.left = `${Math.min(tableRect.right + 2, window.innerWidth - 18)}px`
-        rowGrip.style.top = `${rowRect.top + rowRect.height / 2 - 8}px`
+        rowGrip.style.left = `${Math.min(tableRect.right + 2, vp.left + vp.width - (isMobile() ? half * 2 : 18))}px`
+        rowGrip.style.top = `${rowRect.top + rowRect.height / 2 - half}px`
         colGrip.hidden = false
-        colGrip.style.left = `${cellRect.left + cellRect.width / 2 - 8}px`
-        colGrip.style.top = `${tableRect.top - 14}px`
+        colGrip.style.left = `${cellRect.left + cellRect.width / 2 - half}px`
+        colGrip.style.top = `${tableRect.top - (isMobile() ? half * 2 - 2 : 14)}px`
       }
 
       const hide = (): void => {
@@ -154,7 +170,7 @@ function tableBarPlugin(): Plugin {
       }
 
       const onHover = (e: MouseEvent): void => {
-        if (drag) return
+        if (drag || isMobile()) return
         const target = e.target
         if (!(target instanceof Element)) return hide()
         if (rowGrip.contains(target) || colGrip.contains(target)) return
@@ -168,6 +184,28 @@ function tableBarPlugin(): Plugin {
           row: rowEl.sectionRowIndex,
           col: cellEl.cellIndex,
         }
+        place()
+      }
+
+      // 手机没有 hover：光标落在表里就常显手柄，跟着选区那格摆；离开表就收起。
+      const placeFromSelection = (): void => {
+        if (drag) return
+        const node = view.domAtPos(view.state.selection.$from.pos).node
+        const el = node instanceof Element ? node : node.parentElement
+        const cellEl = el?.closest('td, th')
+        const rowEl = cellEl?.closest('tr')
+        const table = cellEl?.closest('table')
+        if (
+          !(cellEl instanceof HTMLTableCellElement) ||
+          !(rowEl instanceof HTMLTableRowElement) ||
+          !(table instanceof HTMLTableElement) ||
+          !view.dom.contains(table)
+        ) {
+          hover = null
+          rowGrip.hidden = colGrip.hidden = true
+          return
+        }
+        hover = { table, row: rowEl.sectionRowIndex, col: cellEl.cellIndex }
         place()
       }
 
@@ -186,14 +224,16 @@ function tableBarPlugin(): Plugin {
         return found
       }
 
-      const startDrag = (kind: 'row' | 'col') => (e: MouseEvent): void => {
+      const startDrag = (kind: 'row' | 'col') => (e: PointerEvent): void => {
         if (!hover) return
         const pos = tablePosOf(hover.table)
         if (pos === null) return
         e.preventDefault()
+        const grip = e.currentTarget
+        if (grip instanceof HTMLElement) grip.setPointerCapture(e.pointerId)
         drag = { kind, table: hover.table, from: kind === 'row' ? hover.row : hover.col, pos }
-        const onMove = (ev: MouseEvent): void => {
-          if (!drag) return
+        const onMove = (ev: PointerEvent): void => {
+          if (!drag || ev.pointerId !== e.pointerId) return
           const rect = drag.table.getBoundingClientRect()
           const index = indexAt(drag.table, drag.kind, ev.clientX, ev.clientY)
           if (index === null) {
@@ -217,12 +257,17 @@ function tableBarPlugin(): Plugin {
             line.style.left = `${ev.clientX > cellRect.left + cellRect.width / 2 ? cellRect.right : cellRect.left}px`
           }
         }
-        const onUp = (ev: MouseEvent): void => {
+        const cleanup = (): void => {
+          window.removeEventListener('pointermove', onMove)
+          window.removeEventListener('pointerup', onUp)
+          window.removeEventListener('pointercancel', onCancel)
+        }
+        const onUp = (ev: PointerEvent): void => {
+          if (ev.pointerId !== e.pointerId) return
           const current = drag
           drag = null
           line.hidden = true
-          window.removeEventListener('mousemove', onMove)
-          window.removeEventListener('mouseup', onUp)
+          cleanup()
           if (!current) return
           const index = indexAt(current.table, current.kind, ev.clientX, ev.clientY)
           if (index === null || index === current.from) return
@@ -231,16 +276,26 @@ function tableBarPlugin(): Plugin {
           if (current.kind === 'row') moveTableRow({ from: current.from, to: target, pos: current.pos, select: false })(state, view.dispatch)
           else moveTableColumn({ from: current.from, to: target, pos: current.pos, select: false })(state, view.dispatch)
         }
-        window.addEventListener('mousemove', onMove)
-        window.addEventListener('mouseup', onUp)
+        const onCancel = (ev: PointerEvent): void => {
+          if (ev.pointerId !== e.pointerId) return
+          drag = null
+          line.hidden = true
+          cleanup()
+        }
+        window.addEventListener('pointermove', onMove)
+        window.addEventListener('pointerup', onUp)
+        window.addEventListener('pointercancel', onCancel)
       }
 
-      rowGrip.addEventListener('mousedown', startDrag('row'))
-      colGrip.addEventListener('mousedown', startDrag('col'))
+      rowGrip.addEventListener('pointerdown', startDrag('row'))
+      colGrip.addEventListener('pointerdown', startDrag('col'))
       document.addEventListener('mousemove', onHover, true)
-      document.addEventListener('scroll', hide, true)
+      // 手机靠 sync/placeFromSelection 维持常显，桌面才在滚动时收起 hover 手柄。
+      const onScrollHide = (): void => { if (!isMobile()) hide() }
+      document.addEventListener('scroll', onScrollHide, true)
 
       const sync = (): void => {
+        if (isMobile()) placeFromSelection()
         const at = tablePos(view.state)
         if (at === null) {
           bar.hidden = true
@@ -252,15 +307,17 @@ function tableBarPlugin(): Plugin {
           return
         }
         const rect = dom.getBoundingClientRect()
-        if (rect.bottom < 0 || rect.top > window.innerHeight) {
+        const vp = viewport()
+        const bottom = vp.top + vp.height
+        if (rect.bottom < vp.top || rect.top > bottom) {
           bar.hidden = true
           return
         }
         bar.hidden = false
         const width = bar.getBoundingClientRect().width
-        const top = rect.top >= 30 ? rect.top - 28 : rect.bottom + 4
-        bar.style.left = `${Math.max(4, Math.min(rect.right - width, window.innerWidth - width - 4))}px`
-        bar.style.top = `${Math.max(4, top)}px`
+        const top = rect.top >= vp.top + 30 ? rect.top - 28 : rect.bottom + 4
+        bar.style.left = `${Math.max(vp.left + 4, Math.min(rect.right - width, vp.left + vp.width - width - 4))}px`
+        bar.style.top = `${Math.max(vp.top + 4, top)}px`
       }
       sync()
       const onScroll = (): void => sync()
@@ -272,11 +329,151 @@ function tableBarPlugin(): Plugin {
           window.removeEventListener('scroll', onScroll, true)
           window.removeEventListener('resize', onScroll)
           document.removeEventListener('mousemove', onHover, true)
-          document.removeEventListener('scroll', hide, true)
+          document.removeEventListener('scroll', onScrollHide, true)
           bar.remove()
           rowGrip.remove()
           colGrip.remove()
           line.remove()
+        },
+      }
+    },
+  })
+}
+
+/**
+ * 触屏列宽拖拽。官方 columnResizing 只挂 mouse，这里用 Pointer Events 自己改 colwidth；
+ * 拖动过程只动 <col> 的 DOM 宽度，松手才提交一次事务，避免一步一个历史记录。
+ */
+function columnResizePointersPlugin(): Plugin {
+  return new Plugin({
+    view(view) {
+      let drag: {
+        pointerId: number
+        startX: number
+        startWidth: number
+        startWidthLive: number
+        cell: number
+      } | null = null
+
+      const edgeCell = (x: number, y: number): { cell: number; width: number } | null => {
+        const el = document.elementFromPoint(x, y)
+        if (!(el instanceof Element)) return null
+        const cellEl = el.closest('td, th')
+        if (!(cellEl instanceof HTMLTableCellElement) || !view.dom.contains(cellEl)) return null
+        const rect = cellEl.getBoundingClientRect()
+        if (x < rect.left || rect.right - x > TOUCH_EDGE) return null
+        const found = view.posAtCoords({ left: x, top: y })
+        if (!found) return null
+        const $pos = view.state.doc.resolve(found.pos)
+        for (let d = $pos.depth - 1; d > 0; d--) {
+          if ($pos.node(d).type.name === 'table_row') return { cell: $pos.before(d + 1), width: rect.width }
+        }
+        return null
+      }
+
+      const colIndexOf = (cell: number): { table: PMNode; map: TableMap; start: number; col: number } | null => {
+        const $cell = view.state.doc.resolve(cell)
+        const table = $cell.node(-1)
+        if (table.type !== schema.nodes.table) return null
+        const map = TableMap.get(table)
+        const start = $cell.start(-1)
+        const span = ($cell.nodeAfter?.attrs.colspan as number) ?? 1
+        return { table, map, start, col: map.colCount($cell.pos - start) + span - 1 }
+      }
+
+      // 拖动时只改 colgroup，跟手不写文档。
+      const preview = (cell: number, width: number): void => {
+        const hit = colIndexOf(cell)
+        if (!hit) return
+        const $cell = view.state.doc.resolve(cell)
+        const wrap = view.nodeDOM($cell.before(-1))
+        const tableEl = wrap instanceof HTMLElement ? wrap.querySelector('table') : null
+        const group = tableEl?.querySelector('colgroup')
+        if (!(tableEl instanceof HTMLTableElement) || !group) return
+        let total = 0
+        for (let i = 0; i < hit.map.width; i++) {
+          const colEl = group.children[i]
+          const cur = colEl instanceof HTMLElement ? parseFloat(colEl.style.width) : NaN
+          const base = Number.isFinite(cur) && cur > 0 ? cur : CELL_DEFAULT
+          const w = i === hit.col ? width : base
+          if (colEl instanceof HTMLElement) colEl.style.width = `${w}px`
+          total += w
+        }
+        tableEl.style.width = `${total}px`
+      }
+
+      const commit = (cell: number, width: number): void => {
+        const hit = colIndexOf(cell)
+        if (!hit) return
+        const { table, map, start, col } = hit
+        const tr = view.state.tr
+        for (let row = 0; row < map.height; row++) {
+          const idx = row * map.width + col
+          if (row && map.map[idx] === map.map[idx - map.width]) continue
+          const pos = map.map[idx]
+          const node = table.nodeAt(pos)
+          if (!node) continue
+          const span = node.attrs.colspan as number
+          const index = span === 1 ? 0 : col - map.colCount(pos)
+          const colwidth = (node.attrs.colwidth as number[] | null)?.slice() ?? Array.from({ length: span }, () => CELL_DEFAULT)
+          if (colwidth[index] === width) continue
+          colwidth[index] = width
+          tr.setNodeMarkup(start + pos, undefined, { ...node.attrs, colwidth })
+        }
+        if (tr.docChanged) view.dispatch(tr)
+      }
+
+      const blockScroll = (e: TouchEvent): void => {
+        if (drag) e.preventDefault()
+      }
+      const cleanup = (): void => {
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+        window.removeEventListener('pointercancel', onCancel)
+        window.removeEventListener('touchmove', blockScroll)
+      }
+      const onMove = (e: PointerEvent): void => {
+        if (!drag || e.pointerId !== drag.pointerId) return
+        e.preventDefault()
+        const w = Math.max(CELL_MIN, Math.round(drag.startWidth + e.clientX - drag.startX))
+        preview(drag.cell, w)
+        drag.startWidthLive = w
+      }
+      const onUp = (e: PointerEvent): void => {
+        if (!drag || e.pointerId !== drag.pointerId) return
+        const current = drag
+        drag = null
+        cleanup()
+        commit(current.cell, current.startWidthLive)
+      }
+      const onCancel = (e: PointerEvent): void => {
+        if (!drag || e.pointerId !== drag.pointerId) return
+        drag = null
+        cleanup()
+      }
+      const onDown = (e: PointerEvent): void => {
+        if (e.pointerType === 'mouse' || !e.isPrimary || drag) return
+        const hit = edgeCell(e.clientX, e.clientY)
+        if (!hit) return
+        e.preventDefault()
+        freezeColumnWidths(view, hit.cell)
+        const node = view.state.doc.nodeAt(hit.cell)
+        const span = (node?.attrs.colspan as number) ?? 1
+        const cw = node?.attrs.colwidth as number[] | null
+        const startWidth = cw?.length ? cw[cw.length - 1] : Math.max(CELL_MIN, hit.width / span)
+        drag = { pointerId: e.pointerId, startX: e.clientX, startWidth, startWidthLive: startWidth, cell: hit.cell }
+        view.dom.setPointerCapture(e.pointerId)
+        window.addEventListener('pointermove', onMove)
+        window.addEventListener('pointerup', onUp)
+        window.addEventListener('pointercancel', onCancel)
+        window.addEventListener('touchmove', blockScroll, { passive: false })
+      }
+      view.dom.addEventListener('pointerdown', onDown)
+      return {
+        destroy: () => {
+          view.dom.removeEventListener('pointerdown', onDown)
+          cleanup()
+          drag = null
         },
       }
     },

@@ -6,12 +6,19 @@
  * ★ 编辑态是一个**游离的 `<input>`**（在 contentDOM 之外）：atom 节点自带 `contenteditable=false`，
  *   输入框照样能聚焦。输入框里的按键必须 `stopPropagation`，不然 Backspace 会被 PM 当成删块。
  */
-import { renderToString } from 'katex'
 import type { Node as PMNode } from 'prosemirror-model'
 import type { NodeViewConstructor } from 'prosemirror-view'
 
 import { reportError } from '../../../src/kernel/errors'
 import { asString } from './attrs'
+
+type KatexModule = typeof import('katex')
+
+let katexPromise: Promise<KatexModule> | null = null
+/** 首屏不拉 KaTeX：只有真要画公式时才动态 import。 */
+function loadKatex(): Promise<KatexModule> {
+  return (katexPromise ??= import('katex'))
+}
 
 function makeView(display: boolean): NodeViewConstructor {
   return (node, view, getPos) => {
@@ -24,23 +31,33 @@ function makeView(display: boolean): NodeViewConstructor {
 
     let input: HTMLInputElement | null = null
     let tex = asString(node.attrs.tex)
+    let token = 0
+    let dead = false
 
     const paint = (n: PMNode) => {
       tex = asString(n.attrs.tex)
+      const source = tex
+      const mine = ++token
       rendered.replaceChildren()
-      if (tex.trim() === '') {
+      if (source.trim() === '') {
         dom.dataset.empty = 'true'
         rendered.textContent = display ? '添加公式' : '公式'
         return
       }
       dom.dataset.empty = 'false'
-      try {
-        rendered.innerHTML = renderToString(tex, { displayMode: display, throwOnError: false })
-      } catch (err) {
-        // throwOnError:false 一般不会抛；真抛了也别把整个编辑器带崩（错走唯一出口）。
-        reportError('editor-prosemirror', err)
-        rendered.textContent = tex
-      }
+      // 异步回来前先给纯文本占位：不空白、不崩，也不提前把 KaTeX 拖进首屏。
+      rendered.textContent = source
+      void loadKatex()
+        .then((katex) => {
+          if (dead || mine !== token) return
+          rendered.innerHTML = katex.renderToString(source, { displayMode: display, throwOnError: false })
+        })
+        .catch((err: unknown) => {
+          if (dead || mine !== token) return
+          // throwOnError:false 一般不会抛；真抛了也别把整个编辑器带崩（错走唯一出口）。
+          reportError('editor-prosemirror', err)
+          rendered.textContent = source
+        })
     }
     paint(node)
 
@@ -104,6 +121,10 @@ function makeView(display: boolean): NodeViewConstructor {
       // 输入框 / 渲染出来的 katex 全归我们管，编辑器不用看（atom 没有可编辑内容）。
       ignoreMutation: () => true,
       stopEvent: (e) => e.target instanceof Node && dom.contains(e.target),
+      destroy: () => {
+        dead = true
+        token++
+      },
     }
   }
 }

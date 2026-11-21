@@ -356,3 +356,29 @@ BEGIN
   INSERT INTO sync_log(entity, id, at)
   VALUES('src', NEW.id, CAST(strftime('%s','now') AS INTEGER) * 1000);
 END;
+
+-- 评论也跨端（D-0199）：插入 / 改动都记一条；删除记 'cdel'，手机端据此删本地那条。
+-- 冲突不按 rev 三方合并 —— 评论按 updated_at 最后写入者胜，单人应用够了。
+CREATE TRIGGER IF NOT EXISTS sync_comment_ins AFTER INSERT ON comment
+BEGIN
+  INSERT INTO sync_log(entity, id, at)
+  VALUES('comment', NEW.id, CAST(strftime('%s','now') AS INTEGER) * 1000);
+END;
+
+CREATE TRIGGER IF NOT EXISTS sync_comment_upd AFTER UPDATE ON comment
+WHEN OLD.body IS NOT NEW.body
+  OR OLD.resolved IS NOT NEW.resolved
+  OR OLD.quote IS NOT NEW.quote
+  OR OLD.block_id IS NOT NEW.block_id
+  OR OLD.anchor IS NOT NEW.anchor
+  OR OLD.parent_id IS NOT NEW.parent_id
+BEGIN
+  INSERT INTO sync_log(entity, id, at)
+  VALUES('comment', NEW.id, CAST(strftime('%s','now') AS INTEGER) * 1000);
+END;
+
+CREATE TRIGGER IF NOT EXISTS sync_comment_del AFTER DELETE ON comment
+BEGIN
+  INSERT INTO sync_log(entity, id, at)
+  VALUES('cdel', OLD.id, CAST(strftime('%s','now') AS INTEGER) * 1000);
+END;

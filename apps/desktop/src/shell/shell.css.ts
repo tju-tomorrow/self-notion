@@ -295,6 +295,14 @@ globalStyle('button, [role="button"], .ProseMirror', {
   '@media': { '(max-width: 720px)': { touchAction: 'manipulation' } },
 })
 
+// UA 判成 mobile 但宽度 >720（iPad 竖屏 / 手机横屏）：@media 够不着，靠 <html> 的属性补齐。
+globalStyle(`html[data-mobile="1"] .${iconButton}`, { flex: '0 0 40px', width: 40, height: 40 })
+globalStyle(`html[data-mobile="1"] .${docHeader}`, { paddingLeft: 8, paddingRight: 4, gap: 4, overflowX: 'auto' })
+globalStyle('html[data-mobile="1"], html[data-mobile="1"] body', { WebkitTextSizeAdjust: '100%' })
+globalStyle('html[data-mobile="1"], html[data-mobile="1"] body, html[data-mobile="1"] #root', { height: '100dvh' })
+globalStyle('html[data-mobile="1"] :is(input, textarea, select, [contenteditable="true"], .ProseMirror)', { fontSize: '16px' })
+globalStyle('html[data-mobile="1"] :is(button, [role="button"], .ProseMirror)', { touchAction: 'manipulation' })
+
 /* ─────────────── 网页版：关掉窗口磨砂 / 弹层模糊 ───────────────
  * 桌面端这些 blur 是压在系统 vibrancy 上的；浏览器里没有 vibrancy，同样的
  * `backdrop-filter` 会把底下的正文糊成一团（真机截图）。 */
@@ -310,6 +318,14 @@ globalStyle('html[data-sn-web], html[data-sn-web] body', {
 })
 globalStyle('[data-sn-web] button, [data-sn-web] a, [data-sn-web] [role="button"]', {
   WebkitTapHighlightColor: 'transparent',
+})
+
+// 网页端不拉 803KB 的 Inter：基础字体变量就地指到系统栈（主题那份变量仍在，桌面不受影响）。
+globalStyle('html[data-sn-web]', {
+  vars: {
+    '--affine-font-family': "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif",
+    '--affine-font-code-family': 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+  },
 })
 
 /* ─────────────────────────── 手机底部导航（D-0195） ─────────────────────────── */

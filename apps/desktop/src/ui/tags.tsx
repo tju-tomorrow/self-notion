@@ -65,6 +65,7 @@ export function TagPanel({ ctx, doc }: { ctx: Context; doc: DocMeta }) {
         autoFocus
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing) return // 输入法选词的回车不是落库
           // 回车落库；打逗号也当场收一个 —— 「逗号分隔」这句话得真的成立。
           if (e.key === 'Enter' || e.key === ',') {
             e.preventDefault()

@@ -64,10 +64,13 @@ axum = "0.8"
 axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
 # ring 而不是默认的 aws-lc-rs：后者会把 BoringSSL 源码整个 vendor 进来（同 reqwest 那条注释）。
 rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
-tower-http = { version = "0.6", features = ["fs"] }
+# compression-*：手机通过局域网拿 JS / CSS 时先压一遍（D-0199）。
+tower-http = { version = "0.6", features = ["fs", "compression-gzip", "compression-br"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "time"] }
 rcgen = "0.13"
 rand = "0.8"
+# 配对二维码：设置页把「地址 + 6 位码」画成 QR，手机扫一下就不用敲（D-0199）。
+qrcode = { version = "0.15", default-features = false, features = ["std", "svg"] }
 
 # ── Dock 图标的右键菜单（多窗口）────────────────────────────────────────────
 # 「新窗口」得挂在 Dock 菜单上（Notion 的人就在那儿找），而 AppKit 只认 delegate 的

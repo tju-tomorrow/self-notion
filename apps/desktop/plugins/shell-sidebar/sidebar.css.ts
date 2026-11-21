@@ -372,3 +372,11 @@ export const emptyText = style({
 
 // 搜索行右侧的快捷键。默认不画 —— Notion 主题的附加表把它打开。
 globalStyle('.sn-kbd', { display: 'none' })
+
+// UA 判成 mobile 但宽度 >720（iPad 竖屏 / 手机横屏）：@media 够不着，命中区与常显动作靠属性补齐。
+globalStyle(`html[data-mobile="1"] .${search}`, { height: 40 })
+globalStyle(`html[data-mobile="1"] .${addPage}`, { flex: '0 0 40px', width: 40, height: 40 })
+globalStyle(`html[data-mobile="1"] .${navItem}`, { minHeight: 44 })
+globalStyle(`html[data-mobile="1"] .${act}`, { display: 'flex', flex: '0 0 28px', width: 28, height: 28 })
+globalStyle(`html[data-mobile="1"] .${sectionActions}`, { opacity: 1, pointerEvents: 'auto' })
+globalStyle(`html[data-mobile="1"] .${sectionAdd}`, { width: 28, height: 28 })

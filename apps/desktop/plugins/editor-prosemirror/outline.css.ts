@@ -20,8 +20,6 @@ globalStyle('.sn-outline-toggle', {
   background: 'transparent',
   color: 'var(--sn-muted, #8a8a8a)',
   cursor: 'pointer',
-  // 手机上没有右侧大纲栏，按钮留着只会点了没反应。
-  '@media': { '(max-width: 720px)': { display: 'none' } },
 })
 
 globalStyle('.sn-outline-toggle:hover', {
@@ -30,6 +28,28 @@ globalStyle('.sn-outline-toggle:hover', {
 })
 
 globalStyle('.sn-pane-side[data-on="0"] .sn-outline', { display: 'none' })
+
+/* ── 手机：展开时这一列变底部 sheet（全宽、45dvh、可滚、让开安全区） ── */
+const SHEET = {
+  position: 'fixed',
+  left: 0,
+  right: 0,
+  bottom: 'var(--sn-keyboard-inset, 0px)',
+  width: '100%',
+  height: '45dvh',
+  maxHeight: '45dvh',
+  borderRadius: '16px 16px 0 0',
+  borderLeft: 'none',
+  borderTop: '1px solid var(--sn-line, rgba(0, 0, 0, .1))',
+  overflowY: 'auto',
+  boxShadow: '0 -8px 32px rgba(0, 0, 0, .22)',
+  background: 'var(--affine-background-overlay-panel-color, #ffffff)',
+  color: 'var(--affine-text-primary-color, #333333)',
+  zIndex: 62,
+  paddingBottom: 'env(safe-area-inset-bottom)',
+} as const
+globalStyle('html[data-mobile="1"] .sn-pane-side[data-on="1"]', SHEET)
+globalStyle('html .sn-pane-side[data-on="1"]', { '@media': { '(max-width: 720px)': SHEET } })
 
 // 顶部那 40 是**让开右上角那颗按钮**的位置，不然它会盖住标题行。
 globalStyle('.sn-outline', { padding: '40px 8px 24px' })

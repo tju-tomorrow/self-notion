@@ -18,6 +18,9 @@ const PAGE_WIDTH = 'var(--sn-editor-width, 640px)'
  */
 const COLUMN = `min(${PAGE_WIDTH}, calc(100% - 48px))`
 
+// 手机正文留白：底部多让出一截，免得末尾内容被底部导航 / 「＋」浮标压住。
+const MOBILE_BODY = '36px 0 calc(96px + env(safe-area-inset-bottom))'
+
 /** 文档字体：单篇覆盖 ?? 文档默认（两个值都由 `shell-doc-header/fonts.ts` 写在 `<html>` 上）。
  *  兜底写成跟主题同一个字体栈 —— 那个插件被停掉时变量为空，整条声明会废掉。 */
 const DOC_FONT =
@@ -87,8 +90,9 @@ globalStyle('.sn-pane-body', {
   minHeight: 0,
   overflow: 'auto',
   padding: '60px 0 24px',
-  '@media': { '(max-width: 720px)': { padding: '36px 0 calc(16px + env(safe-area-inset-bottom))' } },
+  '@media': { '(max-width: 720px)': { padding: MOBILE_BODY } },
 })
+globalStyle('html[data-mobile="1"] .sn-pane-body', { padding: MOBILE_BODY })
 
 // ── 正文纸面：底色 + 磨砂（D-0074） ──
 // `--sn-paper` / `--sn-paper-alpha` 由 `appearance` 插件写在 `<html>` 上（`paper.ts`），这里只管**消费**。
@@ -141,8 +145,7 @@ globalStyle('.sn-pane-side[data-on="1"]', {
   width: 240,
   overflowY: 'auto',
   borderLeft: '1px solid var(--sn-line, rgba(0, 0, 0, .08))',
-  // 手机上正文只有一栏宽，240px 的大纲会把它挤没。要看大纲就横屏 / 桌面。
-  '@media': { '(max-width: 720px)': { display: 'none' } },
+  // 手机上这一列改由 outline.css.ts 变成底部 sheet，桌面这一列照旧。
 })
 
 globalStyle('.sn-pane-empty', {

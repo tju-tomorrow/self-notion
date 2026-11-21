@@ -1,4 +1,4 @@
-import { style } from '@vanilla-extract/css'
+import { globalStyle, style } from '@vanilla-extract/css'
 
 export const wrap = style({
   display: 'flex',
@@ -64,3 +64,35 @@ export const dot = style({
 })
 
 export const dotOff = style({ background: '#bbb' })
+
+/** 二维码：白底圆角容器，旁边是配对网址与提示。 */
+export const pairBlock = style({
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 16,
+  flexWrap: 'wrap',
+})
+
+export const qr = style({
+  flex: '0 0 auto',
+  padding: 10,
+  background: '#fff',
+  borderRadius: 12,
+  lineHeight: 0,
+})
+
+// 注入的 svg 不认外部 class，按元素量尺寸。
+globalStyle(`.${qr} svg`, {
+  display: 'block',
+  width: 160,
+  height: 160,
+  maxWidth: '100%',
+})
+
+export const pairInfo = style({
+  flex: 1,
+  minWidth: 200,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+})

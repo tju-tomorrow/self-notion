@@ -9,12 +9,18 @@
  */
 import { useSyncExternalStore } from 'react'
 
+import type { RagScope, RagTrace } from './rag'
+
 /** 页面上的一行。`note` 是「调用了哪个工具」这类过程记录，不是对话。 */
 export interface Line {
   role: 'user' | 'ai' | 'note'
   text: string
   /** 只有 `note` 那一行有：界面上要转圈、要计时、要合堆，光有工具名不够。 */
   tool?: ToolMark
+  /** 用户那一行圈定的范围（D-0200）—— 发完留着，历史里也看得见当时圈的是哪。 */
+  scope?: RagScope
+  /** 检索那一行的结果：过程、预算、片段和来源卡都从这里画。 */
+  rag?: RagTrace
 }
 
 /** 一次工具调用的现场。跑完的留着耗时 —— Claude Code 那样在名字后面挂个 `(1.2s)`。 */
@@ -160,6 +166,24 @@ export function finishTool(id: string, failed: boolean): void {
       const tool = lines[at]?.tool
       if (tool) lines[at] = { ...lines[at], tool: { ...tool, ms: Date.now() - tool.start, failed } }
       return { ...sess, lines }
+    }),
+  })
+}
+
+/** 检索跑完：把结果挂到那条 `rag_search` 行上，并收掉计时。 */
+export function finishRag(id: string, trace: RagTrace): void {
+  const { currentId, sessions } = state
+  setAiState({
+    sessions: sessions.map((sess) => {
+      if (sess.id !== currentId) return sess
+      return {
+        ...sess,
+        lines: sess.lines.map((line) =>
+          line.tool?.id === id && line.tool.ms === null
+            ? { ...line, tool: { ...line.tool, ms: Date.now() - line.tool.start }, rag: trace }
+            : line,
+        ),
+      }
     }),
   })
 }

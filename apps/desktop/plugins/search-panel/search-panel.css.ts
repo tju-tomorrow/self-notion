@@ -22,6 +22,7 @@ export const overlay = style([
     justifyContent: 'center',
     padding: '9vh 24px 24px',
     '@media': { '(max-width: 720px)': { padding: 0, alignItems: 'stretch' } },
+    selectors: { 'html[data-mobile="1"] &': { padding: 0, alignItems: 'stretch' } },
   },
 ])
 
@@ -40,6 +41,9 @@ export const panel = style([
     boxShadow: 'var(--affine-shadow-2)',
     '@media': {
       '(max-width: 720px)': { width: '100vw', height: '100dvh', borderRadius: 0 },
+    },
+    selectors: {
+      'html[data-mobile="1"] &': { width: '100vw', height: '100dvh', borderRadius: 0 },
     },
   },
 ])
@@ -66,6 +70,27 @@ export const input = style({
   fontSize: 16,
   color: 'var(--affine-v2-text-primary)',
   selectors: { '&::placeholder': { color: 'var(--affine-v2-text-tertiary)' } },
+})
+
+/** 手机全屏时右上角那颗关闭 —— 软键盘上够不着 ⌘K / Esc。 */
+export const closeBtn = style({
+  flex: '0 0 auto',
+  width: 36,
+  height: 36,
+  display: 'none',
+  alignItems: 'center',
+  justifyContent: 'center',
+  border: 'none',
+  borderRadius: 6,
+  background: 'transparent',
+  color: 'var(--affine-v2-icon-secondary)',
+  cursor: 'pointer',
+  WebkitTapHighlightColor: 'transparent',
+  '@media': { '(max-width: 720px)': { display: 'flex' } },
+  selectors: {
+    '&:hover': { background: 'var(--affine-v2-layer-background-hoverOverlay)' },
+    'html[data-mobile="1"] &': { display: 'flex' },
+  },
 })
 
 /** 输入行与下面两栏之间的分界；两栏自己排（`body`）。 */
@@ -97,6 +122,7 @@ export const preview = style({
   background: 'var(--affine-v2-layer-background-secondary)',
   // 手机上列表要被预览挤掉一半 —— 直接不显示预览，点结果就打开。
   '@media': { '(max-width: 720px)': { display: 'none' } },
+  selectors: { 'html[data-mobile="1"] &': { display: 'none' } },
 })
 
 export const previewTitle = style({
@@ -237,4 +263,5 @@ export const footer = style({
   color: 'var(--affine-v2-text-tertiary)',
   borderTop: '1px solid var(--affine-v2-layer-insideBorder-border)',
   '@media': { '(max-width: 720px)': { display: 'none' } },
+  selectors: { 'html[data-mobile="1"] &': { display: 'none' } },
 })

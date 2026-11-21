@@ -16,14 +16,23 @@ import { createPortal } from 'react-dom'
 import type { Context } from 'cordis'
 import { COMMENT_LAYOUT, type CommentLayout } from '../../src/kernel/contract'
 import { reportError } from '../../src/kernel/errors'
-import { pendingTarget } from './actions'
+import { closePanel, pendingTarget } from './actions'
 import { DRAFT_ID, DraftCard, PAGE_ID, ThreadCard, type Refs } from './cards'
 import { CARD_W, GAP } from './size'
 import { groupThreads, useCommentState } from './state'
 import * as s from './comment.css'
 
+/** 外壳把移动判定写在 html / [data-sn-shell] 上；UA 命中的 iPad 也算手机。 */
+function onMobile(): boolean {
+  return (
+    document.documentElement.dataset.mobile === '1' ||
+    document.querySelector('[data-sn-shell][data-mobile="1"]') !== null
+  )
+}
+
 export function CommentLayer({ ctx }: { ctx: Context }) {
   const st = useCommentState()
+  const mobile = onMobile()
   const refs: Refs = { cards: useRef(new Map()), leads: useRef(new Map()) }
   const boxRef = useRef<HTMLDivElement>(null)
   const [layout, setLayout] = useState<CommentLayout | null>(null)
@@ -158,9 +167,24 @@ export function CommentLayer({ ctx }: { ctx: Context }) {
       host,
     )
   }
-  return (
-    <aside className={s.dock}>
-      <div className={s.stack}>{cards}</div>
+  const dockEl = (
+    <aside className={mobile ? `${s.dock} ${s.dockSheetOn}` : s.dock}>
+      {mobile ? (
+        <div className={s.sheetBar}>
+          <span className={s.sheetGrip} aria-hidden="true" />
+          <button
+            type="button"
+            className={s.sheetClose}
+            aria-label={ctx.i18n.t('comment.collapse')}
+            onClick={closePanel}
+          >
+            {ctx.i18n.t('comment.collapse')}
+          </button>
+        </div>
+      ) : null}
+      <div className={mobile ? `${s.stack} ${s.stackSheetOn}` : s.stack}>{cards}</div>
     </aside>
   )
+  // 挂到 body 才压得住底部导航与 FAB：外壳那几层 fadeIn 会自成层叠上下文。
+  return mobile ? createPortal(dockEl, document.body) : dockEl
 }

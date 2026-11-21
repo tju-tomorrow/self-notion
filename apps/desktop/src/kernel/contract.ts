@@ -95,6 +95,8 @@ export interface EditorService {
    * ★ 判断「有没有落过光标」归编辑器：它才知道这篇是不是刚打开、选区还在文首。
    */
   insertText(id: string, text: string, at?: 'caret' | 'end'): boolean
+  /** 打开这篇后，滚到含 `anchor` 的第一个块并闪一下（D-0200）。视图还没挂就等一会儿。 */
+  revealText(id: string, anchor: string): void
   /** 编辑器的 schema（ProseMirror `Schema` 对象，只读）。
    *
    *  ★ 2026-10-08 换基座（D-0129）：这条**取代**了原来的 `defineBlock` + `blocks()`。
@@ -214,6 +216,21 @@ export interface CommentState {
   resolved: boolean
   /** 块级评论锚在哪个块。卡片要贴到那个块旁边，点的时候也滚到那儿。行内 / 页面级为空。 */
   blockId?: string | null
+}
+
+/** 网页端同步引擎的快照（D-0199）。手机 UI 只看这一个形状；桌面端没有这个引擎。 */
+export interface SyncStatus {
+  online: boolean
+  state: 'idle' | 'syncing' | 'error' | 'unauthorized'
+  /** 上次成功一轮的时间；从没成功过 = null。 */
+  lastSyncAt: number | null
+  /** 待推送：脏文档 + 脏评论 + 还没上传的图片。 */
+  pending: number
+  /** 本次会话里出现过的冲突副本数。 */
+  conflicts: number
+  /** 图片预取进度。 */
+  blobs: { done: number; total: number; active: boolean }
+  error?: string
 }
 
 /** 唯一的对外通道：桥到 Tauri / Rust。类型源是本文件（D-0049 推翻了 tauri-specta）。 */
@@ -840,6 +857,8 @@ export interface CommentService {
   /** 选中一段**文字** → 就地建一条评论（D-0079）。
    *  工具栏那颗「评论」走这儿 —— 按钮归编辑器画（跟 B / I / U 同一条），办事归评论插件。 */
   onSelection(at: { blockId: string; index: number; length: number; quote: string }): void
+  /** 选中**一整块**（拖手柄 / 块选区）→ 块级评论。代码块这类整块评的走这儿。 */
+  onBlock(at: { blockId: string; quote: string }): void
 }
 
 /** 软依赖：`ctx.get('version')`。文档页的 ⋯ 菜单里那个「历史版本」入口用它 ——
@@ -891,6 +910,59 @@ export interface DocWriteService {
   create(title: string, markdown: string, groupId: string): Promise<AgentWriteResult>
   append(id: string, markdown: string, groupId: string): Promise<AgentWriteResult>
   replaceAll(id: string, markdown: string, groupId: string, title?: string): Promise<AgentWriteResult>
+}
+
+/* ── 内置助手的范围检索（D-0200，docs/ai-rag.md） ───────────────────────── */
+
+/** `@` 圈定的范围：一个 /tree 目录，或一篇笔记。 */
+export type RagScope =
+  | { kind: 'dir'; path: string; title: string }
+  | { kind: 'doc'; id: string; path: string; title: string }
+
+/** `rag:scopes` 的一行。目录的 `count` 是范围内正文篇数（递归）。 */
+export interface RagScopeItem {
+  kind: 'dir' | 'doc'
+  path: string
+  id?: string
+  title: string
+  count: number
+}
+
+/** 预检索选中的一段，`n` 就是正文里的 `[n]`。 */
+export interface RagChunk {
+  n: number
+  docId: string
+  title: string
+  path: string
+  heading: string | null
+  text: string
+  /** 回原文定位用的文字前缀（≤32 字） */
+  anchor: string
+  score: number
+  reason: 'title' | 'heading' | 'body' | 'summary' | 'fallback'
+}
+
+export interface RagUsedDoc {
+  id: string
+  title: string
+  path: string
+  chunks: number
+}
+
+/** `rag:search` 的返回；`empty` 是三种空态，不是错误。 */
+export interface RagTrace {
+  scope: RagScope
+  query: string
+  docsTotal: number
+  docsScanned: number
+  docsHit: number
+  docsSkipped: number
+  chunksScored: number
+  chars: number
+  tookMs: number
+  chunks: RagChunk[]
+  usedDocs: RagUsedDoc[]
+  empty?: 'no_docs' | 'no_projection' | 'no_match'
 }
 
 /** 消息里附带的一张图。`data` 是裸 base64（不带 `data:` 前缀），Rust 那边拼成 data URL。 */

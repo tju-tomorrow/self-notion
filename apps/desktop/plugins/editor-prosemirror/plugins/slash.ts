@@ -20,19 +20,18 @@ import type { EditorView } from 'prosemirror-view'
 
 import { isFileId } from '../../../src/kernel/contract'
 import { reportError } from '../../../src/kernel/errors'
-import { firstTextPos } from '../commands/block'
+import { blockAt, firstTextPos } from '../commands/block'
 import { allDocs, createDoc, openDoc } from '../doc-meta'
 import { newSrc } from '../sync'
+import { bodyEnd } from './trailing-block'
+import { insertImageAt } from './image-insert'
 import { emptyTableRows } from './table'
 import './slash.css'
 import './template-picker.css'
 
 /* ─────────────────────────────── 菜单项 ─────────────────────────────── */
 
-/**
- * 组标题保持英文（D-0124），顺序就是渲染顺序。
- * Media 现在空着 —— 图片要 blob 管线（P2）；**空组不画表头**，哪天加一条进来自然就出现。
- */
+/** 组标题保持英文（D-0124），顺序就是渲染顺序。 */
 const GROUPS = [
   { id: 'basic', label: 'Basic' },
   { id: 'media', label: 'Media' },
@@ -62,6 +61,8 @@ interface SlashItem {
   readonly sync?: true
   /** 「模板按钮」：先插一个空节点，再弹选文档列表，选中后回填 `docId` + `label`（同一套两拍）。 */
   readonly template?: true
+  /** 「图片」：删掉 `/query` 后把当前块换成图片占位，再走 `insertImageAt` 弹文件选择。 */
+  readonly image?: true
 }
 
 /** 能插的块就是 schema `blockContent` 那一组里能自己站住的那些（架构 §2.2）。 */
@@ -74,6 +75,15 @@ const ITEMS: readonly SlashItem[] = [
     block: { type: 'subpage' },
     page: true,
     alias: ['子页面', '页面', '子文档', '新建页面', 'ziyemian', 'yemian', 'ziwendang', 'page', 'subpage'],
+  },
+  {
+    name: 'Image',
+    group: 'media',
+    hint: 'Picture',
+    icon: '▧',
+    block: { type: 'image' },
+    image: true,
+    alias: ['图片', '图像', '照片', '插入图片', 'tupian', 'tuxiang', 'zhaopian', 'image', 'picture', 'photo'],
   },
   {
     name: 'Text',
@@ -416,6 +426,92 @@ function runItem(view: EditorView, match: SlashMatch, item: SlashItem): void {
   if (item.template && hostId) openTemplatePicker(view, hostId)
 }
 
+/** 图片：先删掉 `/query`，再把当前块换成图片占位并弹文件选择。 */
+function runImage(view: EditorView, match: SlashMatch): void {
+  const { state } = view
+  const $head = state.selection.$head
+  if ($head.depth < 2) return
+  const containerId = String($head.node($head.depth - 1).attrs.id ?? '')
+  view.dispatch(state.tr.delete(match.from, match.to))
+  if (!containerId) return
+  void insertImageAt(view, { fillBlockId: containerId })
+}
+
+/* ───────────── 触屏 FAB 复用（mobile-insert.ts 用） ───────────── */
+
+const QUICK: ReadonlyArray<{ id: string; label: string; name: string }> = [
+  { id: 'text', label: '文本', name: 'Text' },
+  { id: 'heading', label: '标题', name: 'Heading 2' },
+  { id: 'todo', label: '待办', name: 'To-do List' },
+  { id: 'list', label: '列表', name: 'Bulleted List' },
+  { id: 'quote', label: '引用', name: 'Quote' },
+  { id: 'code', label: '代码', name: 'Code Block' },
+  { id: 'table', label: '表格', name: 'Table' },
+  { id: 'image', label: '图片', name: 'Image' },
+  { id: 'divider', label: '分割线', name: 'Divider' },
+]
+
+export interface QuickItem {
+  readonly id: string
+  readonly label: string
+  readonly icon: string
+}
+
+/** FAB 的九宫格沿用 slash 的条目定义（图标 / 块类型都从 ITEMS 来）。 */
+export function quickInsertItems(): QuickItem[] {
+  return QUICK.map(({ id, label, name }) => ({
+    id,
+    label,
+    icon: ITEMS.find((item) => item.name === name)?.icon ?? '▫',
+  }))
+}
+
+/** 在当前块后面插一个新块（不经过斜杠触发符）。 */
+export function insertItemAt(view: EditorView, id: string): void {
+  const q = QUICK.find((x) => x.id === id)
+  if (!q) return
+  const item = ITEMS.find((i) => i.name === q.name)
+  if (!item) return
+  if (item.image) {
+    void insertImageAt(view)
+    return
+  }
+  insertFreshBlock(view, item)
+}
+
+function insertFreshBlock(view: EditorView, item: SlashItem): void {
+  const { state } = view
+  const { schema } = state
+  const type: NodeType | undefined = schema.nodes[item.block.type]
+  const container = schema.nodes.blockContainer
+  const paragraph = schema.nodes.paragraph
+  if (!type || !container || !paragraph) return
+  const block = type.createAndFill(item.block.attrs, item.block.content?.())
+  if (!block) return
+  const tail = block.isTextblock ? null : paragraph.createAndFill()
+  if (!block.isTextblock && !tail) return
+
+  const ref = blockAt(state.selection.$from)
+  const at = ref ? ref.pos + ref.node.nodeSize : bodyEnd(state.doc)
+  const hostId = blockId()
+  const fresh = container.create({ id: hostId }, block)
+  const tr = state.tr.insert(at, fresh)
+  let tailStart: number | null = null
+  if (tail) {
+    tailStart = at + fresh.nodeSize
+    tr.insert(tailStart, container.create({ id: blockId() }, tail))
+  }
+  const inner = firstTextPos(tr.doc, at, at + fresh.nodeSize)
+  const cursor = inner ?? (tailStart !== null ? tailStart + 2 : at + 1)
+  tr.setSelection(TextSelection.near(tr.doc.resolve(cursor), 1))
+  tr.scrollIntoView()
+  view.dispatch(tr)
+  view.focus()
+  if (item.page && hostId) void fillSubpage(view, hostId)
+  if (item.sync && hostId) void fillSync(view, hostId)
+  if (item.template && hostId) openTemplatePicker(view, hostId)
+}
+
 /** 本页的 docId —— 编辑区（含祖先）上挂的 `data-doc-id`（`editor.ts` 挂的）。拿不到就空串。 */
 function currentDocId(view: EditorView): string {
   let el: HTMLElement | null = view.dom
@@ -702,6 +798,12 @@ class SlashMenu {
     // 菜单是 fixed 的：栏里一滚它就跟不上光标了 —— 滚的时候重新算（捕获，滚动事件不冒泡）。
     this.listen(document, 'scroll', () => this.reposition(), true)
     this.listen(window, 'resize', () => this.reposition())
+    // 软键盘弹起缩小的是可视视口，不是布局视口；菜单得跟着它重算才不被键盘盖住。
+    const vv = window.visualViewport
+    if (vv) {
+      this.listen(vv, 'resize', () => this.reposition())
+      this.listen(vv, 'scroll', () => this.reposition())
+    }
   }
 
   private listen(target: EventTarget, type: string, fn: EventListener, capture = false): void {
@@ -789,12 +891,17 @@ class SlashMenu {
     if (!this.shown || !this.match) return
     const at = this.view.coordsAtPos(this.match.from)
     const box = this.el.getBoundingClientRect()
-    // 右边/下边顶出去就往回收，下面放不下就翻到光标上面。
-    const left = Math.max(8, Math.min(at.left, window.innerWidth - box.width - 8))
+    // 手机上夹进 visualViewport：键盘弹起后可视区比 window.innerHeight 矮，用后者会把菜单摆到键盘后面。
+    const vv = document.documentElement.dataset.mobile === '1' ? window.visualViewport : null
+    const left = vv ? vv.offsetLeft : 0
+    const top = vv ? vv.offsetTop : 0
+    const right = left + (vv ? vv.width : window.innerWidth)
+    const bottom = top + (vv ? vv.height : window.innerHeight)
+    const x = Math.max(left + 8, Math.min(at.left, right - box.width - 8))
     const below = at.bottom + 4
-    const top = below + box.height > window.innerHeight - 8 ? at.top - box.height - 4 : below
-    this.el.style.left = `${left}px`
-    this.el.style.top = `${Math.max(8, top)}px`
+    const y = below + box.height > bottom - 8 ? at.top - box.height - 4 : below
+    this.el.style.left = `${x}px`
+    this.el.style.top = `${Math.max(top + 8, y)}px`
   }
 
   hide(): void {
@@ -845,7 +952,8 @@ class SlashMenu {
     const match = this.match
     this.hide()
     rememberRecent(item.name)
-    runItem(this.view, match, item)
+    if (item.image) runImage(this.view, match)
+    else runItem(this.view, match, item)
   }
 
   destroy(): void {

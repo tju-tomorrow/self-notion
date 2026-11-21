@@ -142,6 +142,9 @@ export function selectBlockRange(view: EditorView, fromBlockId: string, toBlockI
  *   250 是手感值：短于它 = 那只是一次点击。
  */
 const HOLD_MS = 250
+/** 触屏起手拖选的长按与容忍位移；超了就判定为滚动。 */
+const TOUCH_HOLD_MS = 400
+const TOUCH_SLOP = 8
 
 /** 指针纵坐标底下**最近**的那一块的 id。留白里横向没有意义，只按纵向距离取。 */
 function blockIdAt(host: HTMLElement, y: number): string | null {
@@ -196,6 +199,8 @@ export function blankDragPlugin(): Plugin {
       let hold = 0
       let anchorId: string | null = null
       let lastId: string | null = null
+      /** 触屏会补发兼容鼠标事件，记一下时刻别让它二次触发鼠标那套。 */
+      let lastTouchAt = 0
 
       /** 长按够了 → 起手：先把这一块选上（看得见「起手了」，之后挪到哪扩到哪）。 */
       const begin = (): void => {
@@ -230,6 +235,7 @@ export function blankDragPlugin(): Plugin {
 
       const onDown = (e: MouseEvent): void => {
         if (e.button !== 0) return
+        if (Date.now() - lastTouchAt < 700) return
         const target = e.target
         if (!(target instanceof Element)) return
         // ★ 落点是**控件**（标题那个 input、封面按钮、链接）就不是「空白拖选」。
@@ -247,11 +253,100 @@ export function blankDragPlugin(): Plugin {
         window.addEventListener('mouseup', onUp)
       }
 
+      /* ── 触屏：空白处长按起手拖选。等待期间不挡滚动，长按成立才认领手势。 ── */
+      let tArmed: string | null = null
+      let tHold = 0
+      let tAnchor: string | null = null
+      let tLast: string | null = null
+      let tPointer = -1
+      let tStartX = 0
+      let tStartY = 0
+      let tDrag = false
+      let prevTouchAction = ''
+
+      const beginTouch = (): void => {
+        tHold = 0
+        if (tArmed === null || tDrag) return
+        tDrag = true
+        tAnchor = tArmed
+        tLast = tArmed
+        suppress = true
+        host.style.touchAction = 'none'
+        selectBlockRange(view, tArmed)
+      }
+
+      const endTouch = (): void => {
+        if (tHold !== 0) clearTimeout(tHold)
+        tHold = 0
+        tArmed = null
+        tAnchor = null
+        tLast = null
+        tDrag = false
+        if (tPointer !== -1 && host.hasPointerCapture(tPointer)) host.releasePointerCapture(tPointer)
+        tPointer = -1
+        host.style.touchAction = prevTouchAction
+        window.removeEventListener('pointermove', onTouchMove)
+        window.removeEventListener('pointerup', onTouchUp)
+        window.removeEventListener('pointercancel', onTouchCancel)
+        window.removeEventListener('touchmove', onDragTouchMove)
+        window.setTimeout(() => { suppress = false }, 100)
+      }
+
+      // 手指一挪就判滚动：把长按撤了，别压住页面自己的滚动。
+      const onTouchMove = (e: PointerEvent): void => {
+        if (e.pointerId !== tPointer) return
+        if (!tDrag) {
+          if (Math.hypot(e.clientX - tStartX, e.clientY - tStartY) > TOUCH_SLOP) endTouch()
+          return
+        }
+        const id = blockIdAt(host, e.clientY)
+        if (id === null || id === tLast || tAnchor === null) return
+        tLast = id
+        selectBlockRange(view, tAnchor, id)
+      }
+
+      // 拖选期间用非被动 touchmove 压住滚动（touch-action 在手势中途改不一定被采纳）。
+      const onDragTouchMove = (e: TouchEvent): void => {
+        if (tDrag) e.preventDefault()
+      }
+
+      const onTouchUp = (e: PointerEvent): void => {
+        if (e.pointerId === tPointer) endTouch()
+      }
+      const onTouchCancel = (e: PointerEvent): void => {
+        if (e.pointerId === tPointer) endTouch()
+      }
+
+      const onTouchDown = (e: PointerEvent): void => {
+        if (e.pointerType === 'mouse' || !e.isPrimary || tPointer !== -1) return
+        const target = e.target
+        if (!(target instanceof Element)) return
+        if (target.closest('.sn-block, input, textarea, select, button, a') !== null) return
+        const id = blockIdAt(host, e.clientY)
+        if (id === null) return
+        lastTouchAt = Date.now()
+        tArmed = id
+        tPointer = e.pointerId
+        tStartX = e.clientX
+        tStartY = e.clientY
+        tDrag = false
+        prevTouchAction = host.style.touchAction
+        host.setPointerCapture(e.pointerId)
+        tHold = window.setTimeout(beginTouch, TOUCH_HOLD_MS)
+        window.addEventListener('pointermove', onTouchMove)
+        window.addEventListener('pointerup', onTouchUp)
+        window.addEventListener('pointercancel', onTouchCancel)
+        window.addEventListener('touchmove', onDragTouchMove, { passive: false })
+      }
+
       host.addEventListener('mousedown', onDown)
+      host.addEventListener('pointerdown', onTouchDown)
       return {
         destroy: () => {
           host.removeEventListener('mousedown', onDown)
+          host.removeEventListener('pointerdown', onTouchDown)
           onUp()
+          if (tPointer !== -1) endTouch()
         },
       }
     },

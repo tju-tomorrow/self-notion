@@ -2,7 +2,8 @@
  * 选中文字时浮出的行内格式工具栏（P1-6）：B / I / U / S / 行内代码 / 链接 / 高亮 / 字色 / 评论。
  *
  * 定位自己算（`view.coordsAtPos`），不引第三方浮层库（CONVENTIONS §6.7）。
- * 没有文字选区就整体藏起来 —— 选块（图片那种 NodeSelection）不走这条。
+ * 没有选区就整体藏起来。整块选中（图片 / 代码块 / 表格）也出这条 —— 格式按钮对块没用，
+ * 但「评论」那颗走块级锚点（`blockAnchor`）。
  * 格子多选（CellSelection）要出：加粗和字色得能刷到选中的那些格。
  * 选中文字时还可以「转换」成有序列表 / 标题这些块（Notion 的 Turn into），字留着。样式在同目录的 `.css.ts`。
  */
@@ -13,7 +14,7 @@ import type { EditorState } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
 import { CellSelection } from 'prosemirror-tables'
 
-import { selectionAnchor } from '../comment'
+import { blockAnchor, selectionAnchor } from '../comment'
 import { newBlockId } from '../commands'
 import { BlockSelection } from './block-selection'
 import { schema } from '../schema'
@@ -22,6 +23,14 @@ import './inline-toolbar.css'
 /** 工具条离选区多远；上方留不够这么多就翻到选区下面去。 */
 const GAP = 8
 const ROOM = 52
+
+/** 浮层定位优先取可视视口：软键盘弹起时 innerHeight 不缩，只有它缩。 */
+function viewport(): { width: number; height: number; top: number; left: number } {
+  const v = window.visualViewport
+  return v
+    ? { width: v.width, height: v.height, top: v.offsetTop, left: v.offsetLeft }
+    : { width: window.innerWidth, height: window.innerHeight, top: 0, left: 0 }
+}
 
 type MarkName = 'bold' | 'italic' | 'underline' | 'strike' | 'code'
 export type ColorKind = 'highlight' | 'textColor'
@@ -106,6 +115,7 @@ type CommentAnchor = { blockId: string; index: number; length: number; quote: st
 export function inlineToolbarPlugin(
   onComment?: (at: CommentAnchor) => void,
   onRead?: (range: { from: number; to: number }) => void,
+  onBlock?: (at: { blockId: string; quote: string }) => void,
 ): Plugin {
   let bar: ReturnType<typeof createBar> | null = null
   return new Plugin({
@@ -133,7 +143,7 @@ export function inlineToolbarPlugin(
       },
     },
     view: (view) => {
-      bar = createBar(view, onComment, onRead)
+      bar = createBar(view, onComment, onRead, onBlock)
       const created = bar
       document.body.appendChild(created.el)
       created.sync()
@@ -146,14 +156,19 @@ function createBar(
   view: EditorView,
   onComment?: (at: CommentAnchor) => void,
   onRead?: (range: { from: number; to: number }) => void,
+  onBlock?: (at: { blockId: string; quote: string }) => void,
 ) {
   const root = document.createElement('div')
   root.className = 'sn-itb'
+  // 按钮装进可横滚的 strip；色板/菜单/链接框留在 root，免得被 overflow 裁掉。
+  const strip = document.createElement('div')
+  strip.className = 'sn-itb-strip'
+  root.appendChild(strip)
 
   const turnBtn = mkButton('转换<span class="sn-itb-chev">▾</span>', 'sn-itb-turn')
   turnBtn.title = '转换成'
   const turnSep = mkSeparator()
-  root.append(turnBtn, turnSep)
+  strip.append(turnBtn, turnSep)
 
   const markBtns = new Map<MarkName, HTMLButtonElement>()
   for (const { name, text, cls } of TEXT_MARKS) {
@@ -163,11 +178,11 @@ function createBar(
       toggleMark(schema.marks[name])(view.state, view.dispatch, view)
       after()
     })
-    root.appendChild(btn)
+    strip.appendChild(btn)
     markBtns.set(name, btn)
   }
 
-  root.appendChild(mkSeparator())
+  strip.appendChild(mkSeparator())
 
   const linkBtn = mkButton(LINK_ICON, 'sn-itb-icon')
   const hlBtn = mkButton(HL_ICON, 'sn-itb-icon sn-itb-color')
@@ -178,10 +193,10 @@ function createBar(
   const colorBar = document.createElement('span')
   colorBar.className = 'sn-itb-bar'
   colorBtn.appendChild(colorBar)
-  root.append(linkBtn, hlBtn, colorBtn)
+  strip.append(linkBtn, hlBtn, colorBtn)
 
   if (onRead) {
-    root.appendChild(mkSeparator())
+    strip.appendChild(mkSeparator())
     const readBtn = mkButton('读', '')
     readBtn.title = '朗读选中'
     readBtn.addEventListener('click', () => {
@@ -190,11 +205,11 @@ function createBar(
       closePopovers()
       onRead({ from, to })
     })
-    root.appendChild(readBtn)
+    strip.appendChild(readBtn)
   }
 
   // 锚点：选中一段打个书签，右侧「锚点」列表一键跳回来。
-  root.appendChild(mkSeparator())
+  strip.appendChild(mkSeparator())
   const anchorBtn = mkButton(ANCHOR_ICON, 'sn-itb-icon')
   anchorBtn.title = '锚点'
   anchorBtn.addEventListener('click', () => {
@@ -204,21 +219,29 @@ function createBar(
     toggleAnchor(view, from, to)
     after()
   })
-  root.appendChild(anchorBtn)
+  strip.appendChild(anchorBtn)
 
-  // 评论：装了回调才在（协调者没接线时点不动，不如不显示）。整条工具条本来就只在有文字选区时出现。
-  if (onComment) {
-    root.appendChild(mkSeparator())
+  // 评论：装了回调才在。文字选区评一段；整块选区（代码块 / 图片 / 表格）评整块。
+  if (onComment || onBlock) {
+    strip.appendChild(mkSeparator())
     const commentBtn = mkButton(COMMENT_ICON, 'sn-itb-icon')
     commentBtn.title = '评论'
     commentBtn.addEventListener('click', () => {
-      // 现量当时的选区（跟 `comment.ts` 的 `textSelection()` 同一套换算）—— 量不出来就什么都不做。
+      // 现量当时的选区（跟 `comment.ts` 的 `textSelection()` 同一套换算）。
       const at = selectionAnchor(view.state)
-      if (!at) return
+      if (at) {
+        if (!onComment) return
+        closePopovers()
+        onComment(at)
+        return
+      }
+      // 块选区没有文字那一套位置，交给块级评论。
+      const block = onBlock ? blockAnchor(view.state) : null
+      if (!block) return
       closePopovers()
-      onComment(at)
+      onBlock?.(block)
     })
-    root.appendChild(commentBtn)
+    strip.appendChild(commentBtn)
   }
 
   const palette = document.createElement('div')
@@ -254,8 +277,15 @@ function createBar(
   root.appendChild(linkRow)
 
   // 按在工具条上不能把正文的选区弄没了（选区一没，这一条下一帧就消失）。
+  // 触屏只有 pointerdown 会先到，光拦 mousedown 不够；鼠标那条一字不动。
   root.addEventListener('mousedown', (e) => {
     if (e.target !== input) e.preventDefault()
+  })
+  root.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse') return
+    // strip 空白处留给横滚手势，只在按钮上压默认动作保选区。
+    if (e.target === input || e.target === strip) return
+    e.preventDefault()
   })
 
   let open: 'link' | 'turn' | ColorKind | null = null
@@ -350,20 +380,28 @@ function createBar(
     if (!box) return hide()
 
     root.classList.add('sn-itb-on')
-    const above = box.top > ROOM
+    const vp = viewport()
+    const right = vp.left + vp.width
+    const bottom = vp.top + vp.height
+    const height = root.offsetHeight
+    const above = box.top > vp.top + ROOM
     // 块选中时工具条靠块的左缘，给中间那颗「评论此块」让开。
     if (box.align === 'start') {
       const width = root.offsetWidth
-      const left = Math.min(window.innerWidth - width - 4, Math.max(4, box.mid))
+      const left = Math.min(right - width - 4, Math.max(vp.left + 4, box.mid))
       root.style.left = `${left}px`
       root.style.transform = above ? 'translateY(-100%)' : ''
     } else {
       const half = root.offsetWidth / 2
-      const left = Math.min(window.innerWidth - half - 4, Math.max(half + 4, box.mid))
+      const left = Math.min(right - half - 4, Math.max(vp.left + half + 4, box.mid))
       root.style.left = `${left}px`
       root.style.transform = above ? 'translate(-50%, -100%)' : 'translateX(-50%)'
     }
-    root.style.top = above ? `${box.top - GAP}px` : `${box.bottom + GAP}px`
+    // 软键盘弹起时可视高度会缩，把整条夹回可视区，别被盖住。
+    const desired = above ? box.top - GAP : box.bottom + GAP
+    const renderTop = above ? desired - height : desired
+    const clamped = Math.max(vp.top + 4, Math.min(renderTop, bottom - 4 - height))
+    root.style.top = `${above ? clamped + height : clamped}px`
     refresh(state)
   }
 
@@ -409,6 +447,12 @@ function createBar(
   }
   window.addEventListener('scroll', schedule, true)
   window.addEventListener('resize', schedule)
+  // 软键盘弹起 / 收起会改 visualViewport 的高度，重新夹一次位置。
+  window.visualViewport?.addEventListener('resize', schedule)
+  window.visualViewport?.addEventListener('scroll', schedule)
+  // 手柄选块是「先落选区、后 focus」—— 选区那次 update 时还没有焦点，工具条会先藏起来。
+  // 编辑器自己拿到焦点再量一次（只挂 view.dom：链接输入框在工具条里，别被它带偏）。
+  view.dom.addEventListener('focusin', schedule)
 
   return {
     el: root,
@@ -420,6 +464,9 @@ function createBar(
       if (raf) cancelAnimationFrame(raf)
       window.removeEventListener('scroll', schedule, true)
       window.removeEventListener('resize', schedule)
+      window.visualViewport?.removeEventListener('resize', schedule)
+      window.visualViewport?.removeEventListener('scroll', schedule)
+      view.dom.removeEventListener('focusin', schedule)
       root.remove()
     },
   }

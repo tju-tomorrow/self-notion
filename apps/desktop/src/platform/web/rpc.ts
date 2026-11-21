@@ -7,28 +7,41 @@
  * 桌面专属的方法（AI / 知识库 / 评论 / 版本 / 外部文件）不在白名单插件里，走到这里就是
  * 明确的 `unsupported`，不是静默空值。
  */
-import type { DocMeta, DocSummary, DocText, LearnRow, RpcService, SearchHit } from '../../kernel/contract'
+import type {
+  Comment,
+  DocMeta,
+  DocSummary,
+  DocText,
+  LearnRow,
+  RpcService,
+  SearchHit,
+} from '../../kernel/contract'
 import {
+  allComments,
   allContents,
   allDocs,
   allTombstones,
+  dataRevision,
   delDoc,
   delTombstone,
   getBlob,
+  getComment,
   getContent,
   getDoc,
   getMeta,
   getSrc,
   metaValue,
   putBlob,
+  putComment,
   putContent,
   putDoc,
   putMeta,
   putSrc,
   putTombstone,
+  type CommentRecord,
   type DocRecord,
 } from './db'
-import { schedulePush } from './sync'
+import { runSyncNow, schedulePush, syncStatus } from './sync'
 
 const HIT_OPEN = '\u0002'
 const HIT_CLOSE = '\u0003'
@@ -71,6 +84,33 @@ function toMeta(rec: DocRecord): DocMeta {
 
 function sorted(rows: DocRecord[]): DocRecord[] {
   return [...rows].sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt)
+}
+
+function toComment(rec: CommentRecord): Comment {
+  return {
+    id: rec.id,
+    docId: rec.docId,
+    parentId: rec.parentId,
+    anchor: rec.anchor,
+    blockId: rec.blockId,
+    quote: rec.quote,
+    body: rec.body,
+    resolved: rec.resolved,
+    createdAt: rec.createdAt,
+    updatedAt: rec.updatedAt,
+  }
+}
+
+/** 搜索 / 反链共用的一份全文缓存；写正文或元数据时 `dataRevision()` 会变。 */
+let searchCache: { rev: number; rows: { rec: DocRecord; md: string }[] } | null = null
+
+async function searchRows(): Promise<{ rec: DocRecord; md: string }[]> {
+  const rev = dataRevision()
+  if (searchCache?.rev === rev) return searchCache.rows
+  const md = new Map((await allContents()).map((c) => [c.id, c.md]))
+  const rows = (await allDocs()).map((rec) => ({ rec, md: md.get(rec.id) ?? '' }))
+  searchCache = { rev, rows }
+  return rows
 }
 
 function children(rows: DocRecord[], parentId: string | null): DocRecord[] {
@@ -387,11 +427,14 @@ export function createWebRpc(hooks: RpcHooks): RpcService {
         const q = String(a.q ?? '')
         const limit = Math.min(500, Math.max(1, Number(a.limit ?? 50)))
         const include = Boolean(a.includeTrashed)
-        const bodies = new Map((await allContents()).map((c) => [c.id, c.md]))
-        const rows = sorted(await allDocs()).filter((r) => include || r.deletedAt === null)
+        const cached = await searchRows()
+        const rows = sorted(cached.map((r) => r.rec)).filter(
+          (r) => include || r.deletedAt === null,
+        )
+        const mdOf = new Map(cached.map((r) => [r.rec.id, r.md]))
         const hits: SearchHit[] = []
         for (const rec of rows) {
-          const md = bodies.get(rec.id) ?? ''
+          const md = mdOf.get(rec.id) ?? ''
           const fromTitle = snippetOf(rec.title, q)
           const fromBody = snippetOf(md, q)
           if (!fromTitle && !fromBody) continue
@@ -412,11 +455,10 @@ export function createWebRpc(hooks: RpcHooks): RpcService {
       case 'link:backlinks': {
         const target = String(a.id)
         const needle = `self-notion://doc/${target}`
-        const bodies = new Map((await allContents()).map((c) => [c.id, c.md]))
         const out: DocMeta[] = []
-        for (const rec of await allDocs()) {
+        for (const { rec, md } of await searchRows()) {
           if (rec.id === target || rec.deletedAt !== null) continue
-          if ((bodies.get(rec.id) ?? '').includes(needle)) out.push(toMeta(rec))
+          if (md.includes(needle)) out.push(toMeta(rec))
         }
         return out
       }
@@ -468,6 +510,79 @@ export function createWebRpc(hooks: RpcHooks): RpcService {
         schedulePush()
         return { ok: true }
       }
+
+      /* ── 评论（D-0199）：本地先落，同步引擎按 updated_at 最后写入者胜推上去 ── */
+      case 'comment:list': {
+        const docId = String(a.docId)
+        return (await allComments())
+          .filter((c) => c.docId === docId && !c.deleted)
+          .sort((x, y) => x.createdAt - y.createdAt)
+          .map(toComment)
+      }
+      case 'comment:create': {
+        const at = now()
+        const rec: CommentRecord = {
+          id: newId(),
+          docId: String(a.docId),
+          parentId: a.parentId ? String(a.parentId) : null,
+          anchor: (a.anchor === 'block' || a.anchor === 'inline' ? a.anchor : 'page') as Comment['anchor'],
+          blockId: a.blockId ? String(a.blockId) : null,
+          quote: String(a.quote ?? ''),
+          body: String(a.body ?? ''),
+          resolved: false,
+          createdAt: at,
+          updatedAt: at,
+          dirty: true,
+          deleted: false,
+        }
+        await putComment(rec)
+        schedulePush()
+        return toComment(rec)
+      }
+      case 'comment:update': {
+        const rec = await getComment(String(a.id))
+        if (!rec) throw notFound('comment')
+        rec.body = String(a.body ?? '')
+        rec.updatedAt = now()
+        rec.dirty = true
+        await putComment(rec)
+        schedulePush()
+        return toComment(rec)
+      }
+      case 'comment:resolve': {
+        const rec = await getComment(String(a.id))
+        if (!rec) throw notFound('comment')
+        if (rec.parentId !== null) {
+          throw Object.assign(new Error('reply cannot be resolved'), { code: 'bad_args' })
+        }
+        rec.resolved = Boolean(a.resolved)
+        rec.updatedAt = now()
+        rec.dirty = true
+        await putComment(rec)
+        schedulePush()
+        return toComment(rec)
+      }
+      case 'comment:remove': {
+        const id = String(a.id)
+        const all = await allComments()
+        const at = now()
+        for (const rec of all) {
+          if (rec.id !== id && rec.parentId !== id) continue
+          rec.deleted = true
+          rec.updatedAt = at
+          rec.dirty = true
+          await putComment(rec)
+        }
+        schedulePush()
+        return { ok: true }
+      }
+
+      /* ── 同步状态（web-sync-status 插件读这两条） ── */
+      case 'sync:status':
+        return syncStatus()
+      case 'sync:run':
+        await runSyncNow()
+        return { ok: true }
 
       /* ── 设置（meta 表） ── */
       case 'settings:list': {

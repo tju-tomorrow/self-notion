@@ -25,7 +25,7 @@ import type {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
-import { PageIcon, SearchIcon } from '@blocksuite/icons/rc'
+import { CloseIcon, PageIcon, SearchIcon } from '@blocksuite/icons/rc'
 import type { Context } from 'cordis'
 import { DOCS_CHANGED, OPEN_DOC } from '../../src/kernel/contract'
 import { reportError } from '../../src/kernel/errors'
@@ -58,7 +58,7 @@ export const name = 'search-panel'
 // 硬依赖（CONVENTIONS §6.4「依赖走 inject 声明，不许手动探测」）。
 export const inject = ['rpc', 'i18n', 'theme']
 
-const SEARCH_DEBOUNCE_MS = 150
+const SEARCH_DEBOUNCE_MS = 120
 const ICON = 20
 
 /** 列表里的一行 —— 检索结果和「最近」两种来源归一成这一种。 */
@@ -288,6 +288,16 @@ function SearchPanel({ ctx }: { ctx: Context }) {
             },
             onKeyDown: onInputKeyDown,
           }),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: s.closeBtn,
+              'aria-label': ctx.i18n.t('search.close'),
+              onClick: () => setOpen(false),
+            },
+            h(CloseIcon, { width: ICON, height: ICON }),
+          ),
         ),
         h(
           'div',

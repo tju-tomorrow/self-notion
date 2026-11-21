@@ -20,14 +20,32 @@ import {
   type ReactNode,
 } from 'react'
 import type { Context } from 'cordis'
-import { ArrowUpBigIcon, CloseIcon, PageIcon, PlusIcon, SidebarIcon, StopIcon } from '@blocksuite/icons/rc'
+import {
+  ArrowUpBigIcon,
+  CloseIcon,
+  FolderIcon,
+  PageIcon,
+  PlusIcon,
+  SidebarIcon,
+  StopIcon,
+} from '@blocksuite/icons/rc'
 
 import { AGENT_TAB_ID, CLOSE_TAB, type AiService } from '../../src/kernel/contract'
 import { readLocal, writeLocal } from '../../src/kernel/local'
 import * as s from './ai.css'
 import { runTurn, type Quote } from './loop'
-import { Markdown } from './md'
+import { Markdown, type CiteCtx } from './md'
 import { placeOf, type Place } from './place'
+import {
+  loadScopes,
+  matchesScope,
+  revealChunk,
+  scopeLabel,
+  type RagChunk,
+  type RagScope,
+  type RagScopeItem,
+  type RagTrace,
+} from './rag'
 import {
   closeDock,
   currentSession,
@@ -260,6 +278,13 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
   const [picked, setPicked] = useState<string | null>(null)
   /** 点过 ✕ 的那一段 —— 选区还在，但用户说了不要，别每帧又冒出来。 */
   const dropped = useRef('')
+  /** 这一问圈定的范围（D-0200）。发完清空，不带进下一问。 */
+  const [scope, setScope] = useState<RagScope | null>(null)
+  /** `@` 选择器。`start` 是那个 `@` 在正文里的位置。 */
+  const [picker, setPicker] = useState<{ start: number; q: string; active: number } | null>(null)
+  const [scopes, setScopes] = useState<RagScopeItem[]>([])
+  const [scopesLoaded, setScopesLoaded] = useState(false)
+  const input = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     let raf = 0
@@ -309,6 +334,52 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
   //   —— 不然每 80ms 一次的重渲染会把整屏 markdown 重新解析一遍（用户：「非常卡」）。
   const rendered = useMemo(() => rows(lines, ctx), [lines, ctx])
 
+  /** 流式那段也要认引用 —— 从最近一条检索行往回找。 */
+  const liveCite = useMemo<CiteCtx | undefined>(() => {
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      const one = lines[i]
+      if (one?.rag) return { chunks: one.rag.chunks, open: (chunk) => revealChunk(ctx, chunk) }
+      if (one?.role === 'user') break
+    }
+    return undefined
+  }, [lines, ctx])
+
+  const options = picker ? scopes.filter((item) => matchesScope(item, picker.q)).slice(0, 8) : []
+  const active = picker ? Math.min(picker.active, Math.max(0, options.length - 1)) : 0
+
+  const syncPicker = (value: string, caret: number) => {
+    const token = atToken(value, caret)
+    if (!token) {
+      setPicker(null)
+      return
+    }
+    if (!scopesLoaded) {
+      void loadScopes(ctx)
+        .then((items) => setScopes(items))
+        .catch(() => setScopes([]))
+        .finally(() => setScopesLoaded(true))
+    }
+    setPicker((prev) =>
+      prev && prev.start === token.start
+        ? { ...prev, q: token.q, active: 0 }
+        : { start: token.start, q: token.q, active: 0 },
+    )
+  }
+
+  const pick = (item: RagScopeItem) => {
+    if (!picker) return
+    setText(text.slice(0, picker.start) + text.slice(picker.start + 1 + picker.q.length))
+    setScope(
+      item.kind === 'doc'
+        ? item.id === undefined
+          ? null
+          : { kind: 'doc', id: item.id, path: item.path, title: item.title }
+        : { kind: 'dir', path: item.path, title: item.title },
+    )
+    setPicker(null)
+    requestAnimationFrame(() => input.current?.focus())
+  }
+
   const ask = (prompt: string) => {
     const q = prompt.trim()
     if (!q || st.busy) return
@@ -317,8 +388,10 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
     const quote: Quote | undefined =
       now && now !== dropped.current ? { text: now, path: place?.path ?? null } : undefined
     setText('')
+    setPicker(null)
     stick.current = true
-    void runTurn(ctx, ai, q, quote)
+    void runTurn(ctx, ai, q, quote, scope ?? undefined)
+    setScope(null)
   }
 
   return (
@@ -347,7 +420,7 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
             {/* 生成中：光标跟着字长，一段还没定稿的文本就是这个样子。 */}
             {st.draft ? (
               <div className={s.bubbleAi}>
-                <Markdown text={st.draft} />
+                <Markdown text={st.draft} cite={liveCite} />
                 <span className={s.cursor} />
               </div>
             ) : null}
@@ -360,9 +433,33 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
       </div>
 
       <div className={compact ? s.dockFoot : s.foot}>
+        {/* 这一问圈定的范围。看得见、可撤 —— 发出去之后这里会清空。 */}
+        {scope ? (
+          <div className={s.scopeChip} title={scopeLabel(scope)}>
+            {scope.kind === 'dir' ? (
+              <FolderIcon width={12} height={12} />
+            ) : (
+              <PageIcon width={12} height={12} />
+            )}
+            <span className={s.scopePath}>{scopeLabel(scope)}</span>
+            <span className={s.scopeKind}>
+              {ctx.i18n.t(scope.kind === 'dir' ? 'agent.scopeDir' : 'agent.scopeDoc')}
+            </span>
+            <button
+              type="button"
+              className={s.scopeClear}
+              title={ctx.i18n.t('agent.scopeRemove')}
+              aria-label={ctx.i18n.t('agent.scopeRemove')}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setScope(null)}
+            >
+              <CloseIcon width={12} height={12} />
+            </button>
+          </div>
+        ) : null}
         {/* 「在看哪一篇」看得见的一颗（用户红框：输入框上面、靠左）。系统提示里也带同一条
             （D-0107），这颗是给人看的：让他知道 AI 这会儿把「这篇」当成哪一篇。 */}
-        {place ? (
+        {place && !scope ? (
           <div className={s.place} title={`${place.path} · ${ctx.i18n.t('agent.placeHint')}`}>
             <PageIcon width={12} height={12} />
             <span>{place.path}</span>
@@ -387,21 +484,86 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
             </button>
           </div>
         ) : null}
-        <div className={s.box}>
-          <textarea
-            className={s.input}
-            value={text}
-            rows={1}
-            placeholder={ctx.i18n.t('agent.placeholder')}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              // Enter 送、Shift+Enter 换行（备注：输入法是 composition，`nativeEvent.isComposing` 时别拦）。
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault()
-                ask(text)
-              }
-            }}
-          />
+        <div className={s.composer}>
+          {/* `@` 选择器：浮在输入胶囊上方。目录在前、单篇在后。 */}
+          {picker ? (
+            <div className={s.picker} role="listbox" aria-label={ctx.i18n.t('agent.scopePick')}>
+              <div className={s.pickHead}>{ctx.i18n.t('agent.scopePick')}</div>
+              {options.length === 0 ? (
+                <div className={s.pickEmpty}>
+                  {!scopesLoaded ? ctx.i18n.t('agent.thinking') : ctx.i18n.t('agent.scopeEmpty')}
+                </div>
+              ) : (
+                options.map((item, at) => (
+                  <button
+                    key={`${item.kind}\u0000${item.path}`}
+                    type="button"
+                    role="option"
+                    aria-selected={at === active}
+                    className={at === active ? s.pickOn : s.pick}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onMouseEnter={() => setPicker((p) => (p ? { ...p, active: at } : p))}
+                    onClick={() => pick(item)}
+                  >
+                    {item.kind === 'dir' ? (
+                      <FolderIcon width={14} height={14} />
+                    ) : (
+                      <PageIcon width={14} height={14} />
+                    )}
+                    <span className={s.pickMain}>
+                      <span className={s.pickTitle}>{item.title}</span>
+                      <span className={s.pickPath}>{item.path}</span>
+                    </span>
+                    <span className={s.pickCount}>
+                      {ctx.i18n.t('agent.scopeDocs', { n: item.count })}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          ) : null}
+          <div className={s.box}>
+            <textarea
+              ref={input}
+              className={s.input}
+              value={text}
+              rows={1}
+              placeholder={ctx.i18n.t('agent.placeholder')}
+              onChange={(e) => {
+                setText(e.target.value)
+                syncPicker(e.target.value, e.target.selectionStart ?? e.target.value.length)
+              }}
+              onBlur={() => setPicker(null)}
+              onKeyDown={(e) => {
+                // 输入法选词 / 送字时一律不拦。
+                if (e.nativeEvent.isComposing) return
+                if (picker) {
+                  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                    e.preventDefault()
+                    if (options.length === 0) return
+                    const step = e.key === 'ArrowDown' ? 1 : options.length - 1
+                    setPicker((p) => (p ? { ...p, active: (active + step) % options.length } : p))
+                    return
+                  }
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    const item = options[active]
+                    if (item) pick(item)
+                    return
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    setPicker(null)
+                    return
+                  }
+                }
+                // Enter 送、Shift+Enter 换行。
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  ask(text)
+                }
+              }}
+            />
           {/* 忙着的时候同一颗位置换成中断（Claude Code 那样）—— 它一直在转圈不动，得有个出口。 */}
           <button
             type="button"
@@ -417,6 +579,7 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
               <ArrowUpBigIcon width={18} height={18} />
             )}
           </button>
+          </div>
         </div>
         <span className={s.hint}>{ctx.i18n.t('agent.hint')}</span>
       </div>
@@ -438,31 +601,39 @@ function rows(lines: Line[], ctx: Context): ReactNode[] {
     }
     if (line.role === 'user') {
       out.push(
-        <p key={i} className={s.bubbleUser}>
-          {line.text}
-        </p>,
+        <div key={i} className={s.userTurn}>
+          {line.scope ? <ScopeTag ctx={ctx} scope={line.scope} /> : null}
+          <p className={s.bubbleUser}>{line.text}</p>
+        </div>,
       )
       i++
       continue
     }
     // 一轮 = 到下一个用户发言为止。这一轮的工具调用合成一块，**摆在第一次调用的位置**，
-    // 它前面 / 后面的字各归各位。
+    // 它前面 / 后面的字各归各位。检索块也在这条线上，答案的 `[n]` 从它取来源。
     const start = i
     const marks: ToolMark[] = []
     const before: ReactNode[] = []
     const after: ReactNode[] = []
+    let rag: RagTrace | null = null
+    let cite: CiteCtx | undefined
     let seen = false
     while (i < lines.length) {
       const one = lines[i]
       if (!one || one.role === 'user') break
-      if (one.tool) {
+      if (one.rag) {
+        rag = one.rag
+        cite = { chunks: rag.chunks, open: (chunk) => revealChunk(ctx, chunk) }
+        before.push(<RagBlock key={i} ctx={ctx} trace={rag} />)
+        seen = true
+      } else if (one.tool) {
         marks.push(one.tool)
         seen = true
       } else {
         const node =
           one.role === 'ai' ? (
             <div key={i} className={s.bubbleAi}>
-              <Markdown text={one.text} />
+              <Markdown text={one.text} cite={cite} />
             </div>
           ) : (
             // 老会话里工具行没有 `tool`（D-0097 之前存的）—— 当一句淡字画出来。
@@ -479,8 +650,155 @@ function rows(lines: Line[], ctx: Context): ReactNode[] {
     out.push(...before)
     if (marks.length) out.push(<ThoughtBlock key={`t${start}`} ctx={ctx} marks={marks} />)
     out.push(...after)
+    if (rag) out.push(<SourceCards key={`s${start}`} ctx={ctx} trace={rag} />)
   }
   return out
+}
+
+/** 用户气泡上方那一颗：这一问圈的范围。 */
+function ScopeTag({ ctx, scope }: { ctx: Context; scope: RagScope }) {
+  return (
+    <div className={s.turnScope} title={scope.title}>
+      {scope.kind === 'dir' ? (
+        <FolderIcon width={12} height={12} />
+      ) : (
+        <PageIcon width={12} height={12} />
+      )}
+      <span>{scopeLabel(scope)}</span>
+      <span className={s.turnScopeKind}>
+        {ctx.i18n.t(scope.kind === 'dir' ? 'agent.scopeDir' : 'agent.scopeDoc')}
+      </span>
+    </div>
+  )
+}
+
+/** 检索过程：默认折叠，点开是预算、覆盖和每一段为什么被选中。 */
+function RagBlock({ ctx, trace }: { ctx: Context; trace: RagTrace }) {
+  const [open, setOpen] = useState(false)
+  const failed = trace.empty !== undefined
+  const emptyKey =
+    trace.empty === 'no_docs'
+      ? 'agent.ragEmptyNoDocs'
+      : trace.empty === 'no_projection'
+        ? 'agent.ragEmptyNoProjection'
+        : 'agent.ragEmptyNoMatch'
+  const scan = ctx.i18n.t('agent.ragScan', {
+    scanned: trace.docsScanned,
+    chunks: trace.chunks.length,
+    time: secs(trace.tookMs),
+  })
+  const max = Math.max(1, ...trace.chunks.map((c) => c.score))
+  const unused = Math.max(0, trace.docsTotal - trace.usedDocs.length)
+
+  return (
+    <div className={s.rag}>
+      <button
+        type="button"
+        className={s.ragHead}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className={s.thoughtChev}>{open ? '▾' : '▸'}</span>
+        <span className={s.toolMark}>{failed ? '✕' : '⏺'}</span>
+        <span className={s.ragTitle}>
+          {ctx.i18n.t('agent.ragSearch', { path: scopeLabel(trace.scope) })}
+        </span>
+        <span className={s.ragMeta}>{failed ? ctx.i18n.t(emptyKey) : scan}</span>
+      </button>
+      {open ? (
+        <div className={s.ragBody}>
+          <p className={s.ragLine}>
+            {ctx.i18n.t('agent.ragBudget', {
+              chars: trace.chars,
+              scored: trace.chunksScored,
+              skipped: trace.docsSkipped,
+            })}
+          </p>
+          <p className={s.ragLine}>
+            {ctx.i18n.t('agent.ragCoverage', {
+              total: trace.docsTotal,
+              hit: trace.docsHit,
+              used: trace.usedDocs.length,
+            })}
+            {unused > 0 ? ` · ${ctx.i18n.t('agent.ragUnused', { n: unused })}` : ''}
+          </p>
+          {trace.usedDocs.length > 0 ? (
+            <div className={s.usedDocs}>
+              {trace.usedDocs.map((doc) => (
+                <span key={doc.id} className={s.usedDoc} title={doc.path}>
+                  {doc.title}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {trace.chunks.map((chunk) => (
+            <div key={chunk.n} className={s.ragChunk}>
+              <span className={s.ragN}>{chunk.n}</span>
+              <span className={s.ragChunkMain}>
+                <span className={s.ragChunkTitle}>
+                  {chunk.title}
+                  {chunk.heading ? ` · ${chunk.heading}` : ''}
+                </span>
+                <span className={s.ragChunkText}>{chunk.text}</span>
+              </span>
+              <span className={s.ragScore}>
+                <i style={{ width: `${Math.round((chunk.score / max) * 100)}%` }} />
+              </span>
+              <span className={s.ragReason}>{ctx.i18n.t(reasonKey(chunk.reason))}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/** 回答下面那组来源卡。点卡片 = 点正文里的 `[n]`。 */
+function SourceCards({ ctx, trace }: { ctx: Context; trace: RagTrace }) {
+  if (trace.chunks.length === 0) return null
+  return (
+    <div className={s.sources}>
+      <div className={s.sourcesHead}>
+        {ctx.i18n.t('agent.sources', { n: trace.chunks.length })}
+      </div>
+      <div className={s.sourceList}>
+        {trace.chunks.map((chunk) => (
+          <button
+            key={chunk.n}
+            type="button"
+            className={s.sourceCard}
+            title={ctx.i18n.t('agent.sourceOpen')}
+            onClick={() => revealChunk(ctx, chunk)}
+          >
+            <span className={s.sourceN}>{chunk.n}</span>
+            <span className={s.sourceMain}>
+              <span className={s.sourceTitle}>{chunk.title}</span>
+              <span className={s.sourcePath}>
+                {chunk.path}
+                {chunk.heading ? ` · ${chunk.heading}` : ''}
+              </span>
+              <span className={s.sourceText}>{chunk.text}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function reasonKey(reason: RagChunk['reason']): string {
+  switch (reason) {
+    case 'title':
+      return 'agent.ragReasonTitle'
+    case 'heading':
+      return 'agent.ragReasonHeading'
+    case 'summary':
+      return 'agent.ragReasonSummary'
+    case 'fallback':
+      return 'agent.ragReasonFallback'
+    default:
+      return 'agent.ragReasonBody'
+  }
 }
 
 /** 一轮的工具调用：平时只有一行标题，点开才是每一步。跑着的时候自己走时钟。 */
@@ -573,6 +891,17 @@ function secs(ms: number): string {
 
 function frame(now: number): string {
   return SPIN[Math.floor(now / 80) % SPIN.length] ?? '⠋'
+}
+
+/** 光标前那个没被墙住的 `@` token。空白 / 括号之后才算新 token。 */
+function atToken(text: string, caret: number): { start: number; q: string } | null {
+  const upto = text.slice(0, caret)
+  const at = upto.lastIndexOf('@')
+  if (at < 0) return null
+  if (at > 0 && !/[\s（(@]/.test(upto[at - 1] ?? '')) return null
+  const q = upto.slice(at + 1)
+  if (/\s/.test(q)) return null
+  return { start: at, q }
 }
 
 /** 有东西在转的时候每 80ms 走一格（转圈和计时都靠它）。停下来就不再有定时器。 */

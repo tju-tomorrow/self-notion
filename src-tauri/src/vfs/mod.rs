@@ -275,6 +275,90 @@ pub fn ids_in(db: &Db, dir: &str) -> ApiResult<Vec<String>> {
     })
 }
 
+/// 一个目录下**所有后代**文档 id（递归），加上目录背后那篇页面本身。
+/// 给 `rag:search` 圈范围用 —— 只要 `/tree` 里的真实层级，不要动态目录。
+pub fn ids_under(db: &Db, dir: &str) -> ApiResult<Vec<String>> {
+    db.with(|c| {
+        let w = World::build(c)?;
+        let p = normalize(dir);
+        let prefix = format!("{p}/");
+        let mut out = Vec::new();
+        if let Some(FileRef::Doc(i)) = w.files.get(&format!("{p}.md")) {
+            out.push(w.docs[*i].id.clone());
+        }
+        for (i, d) in w.docs.iter().enumerate() {
+            if w.tree_path[i].as_ref().is_some_and(|path| path.starts_with(&prefix)) {
+                out.push(d.id.clone());
+            }
+        }
+        Ok(out)
+    })
+}
+
+/// `@` 选择器的一行。目录和单篇混在一张表里，`kind` 分开。
+#[derive(Debug, Serialize)]
+pub struct TreeScope {
+    pub kind: &'static str,
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub title: String,
+    /// 目录 = 范围里的正文篇数（递归，含目录页）；单篇 = 1。
+    pub count: usize,
+}
+
+/// `/tree` 下全部目录 + 文档，给 `@` 选择器。一次取全，前端过滤。
+pub fn tree_scopes(db: &Db) -> ApiResult<Vec<TreeScope>> {
+    db.with(|c| {
+        let w = World::build(c)?;
+        let mut out = Vec::new();
+        for dir in &w.dirs {
+            if dir == "/tree" || !dir.starts_with("/tree/") {
+                continue;
+            }
+            let id = match w.files.get(&format!("{dir}.md")) {
+                Some(FileRef::Doc(i)) => Some(w.docs[*i].id.clone()),
+                _ => None,
+            };
+            let title = id
+                .as_ref()
+                .and_then(|id| w.by_id.get(id))
+                .map(|&i| w.docs[i].title.clone())
+                .filter(|t| !t.is_empty())
+                .unwrap_or_else(|| dir.rsplit('/').next().unwrap_or(dir).to_string());
+            let prefix = format!("{dir}/");
+            let mut count = w
+                .docs
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| {
+                    w.tree_path[*i].as_ref().is_some_and(|p| p.starts_with(&prefix))
+                })
+                .count();
+            if id.is_some() {
+                count += 1;
+            }
+            out.push(TreeScope { kind: "dir", path: dir.clone(), id, title, count });
+        }
+        for (i, d) in w.docs.iter().enumerate() {
+            let Some(path) = &w.tree_path[i] else { continue };
+            if !path.starts_with("/tree/") {
+                continue;
+            }
+            out.push(TreeScope {
+                kind: "doc",
+                path: path.clone(),
+                id: Some(d.id.clone()),
+                title: d.title.clone(),
+                count: 1,
+            });
+        }
+        // 目录在前，各自按路径排 —— 选择器不做第二次排序。
+        out.sort_by(|a, b| (a.kind != "dir", &a.path).cmp(&(b.kind != "dir", &b.path)));
+        Ok(out)
+    })
+}
+
 /// 一个虚拟路径指向哪篇文档。`None` = 不是文档正文（清单 / 系统文件）。
 pub fn id_of(db: &Db, path: &str) -> ApiResult<Option<String>> {
     db.with(|c| {

@@ -9,40 +9,80 @@
  * 冲突策略：服务端合不了就返回它那份；本地这份**另存成「冲突副本」**，一个字不丢。
  */
 import type { Context } from 'cordis'
-import { DOCS_CHANGED, type DocMeta } from '../../kernel/contract'
+import { DOCS_CHANGED, type DocMeta, type SyncStatus } from '../../kernel/contract'
 import { reportNote } from '../../kernel/errors'
 import {
   allBlobs,
+  allComments,
   allContents,
   allDocs,
   allSrc,
   allTombstones,
+  delComment,
   delDoc,
   delTombstone,
+  getComment,
   getContent,
   getDoc,
   getSrc,
   metaValue,
   putBlob,
+  putComment,
   putContent,
   putDoc,
   putMeta,
   putSrc,
+  type CommentRecord,
   type ContentRecord,
   type DocRecord,
 } from './db'
 
 const PAGE = 200
 const PUSH_BATCH = 50
-const INTERVAL = 15_000
 const DEBOUNCE = 800
+/** 按状态退避（D-0199）：有脏数据 5s、空闲 30s、页面藏着 120s。 */
+const ACTIVE_MS = 5_000
+const IDLE_MS = 30_000
+const HIDDEN_MS = 120_000
+const BACKOFF_MAX = 120_000
+/** 图片预取上限：一次最多 200 张、单张超过 15MB 就跳过。 */
+const PREFETCH_MAX = 200
+const PREFETCH_MAX_BYTES = 15 * 1024 * 1024
 
 let running = false
 let pushTimer: ReturnType<typeof setTimeout> | undefined
+let cycleTimer: number | undefined
+let backoff = 0
 let started = false
 let onChange: (() => void) | undefined
 let syncCtx: Context | undefined
 let lastNote = 0
+let pendingBlobs = 0
+
+let status: SyncStatus = {
+  online: typeof navigator === 'undefined' ? true : navigator.onLine,
+  state: 'idle',
+  lastSyncAt: null,
+  pending: 0,
+  conflicts: 0,
+  blobs: { done: 0, total: 0, active: false },
+}
+
+/** 给 `sync:status` 和顶栏小圆点读的快照（D-0199）。 */
+export function syncStatus(): SyncStatus {
+  return status
+}
+
+function patchStatus(patch: Partial<SyncStatus>): void {
+  status = { ...status, ...patch }
+}
+
+/** 脏文档 + 脏评论 + 未上传图片 = 待推送数。 */
+async function refreshPending(): Promise<void> {
+  const docs = (await allDocs()).filter((d) => d.dirty).length
+  const comments = (await allComments()).filter((c) => c.dirty).length
+  patchStatus({ pending: docs + comments + pendingBlobs })
+}
 
 interface ServerDoc {
   id: string
@@ -59,6 +99,26 @@ interface PushResult {
   content: string | null
   md: string | null
   meta: DocMeta | null
+}
+
+/** 评论的线上形状（D-0199）：没有 rev，冲突按 updatedAt 最后写入者胜。 */
+interface ServerComment {
+  id: string
+  docId: string
+  parentId: string | null
+  anchor: CommentRecord['anchor']
+  blockId: string | null
+  quote: string
+  body: string
+  resolved: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+interface CommentPushResult {
+  id: string
+  status: 'accepted' | 'stale' | 'deleted'
+  comment: ServerComment | null
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -126,7 +186,9 @@ function note(err: unknown): void {
 async function pushOnce(): Promise<boolean> {
   const docs = (await allDocs()).filter((r) => r.dirty).slice(0, PUSH_BATCH)
   const tombstones = (await allTombstones()).slice(0, PUSH_BATCH)
-  if (!docs.length && !tombstones.length && !(await allSrc()).some((s) => s.dirty)) return false
+  const sources = (await allSrc()).filter((s) => s.dirty)
+  const comments = (await allComments()).filter((c) => c.dirty).slice(0, PUSH_BATCH)
+  if (!docs.length && !tombstones.length && !sources.length && !comments.length) return false
 
   const bodies = new Map((await allContents()).map((c) => [c.id, c]))
   const pushed = new Map(
@@ -135,11 +197,24 @@ async function pushOnce(): Promise<boolean> {
       return [r.id, fingerprint(r, b)]
     }),
   )
+  const pushedComments = new Map(comments.map((c) => [c.id, c.updatedAt]))
 
-  const sources = (await allSrc()).filter((s) => s.dirty)
   const payload = {
     deviceId: await deviceId(),
     sources: sources.map((s) => ({ id: s.id, content: s.content })),
+    comments: comments.map((c) => ({
+      id: c.id,
+      mode: c.deleted ? 'delete' : 'put',
+      docId: c.docId,
+      parentId: c.parentId,
+      anchor: c.anchor,
+      blockId: c.blockId,
+      quote: c.quote,
+      body: c.body,
+      resolved: c.resolved,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+    })),
     docs: [
       ...docs.map((r) => {
         const b = bodies.get(r.id) ?? emptyBody(r.id)
@@ -183,7 +258,7 @@ async function pushOnce(): Promise<boolean> {
     ],
   }
 
-  const res = await api<{ results: PushResult[] }>('/sync/push', {
+  const res = await api<{ results: PushResult[]; commentResults?: CommentPushResult[] }>('/sync/push', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(payload),
@@ -228,6 +303,27 @@ async function pushOnce(): Promise<boolean> {
     if (r.status === 'merged') reloadIfOpen(r.id)
   }
 
+  for (const r of res.commentResults ?? []) {
+    const local = await getComment(r.id)
+    if (!local) continue
+    if (r.status === 'deleted') {
+      await delComment(r.id)
+      continue
+    }
+    // 推送在飞的时候本地又改了：保留本地那份，下一轮再推。
+    if (local.updatedAt > (pushedComments.get(r.id) ?? 0)) {
+      local.dirty = true
+      await putComment(local)
+      continue
+    }
+    if (!r.comment) {
+      local.dirty = false
+      await putComment(local)
+      continue
+    }
+    await putComment({ ...r.comment, dirty: false, deleted: false })
+  }
+
   return true
 }
 
@@ -262,6 +358,7 @@ async function keepConflict(r: PushResult, wasTombstone: boolean): Promise<void>
     }
     await putDoc(copy)
     await putContent({ ...body, id, baseContent: null })
+    patchStatus({ conflicts: status.conflicts + 1 })
   }
   applyServer(local, body, r.meta, r.rev, r.content, r.md ?? undefined)
   await putDoc(local)
@@ -325,7 +422,21 @@ async function pullOnce(): Promise<boolean> {
       docs: ServerDoc[]
       deleted: string[]
       sources: { id: string; content: string }[]
+      comments?: ServerComment[]
+      deletedComments?: string[]
     }>(`/sync/changes?since=${since}&limit=${PAGE}`)
+    for (const c of res.comments ?? []) {
+      const local = await getComment(c.id)
+      // 本地还有没推的更新 → 保留本地，下一轮 LWW 会决定谁赢。
+      if (local?.dirty && local.updatedAt > c.updatedAt) continue
+      await putComment({ ...c, dirty: false, deleted: false })
+      changed = true
+    }
+    for (const id of res.deletedComments ?? []) {
+      if (!(await getComment(id))) continue
+      await delComment(id)
+      changed = true
+    }
     for (const src of res.sources ?? []) {
       const local = await getSrc(src.id)
       if (local?.dirty) continue
@@ -371,13 +482,20 @@ async function pullOnce(): Promise<boolean> {
           deletedAt: null,
         })
         await putContent({ id: id2, content: body.content, md: body.md, baseContent: null })
+        patchStatus({ conflicts: status.conflicts + 1 })
       }
       await delDoc(id)
       changed = true
     }
     since = res.cursor
     await putMeta('sync.cursor', String(since))
-    if (res.docs.length + res.deleted.length < PAGE) break
+    const got =
+      res.docs.length +
+      res.deleted.length +
+      (res.sources?.length ?? 0) +
+      (res.comments?.length ?? 0) +
+      (res.deletedComments?.length ?? 0)
+    if (got < PAGE) break
   }
   return changed
 }
@@ -404,6 +522,8 @@ let prefetchedAt = 0
 async function prefetchBlobs(): Promise<void> {
   if (prefetching) return
   if (Date.now() - prefetchedAt < 60_000) return
+  const conn = (navigator as { connection?: { saveData?: boolean } }).connection
+  if (conn?.saveData) return
   prefetching = true
   prefetchedAt = Date.now()
   try {
@@ -414,19 +534,30 @@ async function prefetchBlobs(): Promise<void> {
         ids.add(m[1])
       }
     }
-    const queue = [...ids]
+    const queue = [...ids].slice(0, PREFETCH_MAX)
+    const total = queue.length
+    let done = 0
+    patchStatus({ blobs: { done, total, active: true } })
     const worker = async () => {
       while (queue.length) {
         const id = queue.shift()
         if (!id) return
         try {
-          await fetch(`/blob/${id}`, { credentials: 'include' })
+          // 先探大小：十几 MB 的附件不在手机上缓存。
+          const head = await fetch(`/blob/${id}`, { method: 'HEAD', credentials: 'include' })
+          const len = Number(head.headers.get('content-length') ?? 0)
+          if (!len || len <= PREFETCH_MAX_BYTES) {
+            await fetch(`/blob/${id}`, { credentials: 'include' })
+          }
         } catch {
           /* 断网 / 图不在库里：下一个 */
         }
+        done += 1
+        patchStatus({ blobs: { done, total, active: true } })
       }
     }
-    await Promise.all([worker(), worker(), worker()])
+    await Promise.all([worker(), worker()])
+    patchStatus({ blobs: { done, total, active: false } })
   } finally {
     prefetching = false
   }
@@ -435,7 +566,9 @@ async function prefetchBlobs(): Promise<void> {
 /* ─────────────────────────── blob 上传 ─────────────────────────── */
 
 async function uploadBlobs(): Promise<void> {
-  const pending = (await allBlobs()).filter((b) => !b.synced).slice(0, 3)
+  const all = (await allBlobs()).filter((b) => !b.synced)
+  pendingBlobs = all.length
+  const pending = all.slice(0, 3)
   for (const b of pending) {
     const res = await fetch('/blob', {
       method: 'POST',
@@ -446,6 +579,7 @@ async function uploadBlobs(): Promise<void> {
     if (res.ok) {
       b.synced = true
       await putBlob(b)
+      pendingBlobs = Math.max(0, pendingBlobs - 1)
     }
   }
 }
@@ -454,8 +588,28 @@ async function uploadBlobs(): Promise<void> {
 
 export async function runSyncNow(): Promise<void> {
   if (running) return
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    patchStatus({ online: false })
+    scheduleNext(HIDDEN_MS)
+    return
+  }
+  // 多标签页只让一个跑同步（D-0199）：重复推送会互相造冲突副本。
+  if (typeof navigator !== 'undefined' && navigator.locks) {
+    await navigator.locks.request('self-notion-sync', { ifAvailable: true }, async (held) => {
+      if (!held) {
+        scheduleNext(8_000)
+        return
+      }
+      await syncOnce()
+    })
+    return
+  }
+  await syncOnce()
+}
+
+async function syncOnce(): Promise<void> {
   running = true
+  patchStatus({ state: 'syncing', online: true, error: undefined })
   try {
     // 先把新图传上去：文档先到、图后到的话，桌面会先裂一会儿图。
     await uploadBlobs()
@@ -466,16 +620,41 @@ export async function runSyncNow(): Promise<void> {
       // 首轮 / 有变化之后把正文引用的图也拉下来 —— 「完整离线」包括图片。
       void prefetchBlobs()
     }
+    backoff = 0
+    patchStatus({ state: 'idle', lastSyncAt: Date.now(), error: undefined })
   } catch (err) {
     const code = (err as { code?: string }).code
     if (code === 'unauthorized') {
+      patchStatus({ state: 'unauthorized', error: '配对失效' })
       if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('sn:need-pair'))
     } else {
+      backoff = Math.min(BACKOFF_MAX, backoff === 0 ? 5_000 : backoff * 2)
+      patchStatus({ state: 'error', error: err instanceof Error ? err.message : String(err) })
       note(err)
     }
   } finally {
     running = false
+    void refreshPending()
+    scheduleNext()
   }
+}
+
+/** 下一轮：有脏数据快一点，空闲慢一点，页面藏着最慢；失败再叠 backoff。 */
+function scheduleNext(delay?: number): void {
+  if (!started) return
+  if (cycleTimer !== undefined) {
+    clearTimeout(cycleTimer)
+    cycleTimer = undefined
+  }
+  const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden'
+  const base = delay ?? (hidden ? HIDDEN_MS : status.pending > 0 ? ACTIVE_MS : IDLE_MS)
+  cycleTimer = window.setTimeout(
+    () => {
+      cycleTimer = undefined
+      void runSyncNow()
+    },
+    Math.max(1_000, base + backoff),
+  )
 }
 
 export function schedulePush(): void {
@@ -492,10 +671,15 @@ export function startSync(ctx: Context): void {
   syncCtx = ctx
   onChange = () => ctx.emit(DOCS_CHANGED)
 
-  window.addEventListener('online', () => void runSyncNow())
+  window.addEventListener('online', () => {
+    patchStatus({ online: true })
+    void runSyncNow()
+  })
+  window.addEventListener('offline', () => patchStatus({ online: false }))
   document.addEventListener('visibilitychange', () => {
+    patchStatus({ online: typeof navigator === 'undefined' ? true : navigator.onLine })
     if (document.visibilityState === 'visible') void runSyncNow()
-    else if (pushTimer === undefined) schedulePush()
+    else scheduleNext(HIDDEN_MS)
   })
   window.addEventListener('sn:need-pair', () => {
     note(new Error('配对失效，重新打开网页并输入配对码'))
@@ -505,7 +689,7 @@ export function startSync(ctx: Context): void {
   setTimeout(() => void runSyncNow(), 600)
   // 首轮拉完再补一次图片预取（缓存被系统清过也能自己长回来）。
   setTimeout(() => void prefetchBlobs(), 10_000)
-  setInterval(() => void runSyncNow(), INTERVAL)
+  void refreshPending()
 }
 
 /* ─────────────────────────── 投影：合并后的正文 → markdown ─────────────────────────── */

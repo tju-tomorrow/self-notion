@@ -33,9 +33,11 @@ import {
   type ToolOutput,
 } from './harness'
 import { whereNow } from './place'
+import { emptyPrompt, scopeLabel, searchScope, sourcesBlock, type RagScope, type RagTrace } from './rag'
 import {
   addSpend,
   clearUndo,
+  finishRag,
   finishTool,
   getAiState,
   onStopRequest,
@@ -88,6 +90,7 @@ export async function runTurn(
   ai: AiService,
   prompt: string,
   quote?: Quote,
+  scope?: RagScope,
 ): Promise<void> {
   const state = getAiState()
   if (state.busy) return
@@ -105,11 +108,15 @@ export async function runTurn(
     draft: '',
     stopRequested: false,
   })
-  pushLine({ role: 'user', text: prompt })
+  pushLine({ role: 'user', text: prompt, scope })
 
+  // 有范围先检索。这一步不等模型、也不占回合轮次 —— 它决定这一问的上下文。
+  const trace = scope ? await retrieve(ctx, scope, prompt, quote, groupId) : null
+  const rules = scopeRules(ctx, scope, trace)
+  const system = await systemPrompt(ctx, scope !== undefined)
   const messages: AiMessage[] = [
-    { role: 'system', content: await systemPrompt(ctx) },
-    { role: 'user', content: withQuote(prompt, quote) },
+    { role: 'system', content: rules === '' ? system : `${system}\n\n${rules}` },
+    { role: 'user', content: userContent(prompt, quote, trace) },
   ]
 
   try {
@@ -151,13 +158,65 @@ function withQuote(prompt: string, quote?: Quote): string {
   return `用户选中了${where}里的这一段：\n"""\n${quote.text}\n"""\n\n${prompt}`
 }
 
-/** 系统提示：`/index.md` + `/AGENTS.md` 就是这棵树自己的说明书（`docs/ai.md` 第四节）。 */
-async function systemPrompt(ctx: Context): Promise<string> {
+/** 圈了范围就先检索一次，把过程画进对话。失败不挡这一问 —— 模型会被告知没有资料。 */
+async function retrieve(
+  ctx: Context,
+  scope: RagScope,
+  prompt: string,
+  quote: Quote | undefined,
+  groupId: string,
+): Promise<RagTrace | null> {
+  const id = `rag-${groupId}`
+  pushLine({
+    role: 'note',
+    text: 'rag_search',
+    tool: { id, name: 'rag_search', detail: scopeLabel(scope), start: Date.now(), ms: null },
+  })
+  try {
+    const trace = await searchScope(ctx, scope, quote ? `${quote.text}\n${prompt}` : prompt)
+    finishRag(id, trace)
+    return trace
+  } catch (err) {
+    reportError('ai.rag', err)
+    finishTool(id, true)
+    return null
+  }
+}
+
+/** 有范围时多一段规则：结论先行、标引用、只在范围里补读。 */
+function scopeRules(ctx: Context, scope?: RagScope, trace?: RagTrace | null): string {
+  if (!scope) return ''
+  const head = `本轮用户把检索范围圈在了《${scopeLabel(scope)}》。`
+  if (!trace) {
+    return `${head}预检索失败了，按没有资料处理；要读也只能读这个范围里的路径。`
+  }
+  if (trace.empty || trace.chunks.length === 0) {
+    return `${head}${emptyPrompt(ctx, trace)}`
+  }
+  return [
+    `${head}下面的【检索资料】是主要依据。`,
+    '- 先用 2-3 句给结论，再分节讲；每节先说是什么/为什么，再给依据。',
+    '- 每个事实性结论后标 [n]，n 是资料编号。',
+    '- 资料不够或互相矛盾就直说，不要补片段里没有的事实。',
+    '- 需要补读时只读这个范围里的路径（vfs_list / vfs_read）。',
+  ].join('\n')
+}
+
+/** 资料在前、问题在后 —— 模型先看到依据，引用编号也就在眼前。 */
+function userContent(prompt: string, quote: Quote | undefined, trace: RagTrace | null): string {
+  const question = withQuote(prompt, quote)
+  if (!trace || trace.chunks.length === 0) return question
+  return `${sourcesBlock(trace)}\n\n我的问题：${question}`
+}
+
+/** 系统提示：`/index.md` + `/AGENTS.md` 就是这棵树自己的说明书（`docs/ai.md` 第四节）。
+ *  ★ 圈了范围就不再塞那两份 —— 范围已经锁死，索引省下来的两千字给资料。 */
+async function systemPrompt(ctx: Context, scoped = false): Promise<string> {
   const vfs = ctx.get('vfs')
   const parts = [BASE_PROMPT]
   const where = await whereNow(ctx, getAiState().viewingDoc)
   if (where !== '') parts.push(where)
-  if (!vfs) return parts.join('\n\n')
+  if (!vfs || scoped) return parts.join('\n\n')
   for (const path of ['/index.md', '/AGENTS.md']) {
     try {
       parts.push(`# ${path}\n${await vfs.read(path)}`)

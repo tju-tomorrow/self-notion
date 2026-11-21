@@ -698,3 +698,389 @@ globalStyle(`${place} > span`, {
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
 })
+
+/* ────────────────────────── @ 范围 + 引用（D-0200） ────────────────────────── */
+
+export const composer = style({ position: 'relative', width: '100%' })
+
+/** 输入框上方那颗「这一问圈在哪」的签。 */
+export const scopeChip = style({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 5,
+  alignSelf: 'flex-start',
+  maxWidth: '100%',
+  marginBottom: 4,
+  padding: '3px 6px 3px 8px',
+  borderRadius: 999,
+  background: 'var(--affine-v2-layer-background-secondary)',
+  color: 'var(--affine-v2-text-secondary)',
+  fontSize: 11,
+})
+
+export const scopePath = style({
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+})
+
+export const scopeKind = style({ flex: '0 0 auto', color: 'var(--affine-v2-text-tertiary)' })
+
+export const scopeClear = style({
+  flex: '0 0 auto',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 16,
+  height: 16,
+  border: 'none',
+  borderRadius: 8,
+  padding: 0,
+  background: 'transparent',
+  color: 'var(--affine-v2-text-tertiary)',
+  cursor: 'pointer',
+  selectors: { '&:hover': { background: 'var(--affine-v2-layer-background-hoverOverlay)' } },
+})
+
+/** `@` 选择器：浮在输入胶囊上方，不把布局顶开。 */
+export const picker = style({
+  position: 'absolute',
+  left: 0,
+  right: 0,
+  bottom: 'calc(100% + 6px)',
+  zIndex: 40,
+  maxHeight: 320,
+  overflowY: 'auto',
+  padding: 6,
+  borderRadius: 12,
+  background: 'var(--affine-v2-layer-background-primary)',
+  border: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
+  boxShadow: 'var(--affine-shadow-2)',
+})
+
+export const pickHead = style({
+  padding: '6px 8px',
+  fontSize: 11,
+  color: 'var(--affine-v2-text-tertiary)',
+})
+
+export const pickEmpty = style({
+  padding: '10px 8px',
+  fontSize: 12,
+  color: 'var(--affine-v2-text-tertiary)',
+})
+
+export const pick = style({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  width: '100%',
+  padding: '7px 8px',
+  border: 'none',
+  borderRadius: 8,
+  background: 'transparent',
+  color: 'var(--affine-v2-text-primary)',
+  fontFamily: 'inherit',
+  textAlign: 'left',
+  cursor: 'pointer',
+})
+
+export const pickOn = style([
+  pick,
+  { background: 'var(--affine-v2-layer-background-hoverOverlay)' },
+])
+
+export const pickMain = style({
+  display: 'flex',
+  flexDirection: 'column',
+  minWidth: 0,
+  flex: 1,
+})
+
+export const pickTitle = style({
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  fontSize: 13,
+})
+
+export const pickPath = style({
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  fontSize: 11,
+  color: 'var(--affine-v2-text-tertiary)',
+})
+
+export const pickCount = style({
+  flex: '0 0 auto',
+  fontSize: 11,
+  color: 'var(--affine-v2-text-tertiary)',
+})
+
+/** 用户那一行：范围签 + 气泡，整组靠右。 */
+export const userTurn = style({
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-end',
+  gap: 6,
+})
+
+export const turnScope = style({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 5,
+  maxWidth: '100%',
+  color: 'var(--affine-v2-text-tertiary)',
+  fontSize: 11,
+})
+
+export const turnScopeKind = style({ color: 'var(--affine-v2-text-tertiary)' })
+
+/** 检索过程那一块。标题一行，展开才是细节。 */
+export const rag = style({ margin: '10px 0 4px' })
+
+export const ragHead = style({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  width: '100%',
+  padding: 0,
+  border: 'none',
+  background: 'transparent',
+  color: 'var(--affine-v2-text-secondary)',
+  fontFamily: 'inherit',
+  fontSize: 12,
+  textAlign: 'left',
+  cursor: 'pointer',
+  selectors: { '&:hover': { color: 'var(--affine-v2-text-primary)' } },
+})
+
+export const ragTitle = style({
+  flex: '0 0 auto',
+  color: 'var(--affine-v2-text-primary)',
+  fontWeight: 500,
+})
+
+export const ragMeta = style({
+  minWidth: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+})
+
+export const ragBody = style({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+  marginTop: 8,
+  padding: '10px 12px',
+  borderRadius: 10,
+  background: 'var(--affine-v2-layer-background-secondary)',
+  color: 'var(--affine-v2-text-secondary)',
+  fontSize: 12,
+})
+
+export const ragLine = style({ margin: 0, lineHeight: 1.5 })
+
+export const ragChunk = style({
+  display: 'grid',
+  gridTemplateColumns: '18px minmax(0, 1fr) 54px 40px',
+  alignItems: 'start',
+  gap: 8,
+})
+
+export const ragN = style({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 18,
+  height: 18,
+  borderRadius: 9,
+  background: 'var(--affine-primary-color)',
+  color: '#fff',
+  fontSize: 10,
+})
+
+export const ragChunkMain = style({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  minWidth: 0,
+})
+
+export const ragChunkTitle = style({
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  color: 'var(--affine-v2-text-primary)',
+})
+
+export const ragChunkText = style({
+  display: '-webkit-box',
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: 'vertical',
+  overflow: 'hidden',
+  color: 'var(--affine-v2-text-tertiary)',
+  lineHeight: 1.45,
+})
+
+export const ragScore = style({
+  height: 4,
+  marginTop: 8,
+  borderRadius: 2,
+  background: 'var(--affine-v2-layer-background-hoverOverlay)',
+  overflow: 'hidden',
+})
+
+globalStyle(`${ragScore} > i`, {
+  display: 'block',
+  height: '100%',
+  borderRadius: 2,
+  background: 'var(--affine-primary-color)',
+})
+
+export const ragReason = style({
+  marginTop: 4,
+  fontSize: 11,
+  textAlign: 'right',
+  color: 'var(--affine-v2-text-tertiary)',
+})
+
+/** 回答下面的来源卡。 */
+export const sources = style({
+  marginTop: 14,
+  paddingTop: 10,
+  borderTop: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
+})
+
+export const sourcesHead = style({
+  marginBottom: 8,
+  fontSize: 12,
+  color: 'var(--affine-v2-text-secondary)',
+})
+
+export const sourceList = style({
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+  gap: 8,
+})
+
+export const sourceCard = style({
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 8,
+  width: '100%',
+  padding: '10px 12px',
+  border: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
+  borderRadius: 10,
+  background: 'var(--affine-v2-layer-background-primary)',
+  color: 'var(--affine-v2-text-primary)',
+  fontFamily: 'inherit',
+  textAlign: 'left',
+  cursor: 'pointer',
+  selectors: {
+    '&:hover': {
+      background: 'var(--affine-v2-layer-background-hoverOverlay)',
+      borderColor: 'var(--affine-primary-color)',
+    },
+  },
+})
+
+export const sourceN = style({
+  flex: '0 0 18px',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 18,
+  height: 18,
+  borderRadius: 9,
+  background: 'var(--affine-primary-color)',
+  color: '#fff',
+  fontSize: 10,
+})
+
+export const sourceMain = style({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 3,
+  minWidth: 0,
+})
+
+export const sourceTitle = style({
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  fontSize: 13,
+  fontWeight: 500,
+})
+
+export const sourcePath = style({
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  fontSize: 11,
+  color: 'var(--affine-v2-text-tertiary)',
+})
+
+export const sourceText = style({
+  display: '-webkit-box',
+  WebkitLineClamp: 3,
+  WebkitBoxOrient: 'vertical',
+  overflow: 'hidden',
+  fontSize: 12,
+  lineHeight: 1.45,
+  color: 'var(--affine-v2-text-secondary)',
+})
+
+/** 正文里的 `[n]`。 */
+export const cite = style({
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  minWidth: 16,
+  height: 16,
+  padding: '0 4px',
+  margin: '0 1px',
+  border: 'none',
+  borderRadius: 8,
+  background: 'var(--affine-v2-layer-background-hoverOverlay)',
+  color: 'var(--affine-primary-color)',
+  fontFamily: 'inherit',
+  fontSize: 10,
+  lineHeight: 1,
+  cursor: 'pointer',
+  verticalAlign: 'baseline',
+  transform: 'translateY(-1px)',
+  selectors: { '&:hover': { background: 'var(--affine-primary-color)', color: '#fff' } },
+})
+
+/** 回原文时闪一下。编辑器那边只加 / 删这个类名。 */
+const ragFlash = keyframes({
+  '0%': { backgroundColor: 'rgba(29, 122, 252, 0.28)' },
+  '100%': { backgroundColor: 'transparent' },
+})
+
+globalStyle('.sn-rag-flash', {
+  animation: `${ragFlash} 1.2s ease-out`,
+  borderRadius: 4,
+})
+
+/** 检索块里「用了哪几篇」的标签。 */
+export const usedDocs = style({
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 4,
+})
+
+export const usedDoc = style({
+  maxWidth: 180,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  padding: '2px 6px',
+  borderRadius: 999,
+  background: 'var(--affine-v2-layer-background-hoverOverlay)',
+  color: 'var(--affine-v2-text-secondary)',
+  fontSize: 11,
+})

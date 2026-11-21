@@ -23,17 +23,22 @@ use axum::{Json, Router};
 use rusqlite::OptionalExtension;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+use tower_http::compression::CompressionLayer;
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::commands::{ApiError, ApiResult};
 use crate::store::{self, docs, now_ms, Db};
-use proto::{ChangesQuery, LogBody, PairBody, PushBody, PushDoc, PushResult};
+use proto::{
+    ChangesQuery, CommentPushResult, LogBody, PairBody, PushBody, PushComment, PushDoc, PushResult,
+};
 
 pub const DEFAULT_PORT: u16 = 43110;
 
 struct Srv {
     db: Arc<Db>,
+    /// 评论从手机写进来时，通知桌面那个窗口重读评论列表（D-0199）。
+    app: tauri::AppHandle,
     token: String,
     code: Mutex<Option<(String, i64)>>,
     /// 配对尝试的时间戳（一分钟窗口内限 10 次）。
@@ -89,9 +94,11 @@ pub fn start(app: &tauri::AppHandle, db: Arc<Db>) {
     let web_root = web_root(app);
 
     seed(&db);
+    seed_comments(&db);
 
     let state = Arc::new(Srv {
         db: db.clone(),
+        app: app.clone(),
         token,
         code: Mutex::new(None),
         attempts: Mutex::new(Vec::new()),
@@ -192,6 +199,7 @@ pub fn status() -> Value {
     };
     let paired = settings_get(&st.db, "sync.paired").as_deref() == Some("1");
     let code = current_code(st).unwrap_or_default();
+    let pair_url = pair_url(st, &code);
     json!({
         "running": true,
         "url": https_url(st),
@@ -199,6 +207,8 @@ pub fn status() -> Value {
         "setupUrl": format!("http://{}:{}/", st.lan_ip.clone().unwrap_or_else(|| st.host.clone()), st.setup_port),
         "caUrl": format!("http://{}:{}/ca.pem", st.lan_ip.clone().unwrap_or_else(|| st.host.clone()), st.setup_port),
         "code": code,
+        "pairUrl": pair_url,
+        "qrSvg": qr_svg(&pair_url),
         "paired": paired,
         "port": st.port,
     })
@@ -209,7 +219,27 @@ pub fn new_code() -> Value {
         return json!({ "running": false });
     };
     refresh_code(st);
-    json!({ "code": current_code(st).unwrap_or_default() })
+    let code = current_code(st).unwrap_or_default();
+    let pair_url = pair_url(st, &code);
+    json!({ "code": code, "pairUrl": pair_url, "qrSvg": qr_svg(&pair_url) })
+}
+
+/** 扫一下就能直接配对：地址后面带上 6 位码，网页配对页会自己填。 */
+fn pair_url(st: &Srv, code: &str) -> String {
+    if code.is_empty() {
+        return String::new();
+    }
+    format!("{}/?code={code}", https_url(st))
+}
+
+fn qr_svg(text: &str) -> String {
+    qrcode::QrCode::new(text.as_bytes())
+        .map(|code| {
+            code.render::<qrcode::render::svg::Color>()
+                .min_dimensions(200, 200)
+                .build()
+        })
+        .unwrap_or_default()
 }
 
 /* ─────────────────────────── 路由 ─────────────────────────── */
@@ -239,6 +269,8 @@ fn app_router(st: Arc<Srv>) -> Router {
         .fallback_service(serve)
         // 默认 2 MB：一张图就超了，一批文档更不用说。
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
+        // 手机走局域网拿 JS / CSS 时先压一遍（D-0199）。
+        .layer(CompressionLayer::new())
         .with_state(st)
 }
 
@@ -246,6 +278,7 @@ fn setup_router(st: Arc<Srv>) -> Router {
     Router::new()
         .route("/", get(setup_page))
         .route("/ca.pem", get(ca_pem))
+        .layer(CompressionLayer::new())
         .with_state(st)
 }
 
@@ -399,7 +432,18 @@ async fn push(State(st): State<Arc<Srv>>, Json(body): Json<PushBody>) -> Respons
             return err(e);
         }
     }
-    Json(json!({ "results": results })).into_response()
+    let mut comment_results = Vec::with_capacity(body.comments.len());
+    for c in body.comments {
+        match st.db.with(|conn| apply_comment(conn, &c)) {
+            Ok(r) => comment_results.push(r),
+            Err(e) => return err(e),
+        }
+    }
+    if !comment_results.is_empty() {
+        // 桌面窗口可能正开着这篇：让它重读评论，不然手机上写的评论要等下次打开才出现。
+        let _ = st.app.emit("sn:comments", json!({}));
+    }
+    Json(json!({ "results": results, "commentResults": comment_results })).into_response()
 }
 
 async fn blob_get(State(st): State<Arc<Srv>>, Path(id): Path<String>, headers: HeaderMap) -> Response {
@@ -480,16 +524,18 @@ async fn log_error(State(_st): State<Arc<Srv>>, Json(body): Json<LogBody>) -> Re
 /* ─────────────────────────── 数据操作 ─────────────────────────── */
 
 fn collect_changes(conn: &rusqlite::Connection, since: i64, limit: i64) -> ApiResult<Value> {
+    // ★ 带 entity 出来：同一个 id 可能先写过文档、后被硬删（'del'），也可能先是评论、后被删（'cdel'）。
+    //   SQLite 的「bare column + MAX」取的正是 seq 最大的那一步。
     let mut stmt = conn
         .prepare(
-            "SELECT id, MAX(seq) FROM sync_log
-             WHERE seq > ?1 AND entity IN ('doc','meta','del','src')
+            "SELECT id, entity, MAX(seq) FROM sync_log
+             WHERE seq > ?1 AND entity IN ('doc','meta','del','src','comment','cdel')
              GROUP BY id ORDER BY MAX(seq) LIMIT ?2",
         )
         .map_err(store::db_err)?;
     let rows = stmt
         .query_map(rusqlite::params![since, limit], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?))
         })
         .map_err(store::db_err)?
         .collect::<rusqlite::Result<Vec<_>>>()
@@ -499,14 +545,27 @@ fn collect_changes(conn: &rusqlite::Connection, since: i64, limit: i64) -> ApiRe
     let mut docs_out = Vec::new();
     let mut deleted = Vec::new();
     let mut sources = Vec::new();
-    for (id, seq) in &rows {
+    let mut comments = Vec::new();
+    let mut deleted_comments = Vec::new();
+    for (id, entity, seq) in &rows {
         cursor = cursor.max(*seq);
-        // 先按文档找；找不到再看是不是同步块的源（两者 id 空间本来是独立的）。
-        match record(conn, id)? {
-            Some(v) => docs_out.push(v),
-            None => match store::sync::get(conn, id) {
+        match entity.as_str() {
+            "comment" => match comment_record(conn, id)? {
+                Some(v) => comments.push(v),
+                None => deleted_comments.push(id.clone()),
+            },
+            "cdel" => deleted_comments.push(id.clone()),
+            "src" => match store::sync::get(conn, id) {
                 Ok(content) => sources.push(json!({ "id": id, "content": content })),
                 Err(_) => deleted.push(id.clone()),
+            },
+            "del" => deleted.push(id.clone()),
+            _ => match record(conn, id)? {
+                Some(v) => docs_out.push(v),
+                None => match store::sync::get(conn, id) {
+                    Ok(content) => sources.push(json!({ "id": id, "content": content })),
+                    Err(_) => deleted.push(id.clone()),
+                },
             },
         }
     }
@@ -517,7 +576,9 @@ fn collect_changes(conn: &rusqlite::Connection, since: i64, limit: i64) -> ApiRe
         "cursor": cursor,
         "docs": docs_out,
         "deleted": deleted,
-        "sources": sources
+        "sources": sources,
+        "comments": comments,
+        "deletedComments": deleted_comments
     }))
 }
 
@@ -544,6 +605,97 @@ fn record(conn: &rusqlite::Connection, id: &str) -> ApiResult<Option<Value>> {
         "md": md,
         "meta": serde_json::to_value(meta).unwrap_or(Value::Null),
     })))
+}
+
+fn comment_record(conn: &rusqlite::Connection, id: &str) -> ApiResult<Option<Value>> {
+    conn.query_row(
+        "SELECT id, doc_id, parent_id, anchor, block_id, quote, body, resolved, created_at, updated_at
+         FROM comment WHERE id = ?1",
+        [id],
+        |r| {
+            Ok(json!({
+                "id": r.get::<_, String>(0)?,
+                "docId": r.get::<_, String>(1)?,
+                "parentId": r.get::<_, Option<String>>(2)?,
+                "anchor": r.get::<_, String>(3)?,
+                "blockId": r.get::<_, Option<String>>(4)?,
+                "quote": r.get::<_, String>(5)?,
+                "body": r.get::<_, String>(6)?,
+                "resolved": r.get::<_, i64>(7)? != 0,
+                "createdAt": r.get::<_, i64>(8)?,
+                "updatedAt": r.get::<_, i64>(9)?,
+            }))
+        },
+    )
+    .optional()
+    .map_err(store::db_err)
+}
+
+/// 评论按 updated_at 最后写入者胜（单人应用，不需要三方合并）。
+fn apply_comment(conn: &rusqlite::Connection, c: &PushComment) -> ApiResult<CommentPushResult> {
+    let at = if c.updated_at > 0 { c.updated_at } else { now_ms() };
+    let existing: Option<i64> = conn
+        .query_row("SELECT updated_at FROM comment WHERE id = ?1", [&c.id], |r| r.get(0))
+        .optional()
+        .map_err(store::db_err)?;
+
+    if c.mode == "delete" {
+        if let Some(server) = existing {
+            if server > at {
+                return Ok(CommentPushResult {
+                    id: c.id.clone(),
+                    status: "stale",
+                    comment: comment_record(conn, &c.id)?,
+                });
+            }
+            // 连带删回复（和 `store::comment::remove` 同一条规矩）。
+            conn.execute("DELETE FROM comment WHERE id = ?1 OR parent_id = ?1", [&c.id])
+                .map_err(store::db_err)?;
+        }
+        return Ok(CommentPushResult { id: c.id.clone(), status: "deleted", comment: None });
+    }
+
+    if let Some(server) = existing {
+        if server > at {
+            return Ok(CommentPushResult {
+                id: c.id.clone(),
+                status: "stale",
+                comment: comment_record(conn, &c.id)?,
+            });
+        }
+    }
+    conn.execute(
+        "INSERT INTO comment(id, doc_id, parent_id, anchor, block_id, quote, body, resolved,
+                             created_at, updated_at)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+         ON CONFLICT(id) DO UPDATE SET
+           doc_id = excluded.doc_id,
+           parent_id = excluded.parent_id,
+           anchor = excluded.anchor,
+           block_id = excluded.block_id,
+           quote = excluded.quote,
+           body = excluded.body,
+           resolved = excluded.resolved,
+           updated_at = excluded.updated_at",
+        rusqlite::params![
+            c.id,
+            c.doc_id,
+            c.parent_id,
+            c.anchor,
+            c.block_id,
+            c.quote,
+            c.body,
+            c.resolved as i64,
+            c.created_at.unwrap_or(at),
+            at
+        ],
+    )
+    .map_err(store::db_err)?;
+    Ok(CommentPushResult {
+        id: c.id.clone(),
+        status: "accepted",
+        comment: comment_record(conn, &c.id)?,
+    })
 }
 
 fn rev(conn: &rusqlite::Connection, id: &str) -> ApiResult<i64> {
@@ -783,6 +935,25 @@ fn seed(db: &Db) {
     });
     if let Err(e) = out {
         crate::log::record("sync", &format!("首次同步种子失败：{}", e.message));
+    }
+}
+
+/// 评论是后加进同步的（D-0199）：老库里已有的评论补一次日志，否则手机首轮拉不到。
+fn seed_comments(db: &Db) {
+    if settings_get(db, "sync.seeded.comments").as_deref() == Some("1") {
+        return;
+    }
+    let out = db.with(|conn| {
+        let at = now_ms();
+        conn.execute("INSERT INTO sync_log(entity, id, at) SELECT 'comment', id, ?1 FROM comment", [at])
+            .map_err(store::db_err)?;
+        Ok(())
+    });
+    match out {
+        Ok(()) => {
+            let _ = settings_set(db, "sync.seeded.comments", "1");
+        }
+        Err(e) => crate::log::record("sync", &format!("评论同步种子失败：{}", e.message)),
     }
 }
 

@@ -1,6 +1,24 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin'
+
+/** 产出 `asset-list.json`，Service Worker 安装时据此把懒加载的插件 / 编辑器 chunk 也缓存下来（D-0199）。 */
+function assetManifest(): Plugin {
+  return {
+    name: 'sn-asset-manifest',
+    apply: 'build',
+    generateBundle(_options, bundle) {
+      const files = Object.values(bundle)
+        .filter((f) => f.type === 'chunk' || f.fileName.endsWith('.css'))
+        .map((f) => `/${f.fileName}`)
+      this.emitFile({
+        type: 'asset',
+        fileName: 'asset-list.json',
+        source: JSON.stringify(files),
+      })
+    },
+  }
+}
 
 // 抄 blocksuite/playground/vite.config.ts 的形状（侦察一）：只留 vanilla-extract + wasm。
 // 不要 define / istanbul / hmr-plugin / clearSiteData —— 那些是 playground 自己的调试装置。
@@ -11,7 +29,7 @@ import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin'
 //
 // ★ `--mode web`（D-0195）出手机网页版：同一份源码、另一个产物目录。桌面那份仍是 `dist`。
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), vanillaExtractPlugin()],
+  plugins: [react(), vanillaExtractPlugin(), assetManifest()],
   // ★ BlockSuite 发到 npm 的是**源码**（D-0046），里面用了 `override accessor x = true`
   //   （ES2022 的 auto-accessor）。Vite 的 esbuild 默认 `target: 'esnext'` —— 原样放行，
   //   而 Rollup 的解析器不认 `accessor`，`vite build` 直接 parse 失败。

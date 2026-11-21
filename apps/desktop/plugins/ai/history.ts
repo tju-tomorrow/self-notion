@@ -9,6 +9,7 @@
 import type { Context } from 'cordis'
 
 import { SESSIONS_KEY, getAiState, restoreSessions, subscribeState, type Line, type Session, type ToolMark } from './state'
+import type { RagChunk, RagScope, RagTrace } from './rag'
 
 const ROLES: readonly Line['role'][] = ['user', 'ai', 'note']
 
@@ -70,7 +71,13 @@ function parse(raw: string): { sessions: Session[]; currentId: string } | null {
         const l = line as Partial<Line>
         if (typeof l.text !== 'string' || !ROLES.includes(l.role as Line['role'])) return []
         // 工具那一行那份现场（转圈 / 耗时）是 D-0097 之后才存的 —— 老行没它，不影响。
-        return [{ role: l.role as Line['role'], text: l.text, tool: toolOf(l.tool) }]
+        return [{
+          role: l.role as Line['role'],
+          text: l.text,
+          tool: toolOf(l.tool),
+          scope: scopeOf(l.scope),
+          rag: traceOf(l.rag),
+        }]
       }),
     })
   }
@@ -81,6 +88,73 @@ function parse(raw: string): { sessions: Session[]; currentId: string } | null {
       ? box.currentId
       : sessions[0].id
   return { sessions, currentId }
+}
+
+/** 范围签。路径和标题有一个坏的，整颗丢掉（半颗更难看）。 */
+function scopeOf(raw: unknown): RagScope | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const v = raw as Record<string, unknown>
+  if (typeof v['path'] !== 'string' || typeof v['title'] !== 'string') return undefined
+  if (v['kind'] === 'dir') return { kind: 'dir', path: v['path'], title: v['title'] }
+  if (v['kind'] === 'doc' && typeof v['id'] === 'string') {
+    return { kind: 'doc', id: v['id'], path: v['path'], title: v['title'] }
+  }
+  return undefined
+}
+
+/** 检索结果。片段坏一条就丢一条 —— 来源卡宁缺勿错。 */
+function traceOf(raw: unknown): RagTrace | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const t = raw as Partial<RagTrace>
+  const scope = scopeOf(t.scope)
+  if (!scope || !Array.isArray(t.chunks) || !Array.isArray(t.usedDocs)) return undefined
+  const chunks: RagChunk[] = []
+  for (const item of t.chunks) {
+    if (typeof item !== 'object' || item === null) continue
+    const c = item as unknown as Record<string, unknown>
+    if (typeof c['n'] !== 'number' || typeof c['text'] !== 'string') continue
+    chunks.push({
+      n: c['n'],
+      docId: typeof c['docId'] === 'string' ? c['docId'] : '',
+      title: typeof c['title'] === 'string' ? c['title'] : '',
+      path: typeof c['path'] === 'string' ? c['path'] : '',
+      heading: typeof c['heading'] === 'string' ? c['heading'] : null,
+      text: c['text'],
+      anchor: typeof c['anchor'] === 'string' ? c['anchor'] : '',
+      score: typeof c['score'] === 'number' ? c['score'] : 0,
+      reason: reasonOf(c['reason']),
+    })
+  }
+  return {
+    scope,
+    query: typeof t.query === 'string' ? t.query : '',
+    docsTotal: numOr0(t.docsTotal),
+    docsScanned: numOr0(t.docsScanned),
+    docsHit: numOr0(t.docsHit),
+    docsSkipped: numOr0(t.docsSkipped),
+    chunksScored: numOr0(t.chunksScored),
+    chars: numOr0(t.chars),
+    tookMs: numOr0(t.tookMs),
+    chunks,
+    usedDocs: t.usedDocs.filter(
+      (d): d is RagTrace['usedDocs'][number] =>
+        typeof d === 'object' && d !== null && typeof (d as { path?: unknown }).path === 'string',
+    ),
+    empty:
+      t.empty === 'no_docs' || t.empty === 'no_projection' || t.empty === 'no_match'
+        ? t.empty
+        : undefined,
+  }
+}
+
+function reasonOf(raw: unknown): RagChunk['reason'] {
+  return raw === 'title' || raw === 'heading' || raw === 'summary' || raw === 'fallback'
+    ? raw
+    : 'body'
+}
+
+function numOr0(raw: unknown): number {
+  return typeof raw === 'number' && raw >= 0 ? raw : 0
 }
 
 /** 工具那一行那份现场。**跑完与否认不出来就不要它**（另一半是残的）—— 宁可当一个纯字行。 */

@@ -84,7 +84,10 @@ export const iconButton = style({
   background: 'transparent',
   color: 'var(--affine-v2-icon-primary)',
   cursor: 'pointer',
-  selectors: { '&:hover': { background: 'var(--affine-v2-layer-background-hoverOverlay)' } },
+  selectors: {
+    '&:hover': { background: 'var(--affine-v2-layer-background-hoverOverlay)' },
+    'html[data-mobile="1"] &': { width: 40, height: 40 },
+  },
 })
 
 /** ⋯ 按钮与它的浮层同一层壳 —— 「点外面关」的判定挂在它上面，点按钮才不会先把自己关掉。 */
@@ -318,4 +321,7 @@ export const blockTitle = style({ margin: 0, fontSize: 14, fontWeight: 600, colo
 export const hint = style({ margin: 0, fontSize: 13, color: 'var(--affine-v2-text-secondary)' })
 
 /** 手机只有一栏：分屏按钮点了也没有可用的布局，直接收起来。 */
-export const splitButton = style({ '@media': { '(max-width: 720px)': { display: 'none' } } })
+export const splitButton = style({
+  '@media': { '(max-width: 720px)': { display: 'none' } },
+  selectors: { 'html[data-mobile="1"] &': { display: 'none' } },
+})
