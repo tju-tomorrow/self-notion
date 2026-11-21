@@ -423,6 +423,12 @@ pub fn dispatch(
         #[cfg(not(target_os = "macos"))]
         "clipboard:copyImage" => Err(ApiError::new("unsupported", "只支持 macOS")),
 
+        // ── 标注（D-0202）：颜色 / 块颜色 / 评论锚点，给内置 AI 的 doc_annotations ──
+        "doc:annotations" => call(db, |c| {
+            let a: crate::annotations::Args = parse(args)?;
+            crate::annotations::list(c, &a.id)
+        }),
+
         // ── 评论（D-0067）─────────────────────────────────────────────────────
         "comment:list" => call(db, |c| {
             let a: CommentList = parse(args)?;

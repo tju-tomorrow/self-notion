@@ -1,7 +1,7 @@
 /**
  * `ctx.tools` —— agent 的工具面（D-0042 / D-0087）。
  *
- * **七条**：读三条（`vfs_list` / `vfs_grep` / `vfs_read`）+ 写四条（`doc_create` /
+ * **八条**：读四条（`vfs_list` / `vfs_grep` / `vfs_read` / `doc_annotations`）+ 写四条（`doc_create` /
  * `doc_append` / `doc_replace` / `doc_blocks`）。`ToolSpec.parameters` 就是给模型看的 JSON Schema ——
  * **一份定义**，唯一的消费者是 `plugin-ai`（D-0084 把 MCP 改成进程外只读 bin 之后，
  * 「一个定义两处导出」那句作废了）。见 `docs/ai.md` 第三节。
@@ -64,6 +64,7 @@ export function apply(ctx: Context) {
   add(listTool(ctx))
   add(grepTool(ctx))
   add(readTool(ctx))
+  add(annotationsTool(ctx))
   add(createTool(ctx))
   add(appendTool(ctx))
   add(replaceTool(ctx))
@@ -131,6 +132,32 @@ function readTool(ctx: Context): ToolSpec {
       const limit = num(a, 'limit')
       const text = await needVfs(ctx).read(str(a, 'path'), { offset, limit })
       return readWithImages(ctx, text)
+    },
+  }
+}
+
+function annotationsTool(ctx: Context): ToolSpec {
+  return {
+    name: 'doc_annotations',
+    description:
+      '查一篇笔记里**看得见的标注**：文字颜色 / 高亮、块颜色、以及所有评论和每条评论锚住的原文。' +
+      '用户问「这篇里哪些地方标了颜色」「哪些句子有评论」「这条评论对应哪段」时用它 —— ' +
+      'vfs_read 只有纯文字，看不到颜色和评论锚点。不给 id 就是用户正在看的那篇。',
+    parameters: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: '文档 id 或 "/tree/某某.md" 路径；不给 = 当前正在看的那篇',
+        },
+      },
+    },
+    async run(args) {
+      const a = obj(args)
+      const ref = str(a, 'id') || str(a, 'currentDocId')
+      if (!ref) throw new Error('doc_annotations：不知道查哪一篇（用户没在看文档，请给 id 或路径）')
+      const id = await resolve(ctx, ref)
+      return ctx.rpc.call('doc:annotations', { id })
     },
   }
 }

@@ -67,6 +67,8 @@ const BASE_PROMPT = [
     'tableOfContents / breadcrumb。text 支持行内 markdown（**粗体** *斜体* `代码` [链接](url)），' +
     'children 是嵌套块，color / bg 是块级文字色和背景色。',
   '用户消息里用 """ 圈起来的那段是他在正文里划出来的原文 —— 问题多半针对它，先读它再答。',
+  '用户问「这篇里哪些地方标了颜色 / 哪些句子有评论 / 这条评论对应哪段」时调 doc_annotations；' +
+    'vfs_read 只有纯文字，颜色和评论锚点都不在里面。不给 id 就是当前这篇。',
   '不要尝试删除文档 —— 没有这个工具。回答用用户提问的语言，简短。',
 ].join('\n')
 
@@ -338,7 +340,14 @@ function toolsFor(
     async run(call, signal) {
       // `groupId` 是**调用方加的**，不在工具的 JSON Schema 里（模型看不见它）。
       try {
-        const args = { ...parseArgs(call.args), groupId }
+        const args = {
+          ...parseArgs(call.args),
+          groupId,
+          // 标注是「当前这篇」的查询 —— 模型看不到 viewingDoc，调用方补上。
+          ...(spec.name === 'doc_annotations'
+            ? { currentDocId: getAiState().viewingDoc ?? '' }
+            : {}),
+        }
         await gate(ctx, spec, call, args, signal)
         const result = await spec.run(args)
         const id = (result as { id?: unknown } | null)?.id

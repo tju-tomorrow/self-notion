@@ -6,6 +6,7 @@ use tauri::Manager;
 
 mod ai;
 mod aiweb;
+mod annotations;
 mod assoc;
 #[cfg(target_os = "macos")]
 mod autocheck;
