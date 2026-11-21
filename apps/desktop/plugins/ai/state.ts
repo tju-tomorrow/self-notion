@@ -55,6 +55,20 @@ export interface Undo {
   docs: string[]
 }
 
+/** 一次等着人点头的写操作（`loop.ts` 的写工具过闸时弹这张卡）。 */
+export interface Approval {
+  /** 模型那次调用的 id —— 和对话里那条工具行对得上。 */
+  id: string
+  name: string
+  /** 改哪一篇 / 叫什么。 */
+  detail: string
+  /** 要写进去的东西的预览：markdown、块结构或新标题。 */
+  preview: string
+}
+
+/** 卡片上那三个出口。 */
+export type ApprovalChoice = 'once' | 'always' | 'deny'
+
 export interface AiUiState {
   sessions: Session[]
   currentId: string
@@ -73,6 +87,10 @@ export interface AiUiState {
   error: string
   /** 撤销条：一个回合一条。 */
   undo: Undo[]
+  /** 本次对话里写操作直接放行（bypass）。**不落盘**：下次启动回到每次确认。 */
+  autoRun: boolean
+  /** 正等着用户点头的那次写操作。 */
+  pending: Approval | null
 }
 
 /** 落盘的键。**带插件名前缀** —— `meta` 表是全局的（同 `shell-tabs.session`）。 */
@@ -98,7 +116,12 @@ let state: AiUiState = {
   draft: '',
   error: '',
   undo: [],
+  autoRun: false,
+  pending: null,
 }
+
+/** 卡片上按钮的回调 —— 不进 state（函数不该跟着 UI 状态走）。 */
+let pendingResolve: ((choice: ApprovalChoice) => void) | null = null
 
 const subs = new Set<() => void>()
 
@@ -123,6 +146,46 @@ let cancel: (() => void) | null = null
 
 export function onStopRequest(fn: (() => void) | null): void {
   cancel = fn
+}
+
+/* ────────────────────── 写操作过闸（人确认 / 自动执行） ────────────────────── */
+
+/** 写工具要动库之前问一句。自动执行开着就不弹卡，直接放行。 */
+export function askApproval(approval: Approval): Promise<ApprovalChoice> {
+  if (state.autoRun) return Promise.resolve('once')
+  return new Promise((resolve) => {
+    pendingResolve = resolve
+    setAiState({ pending: approval })
+  })
+}
+
+/** 卡片上的按钮。`always` = 本次对话剩下的写操作都放行。 */
+export function resolveApproval(choice: ApprovalChoice): void {
+  const fn = pendingResolve
+  pendingResolve = null
+  setAiState({ pending: null, autoRun: choice === 'always' ? true : state.autoRun })
+  fn?.(choice)
+}
+
+/** ⇧Tab / 点那颗模式签：本次对话里在「每次确认」和「自动执行」之间切。 */
+export function toggleAutoRun(): void {
+  if (state.autoRun) {
+    setAiState({ autoRun: false })
+    return
+  }
+  // 正在等的那一张卡，切到自动就等于「同意这次」。
+  const fn = pendingResolve
+  pendingResolve = null
+  setAiState({ autoRun: true, pending: null })
+  fn?.('once')
+}
+
+/** 中断 / 换会话时收掉悬着的卡 —— 别让循环等一个永远不会来的点击。 */
+export function cancelApproval(): void {
+  const fn = pendingResolve
+  pendingResolve = null
+  if (state.pending) setAiState({ pending: null })
+  fn?.('deny')
 }
 
 /** 插件层用它落盘（`history.ts`）。 */
@@ -219,14 +282,23 @@ export function addSpend(tokens: number): void {
 /** 新开一条。**当前这条本来就空就不动** —— 否则连点几下就攒出一串空会话。 */
 export function newSession(): void {
   if (currentSession().lines.length === 0) return
+  cancelApproval()
   const fresh = blank()
-  setAiState({ sessions: [...state.sessions, fresh], currentId: fresh.id, draft: '', error: '' })
+  // 自动执行只对「本次对话」有效 —— 新开一条就回到每次确认。
+  setAiState({
+    sessions: [...state.sessions, fresh],
+    currentId: fresh.id,
+    draft: '',
+    error: '',
+    autoRun: false,
+  })
 }
 
 export function openSession(id: string): void {
   if (id === state.currentId) return
   if (!state.sessions.some((sess) => sess.id === id)) return
-  setAiState({ currentId: id, draft: '', error: '' })
+  cancelApproval()
+  setAiState({ currentId: id, draft: '', error: '', autoRun: false })
 }
 
 export function clearUndo(groupId: string): void {

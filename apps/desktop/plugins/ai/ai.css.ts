@@ -742,6 +742,153 @@ export const scopeClear = style({
   selectors: { '&:hover': { background: 'var(--affine-v2-layer-background-hoverOverlay)' } },
 })
 
+/* ── 写操作过闸（人确认 / 自动执行） ── */
+
+/** 卡片贴住输入条，聊天记录滚多远都看得到。 */
+export const approval = style({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+  marginBottom: 6,
+  padding: '10px 12px',
+  borderRadius: 12,
+  border:
+    '0.5px solid color-mix(in srgb, var(--affine-primary-color) 35%, transparent)',
+  background:
+    'color-mix(in srgb, var(--affine-primary-color) 6%, var(--affine-v2-layer-background-primary))',
+})
+
+export const approveHead = style({
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: 6,
+  flexWrap: 'wrap',
+  fontSize: 12,
+  lineHeight: '18px',
+})
+
+export const approveTitle = style({
+  fontWeight: 600,
+  color: 'var(--affine-v2-text-primary)',
+})
+
+export const approveTool = style({
+  padding: '0 5px',
+  borderRadius: 4,
+  background: 'var(--affine-v2-layer-background-secondary)',
+  color: 'var(--affine-v2-text-secondary)',
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  fontSize: 11,
+})
+
+export const approveTarget = style({
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  maxWidth: '100%',
+  color: 'var(--affine-v2-text-secondary)',
+})
+
+export const approvePreview = style({
+  margin: 0,
+  padding: '6px 8px',
+  maxHeight: 160,
+  overflow: 'auto',
+  borderRadius: 8,
+  background: 'var(--affine-v2-layer-background-secondary)',
+  color: 'var(--affine-v2-text-secondary)',
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  fontSize: 11,
+  lineHeight: '17px',
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+})
+
+export const approveActions = style({
+  display: 'flex',
+  justifyContent: 'flex-end',
+  gap: 6,
+})
+
+const approveButton = style({
+  padding: '4px 10px',
+  border: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
+  borderRadius: 8,
+  background: 'var(--affine-v2-layer-background-primary)',
+  color: 'var(--affine-v2-text-secondary)',
+  fontFamily: 'inherit',
+  fontSize: 12,
+  lineHeight: '18px',
+  cursor: 'pointer',
+  transition: 'background 140ms ease, color 140ms ease',
+  selectors: {
+    '&:hover': { background: 'var(--affine-v2-layer-background-hoverOverlay)' },
+  },
+})
+
+export const approveDeny = style([approveButton, { color: 'var(--affine-v2-text-tertiary)' }])
+
+export const approveOnce = style([approveButton, { color: 'var(--affine-v2-text-primary)' }])
+
+export const approveAlways = style([
+  approveButton,
+  {
+    border: 'none',
+    background: 'var(--affine-primary-color)',
+    color: '#fff',
+    selectors: {
+      '&:hover': { opacity: 0.86, background: 'var(--affine-primary-color)' },
+    },
+  },
+])
+
+/** 快捷键那行 + 右边的模式签。 */
+export const footRow = style({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  flexWrap: 'wrap',
+  gap: 8,
+})
+
+export const mode = style({
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+  padding: '1px 6px',
+  border: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
+  borderRadius: 999,
+  background: 'transparent',
+  color: 'var(--affine-v2-text-tertiary)',
+  fontFamily: 'inherit',
+  fontSize: 11,
+  lineHeight: '16px',
+  cursor: 'pointer',
+  selectors: {
+    '&:hover': {
+      color: 'var(--affine-v2-text-secondary)',
+      background: 'var(--affine-v2-layer-background-hoverOverlay)',
+    },
+  },
+})
+
+/** 自动执行：一眼看出来这会儿已经不再问了。 */
+export const modeOn = style([
+  mode,
+  {
+    border: '0.5px solid color-mix(in srgb, var(--affine-primary-color) 45%, transparent)',
+    background: 'color-mix(in srgb, var(--affine-primary-color) 10%, transparent)',
+    color: 'var(--affine-primary-color)',
+  },
+])
+
+export const modeKey = style({
+  fontFamily: 'inherit',
+  fontSize: 10,
+  color: 'inherit',
+  opacity: 0.7,
+})
+
 /** `@` 选择器：浮在输入胶囊上方，不把布局顶开。 */
 export const picker = style({
   position: 'absolute',

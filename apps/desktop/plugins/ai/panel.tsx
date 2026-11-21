@@ -52,9 +52,12 @@ import {
   openDock,
   newSession,
   openSession,
+  resolveApproval,
   sessionsByRecency,
   stop,
+  toggleAutoRun,
   useAiState,
+  type Approval,
   type Line,
   type ToolMark,
 } from './state'
@@ -433,6 +436,8 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
       </div>
 
       <div className={compact ? s.dockFoot : s.foot}>
+        {/* 写操作过闸：模型要改库，卡就贴在这儿等人点（不会被聊天记录滚走）。 */}
+        {st.pending ? <ApprovalCard ctx={ctx} pending={st.pending} /> : null}
         {/* 这一问圈定的范围。看得见、可撤 —— 发出去之后这里会清空。 */}
         {scope ? (
           <div className={s.scopeChip} title={scopeLabel(scope)}>
@@ -537,6 +542,12 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
               onKeyDown={(e) => {
                 // 输入法选词 / 送字时一律不拦。
                 if (e.nativeEvent.isComposing) return
+                // ⇧Tab：本次对话里切「每次确认 / 自动执行」。
+                if (e.key === 'Tab' && e.shiftKey) {
+                  e.preventDefault()
+                  toggleAutoRun()
+                  return
+                }
                 if (picker) {
                   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                     e.preventDefault()
@@ -581,9 +592,61 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
           </button>
           </div>
         </div>
-        <span className={s.hint}>{ctx.i18n.t('agent.hint')}</span>
+        <div className={s.footRow}>
+          <span className={s.hint}>{ctx.i18n.t('agent.hint')}</span>
+          <button
+            type="button"
+            className={st.autoRun ? s.modeOn : s.mode}
+            title={ctx.i18n.t(st.autoRun ? 'agent.modeAutoHint' : 'agent.modeAskHint')}
+            aria-label={ctx.i18n.t(st.autoRun ? 'agent.modeAuto' : 'agent.modeAsk')}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={toggleAutoRun}
+          >
+            {ctx.i18n.t(st.autoRun ? 'agent.modeAuto' : 'agent.modeAsk')}
+            <kbd className={s.modeKey}>⇧Tab</kbd>
+          </button>
+        </div>
       </div>
     </>
+  )
+}
+
+/* ────────────────────────── 写操作过闸 ────────────────────────── */
+
+/** 模型要动库时贴出来的那张卡：看清改哪、改什么，再决定。 */
+function ApprovalCard({ ctx, pending }: { ctx: Context; pending: Approval }) {
+  return (
+    <div className={s.approval} role="alertdialog" aria-label={ctx.i18n.t('agent.approveTitle')}>
+      <div className={s.approveHead}>
+        <span className={s.approveTitle}>{ctx.i18n.t('agent.approveTitle')}</span>
+        <span className={s.approveTool}>{pending.name}</span>
+        {pending.detail ? <span className={s.approveTarget}>{pending.detail}</span> : null}
+      </div>
+      {pending.preview ? <pre className={s.approvePreview}>{pending.preview}</pre> : null}
+      <div className={s.approveActions}>
+        <button
+          type="button"
+          className={s.approveDeny}
+          onClick={() => resolveApproval('deny')}
+        >
+          {ctx.i18n.t('agent.approveDeny')}
+        </button>
+        <button
+          type="button"
+          className={s.approveOnce}
+          onClick={() => resolveApproval('once')}
+        >
+          {ctx.i18n.t('agent.approveOnce')}
+        </button>
+        <button
+          type="button"
+          className={s.approveAlways}
+          onClick={() => resolveApproval('always')}
+        >
+          {ctx.i18n.t('agent.approveAlways')}
+        </button>
+      </div>
+    </div>
   )
 }
 

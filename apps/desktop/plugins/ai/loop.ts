@@ -36,6 +36,8 @@ import { whereNow } from './place'
 import { emptyPrompt, scopeLabel, searchScope, sourcesBlock, type RagScope, type RagTrace } from './rag'
 import {
   addSpend,
+  askApproval,
+  cancelApproval,
   clearUndo,
   finishRag,
   finishTool,
@@ -123,7 +125,7 @@ export async function runTurn(
     await runLoop(
       messages,
       {
-        tools: toolsFor(specs, groupId, written),
+        tools: toolsFor(ctx, specs, groupId, written),
         maxRounds: MAX_ROUNDS,
         onAssistant: (turn) => {
           if (turn.content.trim()) pushLine({ role: 'ai', text: turn.content.trim() })
@@ -266,21 +268,86 @@ function makeStreamTurn(ctx: Context, ai: AiService, specs: readonly ToolSpec[])
   }
 }
 
+/** 用户点「不同意」—— 不是故障，别写进 errors.log。 */
+class Denied extends Error {}
+
+/**
+ * 写工具过闸：等人点头 / 自动放行 / 拒绝。读工具直接放行。
+ * 中断时把悬着的卡收掉并当拒绝 —— 循环不能等一个永远不会来的点击。
+ */
+async function gate(
+  ctx: Context,
+  spec: ToolSpec,
+  call: AiToolCall,
+  args: Record<string, unknown>,
+  signal: AbortSignal,
+): Promise<void> {
+  if (!WRITES.has(spec.name)) return
+  if (signal.aborted) throw new Denied(`${call.name} 没有执行：这一回合被中断了。`)
+
+  const onAbort = () => cancelApproval()
+  signal.addEventListener('abort', onAbort, { once: true })
+  try {
+    const choice = await askApproval({
+      id: call.id,
+      name: spec.name,
+      detail: detailOf(args),
+      preview: previewOf(ctx, args),
+    })
+    if (choice !== 'deny') return
+    const what = detailOf(args)
+    throw new Denied(
+      `用户拒绝了这次修改（${spec.name}${what ? `：${what}` : ''}），没有执行。` +
+        '不要原样重试；先问清楚用户想怎么改。',
+    )
+  } finally {
+    signal.removeEventListener('abort', onAbort)
+  }
+}
+
+/** 卡片里那句「要写什么」—— 块结构 / markdown / 新标题，截一段就够判断了。 */
+function previewOf(ctx: Context, args: Record<string, unknown>): string {
+  const quote = typeof args['quote'] === 'string' ? args['quote'] : ''
+  const head = quote ? `要替换：${quote}\n\n` : ''
+  const blocks = args['blocks']
+  if (Array.isArray(blocks)) {
+    const label = ctx.i18n.t('agent.approveBlocks', { n: blocks.length })
+    return head + `${label}\n${clip(JSON.stringify(blocks, null, 2), 500)}`
+  }
+  const markdown = args['markdown']
+  if (typeof markdown === 'string' && markdown !== '') return head + clip(markdown, 600)
+  const title = args['title']
+  if (typeof title === 'string' && title !== '') return title
+  return head.trim()
+}
+
+function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}…` : text
+}
+
 /** 契约里的 `ToolSpec` → 循环要的 `HarnessTool`。**读并发、写串行**。 */
-function toolsFor(specs: readonly ToolSpec[], groupId: string, written: Set<string>): HarnessTool[] {
+function toolsFor(
+  ctx: Context,
+  specs: readonly ToolSpec[],
+  groupId: string,
+  written: Set<string>,
+): HarnessTool[] {
   return specs.map((spec) => ({
     name: spec.name,
     executionMode: WRITES.has(spec.name) ? 'sequential' : 'parallel',
-    async run(call) {
+    async run(call, signal) {
       // `groupId` 是**调用方加的**，不在工具的 JSON Schema 里（模型看不见它）。
       try {
-        const result = await spec.run({ ...parseArgs(call.args), groupId })
+        const args = { ...parseArgs(call.args), groupId }
+        await gate(ctx, spec, call, args, signal)
+        const result = await spec.run(args)
         const id = (result as { id?: unknown } | null)?.id
         if (WRITES.has(spec.name) && typeof id === 'string') written.add(id)
         return asToolOutput(result)
       } catch (err) {
         // 工具失败是常态（模型给错参数），不当故障报 —— 但得能查到（AGENTS.md §3）。
-        reportNote('ai', `工具 ${spec.name} 失败：${message(err)}`)
+        // 用户拒绝不是故障，跳过。
+        if (!(err instanceof Denied)) reportNote('ai', `工具 ${spec.name} 失败：${message(err)}`)
         throw err
       }
     },
