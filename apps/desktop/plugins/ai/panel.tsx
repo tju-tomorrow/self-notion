@@ -32,6 +32,7 @@ import {
 
 import { AGENT_TAB_ID, CLOSE_TAB, type AiService } from '../../src/kernel/contract'
 import { readLocal, writeLocal } from '../../src/kernel/local'
+import { useImeGuard } from '../../src/ui/ime'
 import * as s from './ai.css'
 import { runTurn, type Quote } from './loop'
 import { Markdown, type CiteCtx } from './md'
@@ -288,6 +289,7 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
   const [scopes, setScopes] = useState<RagScopeItem[]>([])
   const [scopesLoaded, setScopesLoaded] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
+  const ime = useImeGuard()
 
   useEffect(() => {
     let raf = 0
@@ -541,9 +543,11 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
                 syncPicker(e.target.value, e.target.selectionStart ?? e.target.value.length)
               }}
               onBlur={() => setPicker(null)}
+              onCompositionStart={ime.onCompositionStart}
+              onCompositionEnd={ime.onCompositionEnd}
               onKeyDown={(e) => {
                 // 输入法选词 / 送字时一律不拦。
-                if (e.nativeEvent.isComposing) return
+                if (ime.blocked(e)) return
                 // ⇧Tab：本次对话里切「每次确认 / 自动执行」。
                 if (e.key === 'Tab' && e.shiftKey) {
                   e.preventDefault()

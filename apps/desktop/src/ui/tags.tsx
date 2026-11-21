@@ -11,10 +11,12 @@ import { CloseIcon } from '@blocksuite/icons/rc'
 import { DOCS_CHANGED, type DocMeta } from '../kernel/contract'
 import { reportError } from '../kernel/errors'
 import * as s from './doc-menu.css'
+import { useImeGuard } from './ime'
 
 export function TagPanel({ ctx, doc }: { ctx: Context; doc: DocMeta }) {
   const [tags, setTags] = useState<string[]>(doc.tags)
   const box = useRef<HTMLInputElement>(null)
+  const ime = useImeGuard()
 
   /** 每动一次就整组写回去（`doc:tags` 是替换语义），不做「保存」按钮。 */
   const save = (next: string[]) => {
@@ -64,8 +66,10 @@ export function TagPanel({ ctx, doc }: { ctx: Context; doc: DocMeta }) {
         placeholder={ctx.i18n.t('doc.tags.placeholder')}
         autoFocus
         onClick={(e) => e.stopPropagation()}
+        onCompositionStart={ime.onCompositionStart}
+        onCompositionEnd={ime.onCompositionEnd}
         onKeyDown={(e) => {
-          if (e.nativeEvent.isComposing) return // 输入法选词的回车不是落库
+          if (ime.blocked(e)) return // 输入法选词的回车不是落库
           // 回车落库；打逗号也当场收一个 —— 「逗号分隔」这句话得真的成立。
           if (e.key === 'Enter' || e.key === ',') {
             e.preventDefault()

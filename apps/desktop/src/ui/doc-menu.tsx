@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { Context } from 'cordis'
+import { useImeGuard } from './ime'
 import {
   AllDocsIcon,
   DeletePermanentlyIcon,
@@ -424,12 +425,15 @@ export function InlineRename({
   onDone: () => void
 }) {
   const cancelled = useRef(false)
+  const ime = useImeGuard()
   return (
     <input
       className={className === undefined ? s.renameInput : `${className} ${s.renameInput}`}
       defaultValue={doc.title}
       autoFocus
       onClick={(e) => e.stopPropagation()}
+      onCompositionStart={ime.onCompositionStart}
+      onCompositionEnd={ime.onCompositionEnd}
       onBlur={(e) => {
         const value = e.currentTarget.value
         if (cancelled.current) {
@@ -445,7 +449,7 @@ export function InlineRename({
           .catch((err: unknown) => reportError('doc.rename', err))
       }}
       onKeyDown={(e) => {
-        if (e.nativeEvent.isComposing) return // 输入法选词的回车不是落地
+        if (ime.blocked(e)) return // 输入法选词的回车不是落地
         // Enter 交给 onBlur 落地 —— 提交只留一条路径。
         if (e.key === 'Enter') e.currentTarget.blur()
         else if (e.key === 'Escape') cancelled.current = true

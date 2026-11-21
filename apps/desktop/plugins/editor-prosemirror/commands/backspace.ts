@@ -10,7 +10,11 @@ import type { Command, EditorState, Transaction } from 'prosemirror-state'
 
 import { schema } from '../schema'
 import { groupChildren, prevSibling, blockAt, type BlockRef } from './block'
+import { newBlockId } from './id'
 import { liftOut } from './move'
+
+/** 插进来会自带一个空段落垫底的原子块。 */
+const MEDIA = new Set(['image', 'video', 'audio', 'file'])
 
 const DEGRADE_TO_PARAGRAPH = new Set([
   'quote',
@@ -84,10 +88,30 @@ export const backspace: Command = (state, dispatch) => {
     // 于是同一个 Backspace 只会「缩进去 / 退出来」来回跳，那块永远删不掉。
     // subpage 是能打开的文章卡片，不是装饰块：退格删掉当前空段落、光标向上选中它。
     if (prev && prev.node.child(0).isAtom) {
-      if (prev.node.child(0).type.name === 'subpage') {
+      const atom = prev.node.child(0).type.name
+      if (atom === 'subpage') {
         if (dispatch) {
           const tr = state.tr.delete(block.pos, block.pos + block.node.nodeSize)
           tr.setSelection(NodeSelection.create(tr.doc, prev.pos))
+          dispatch(tr)
+        }
+        return true
+      }
+      // 图片 / 媒体下面的空段落只是垫脚石：删它，别删上面的块。
+      // 删完若图片成了文末，再补一个空段落（跟 trailing-block 的常驻空块一致）。
+      if (MEDIA.has(atom) && block.content.content.size === 0) {
+        if (dispatch) {
+          const tr = state.tr.delete(block.pos, block.pos + block.node.nodeSize)
+          const at = prev.pos + prev.node.nodeSize
+          if (at >= tr.doc.content.size - 1) {
+            const para = schema.nodes.paragraph.createAndFill()
+            if (para) {
+              tr.insert(at, schema.nodes.blockContainer.create({ id: newBlockId() }, para))
+              tr.setSelection(TextSelection.create(tr.doc, at + 2))
+            }
+          } else {
+            tr.setSelection(TextSelection.near(tr.doc.resolve(at), 1))
+          }
           dispatch(tr)
         }
         return true

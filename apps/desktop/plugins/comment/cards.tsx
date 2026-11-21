@@ -5,6 +5,7 @@
  *   （浮卡贴在原文旁边，再抄一遍是废话）。两种形态各写一套卡片，两边迟早长歪。
  */
 import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useImeGuard } from '../../src/ui/ime'
 import { fullTime, timeAgo } from '../../src/ui/timeago'
 import type { Context } from 'cordis'
 import type { Comment } from '../../src/kernel/contract'
@@ -283,6 +284,7 @@ function Composer({
 }) {
   const [text, setText] = useState(initial)
   const ref = useRef<HTMLTextAreaElement>(null)
+  const ime = useImeGuard()
 
   useEffect(() => {
     if (autoFocus) ref.current?.focus()
@@ -326,9 +328,11 @@ function Composer({
           e.target.style.height = 'auto'
           e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`
         }}
+        onCompositionStart={ime.onCompositionStart}
+        onCompositionEnd={ime.onCompositionEnd}
         onKeyDown={(e) => {
           // 输入法选词时的回车是在上屏，不是发送。
-          if (e.nativeEvent.isComposing) return
+          if (ime.blocked(e)) return
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
             send()
