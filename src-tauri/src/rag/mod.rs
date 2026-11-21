@@ -725,18 +725,37 @@ const EN_STOP: &[&str] = &[
 
 fn wants_overview(q: &str) -> bool {
     let lower = q.to_lowercase();
-    // 只认「把范围本身当主语」的问法；「总结一下 RAG」这类带主题的仍然走检索。
+    // 只认「范围本身当主语」的问法：去掉触发词和虚词后几乎不剩内容。
+    // 「这个目录里 RAG 相关的笔记」去掉后还剩 rag / 笔记，仍然走检索。
     const HINTS: &[&str] = &[
-        "这个目录讲了什么", "这目录讲了什么", "这个目录里有什么", "这目录里有什么",
-        "这个目录是什么", "这个目录是干什么", "这里讲了什么", "这里有什么",
-        "里面讲了什么", "里面有什么", "这些笔记讲了什么", "这些笔记都是什么",
-        "目录里有什么", "都讲了什么", "讲了些什么", "有什么内容",
-        "这篇讲了什么", "这篇文章讲了什么", "这篇说了什么", "这篇写的是什么",
+        "这个目录", "这目录", "这个文件夹", "这个范围", "这些笔记",
+        "这里讲了", "这里都讲", "这里有什么", "里面讲了", "目录里讲",
+        "这篇讲了", "这篇文章讲", "这篇主要", "这篇文章主要",
         "what is this folder", "what's in this folder", "whats in this folder",
-        "what is in this folder", "overview of this folder", "summarize this folder",
-        "summarize this directory", "what does this folder contain",
+        "what is in this folder", "overview of this folder",
+        "summarize this folder", "summarize this directory",
     ];
-    HINTS.iter().any(|h| lower.contains(h))
+    for h in HINTS {
+        let Some(i) = lower.find(h) else { continue };
+        let rest = format!("{}{}", &lower[..i], &lower[i + h.len()..]);
+        if strip_fillers(&rest).chars().count() <= 2 {
+            return true;
+        }
+    }
+    false
+}
+
+fn strip_fillers(s: &str) -> String {
+    let mut out = s.to_string();
+    for f in [
+        "主要", "大概", "简单", "帮我", "一下", "这个", "那个", "这些", "那些", "什么",
+        "哪些", "怎么", "如何", "关于", "里面", "内容", "东西", "总结", "介绍", "说说",
+        "看看", "讲", "说", "写", "都", "是", "的", "了", "吗", "呢", "吧", "有", "些",
+        "里", "请", "啥", "about", "the", "this", "is", "in",
+    ] {
+        out = out.replace(f, "");
+    }
+    out.chars().filter(|c| c.is_alphanumeric()).collect()
 }
 
 fn is_stop(term: &str) -> bool {
