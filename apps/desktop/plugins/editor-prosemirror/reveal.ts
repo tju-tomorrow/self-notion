@@ -48,12 +48,17 @@ function step(): void {
 }
 
 function findAnchor(doc: PMNode, anchor: string): number {
-  const needle = flat(anchor)
+  const full = flat(anchor)
+  // 锚点可能被截断或跨块，逐级退到更短的前缀。
+  const needles = [32, 24, 16, 8]
+    .map((n) => full.slice(0, n))
+    .filter((n, i, all) => n.length >= 4 && all.indexOf(n) === i)
   let found = -1
   doc.descendants((node, pos) => {
     if (found >= 0) return false
     if (node.type.name !== 'blockContainer') return undefined
-    if (flat(node.textContent).includes(needle)) {
+    const text = flat(node.textContent)
+    if (needles.some((needle) => text.includes(needle))) {
       found = pos
       return false
     }

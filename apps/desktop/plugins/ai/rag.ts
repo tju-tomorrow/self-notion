@@ -32,8 +32,17 @@ export async function loadScopes(ctx: Context): Promise<RagScopeItem[]> {
   return cached.items
 }
 
-export function searchScope(ctx: Context, scope: RagScope, query: string): Promise<RagTrace> {
-  return ctx.rpc.call<RagTrace>('rag:search', { scope, query })
+export function searchScope(
+  ctx: Context,
+  scope: RagScope,
+  query: string,
+  focusId?: string | null,
+): Promise<RagTrace> {
+  return ctx.rpc.call<RagTrace>('rag:search', {
+    scope,
+    query,
+    focusId: focusId ?? '',
+  })
 }
 
 /** 拼成用户消息里那段资料。编号就是正文里的 `[n]`。 */
@@ -72,17 +81,23 @@ export function revealChunk(ctx: Context, chunk: RagChunk): void {
 
 /** 编辑器新口子接线之前的兜底：正文块自带 `sn-block`，按文字前缀找。 */
 function domReveal(anchor: string): void {
-  const needle = anchor.replace(/\s+/g, '')
+  const full = anchor.replace(/\s+/g, '')
+  // 锚点可能跨块 / 被截断，逐级退到更短的前缀。
+  const needles = [32, 24, 16, 8]
+    .map((n) => full.slice(0, n))
+    .filter((n, i, all) => n.length >= 4 && all.indexOf(n) === i)
   const until = Date.now() + 6000
   const tick = () => {
-    for (const el of document.querySelectorAll<HTMLElement>('.sn-block')) {
-      if (el.textContent?.replace(/\s+/g, '').includes(needle)) {
-        el.scrollIntoView({ block: 'center', behavior: 'smooth' })
-        el.classList.remove('sn-rag-flash')
-        void el.offsetWidth
-        el.classList.add('sn-rag-flash')
-        window.setTimeout(() => el.classList.remove('sn-rag-flash'), 1400)
-        return
+    for (const needle of needles) {
+      for (const el of document.querySelectorAll<HTMLElement>('.sn-block')) {
+        if (el.textContent?.replace(/\s+/g, '').includes(needle)) {
+          el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+          el.classList.remove('sn-rag-flash')
+          void el.offsetWidth
+          el.classList.add('sn-rag-flash')
+          window.setTimeout(() => el.classList.remove('sn-rag-flash'), 1400)
+          return
+        }
       }
     }
     if (Date.now() < until) window.setTimeout(tick, 80)

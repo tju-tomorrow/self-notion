@@ -5,7 +5,7 @@
 
 use super::{clean_controls, db_err, links, new_id, not_found, now_ms, version};
 use crate::commands::{ApiError, ApiResult};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::Serialize;
 
 /// 文档元数据。Rust 是唯一真相源，前端只是缓存（CONVENTIONS 第四节）。
@@ -465,6 +465,53 @@ pub fn search_any(
     }
     let m = terms.iter().map(|t| fts_term(t)).collect::<Vec<_>>().join(" OR ");
     search_with_match(conn, &m, limit, include_trashed)
+}
+
+/// 在给定 id 集合里按 FTS 召回，按 `bm25` 排。给 `rag:search` 圈定范围后挑候选 ——
+/// 范围再大也只在这里过一遍索引，不把整棵树的正文读进内存。
+pub fn match_ids_in(
+    conn: &Connection,
+    terms: &[String],
+    ids: &[String],
+    limit: usize,
+) -> ApiResult<Vec<String>> {
+    if terms.is_empty() || ids.is_empty() || limit == 0 {
+        return Ok(Vec::new());
+    }
+    let m = terms.iter().map(|t| fts_term(t)).collect::<Vec<_>>().join(" OR ");
+    let mut hits: Vec<(String, f64)> = Vec::new();
+    for batch in ids.chunks(400) {
+        let marks = std::iter::repeat_n("?", batch.len()).collect::<Vec<_>>().join(",");
+        let sql = format!(
+            "SELECT doc_id, bm25(doc_fts) FROM doc_fts
+             WHERE doc_fts MATCH ?1 AND doc_id IN ({marks})
+             ORDER BY 2 LIMIT {limit}"
+        );
+        let mut stmt = conn.prepare(&sql).map_err(db_err)?;
+        let mut vals: Vec<&str> = Vec::with_capacity(batch.len() + 1);
+        vals.push(m.as_str());
+        vals.extend(batch.iter().map(String::as_str));
+        let rows = stmt
+            .query_map(params_from_iter(vals), |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?))
+            })
+            .map_err(db_err)?;
+        for row in rows {
+            hits.push(row.map_err(db_err)?);
+        }
+    }
+    hits.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+    let mut out: Vec<String> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for (id, _) in hits {
+        if seen.insert(id.clone()) {
+            out.push(id);
+            if out.len() >= limit {
+                break;
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// 自由文字 → FTS 词项：中文相邻 bigram，英文/数字整词。

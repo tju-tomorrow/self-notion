@@ -389,7 +389,9 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
     // 发的那一刻现读一次 —— 「选完立刻回车」不会错过还没跑到的 rAF。
     const now = ctx.editor.selectedText()
     const quote: Quote | undefined =
-      now && now !== dropped.current ? { text: now, path: place?.path ?? null } : undefined
+      now && now !== dropped.current
+        ? { text: now, path: place?.path ?? null, id: st.viewingDoc }
+        : undefined
     setText('')
     setPicker(null)
     stick.current = true
@@ -778,6 +780,12 @@ function RagBlock({ ctx, trace }: { ctx: Context; trace: RagTrace }) {
             })}
           </p>
           <p className={s.ragLine}>
+            {trace.terms.length
+              ? ctx.i18n.t('agent.ragTerms', { terms: trace.terms.join(' · ') })
+              : ctx.i18n.t('agent.ragTermsNone')}
+            {trace.semantic ? ` · ${ctx.i18n.t('agent.ragSemantic')}` : ''}
+          </p>
+          <p className={s.ragLine}>
             {ctx.i18n.t('agent.ragCoverage', {
               total: trace.docsTotal,
               hit: trace.docsHit,
@@ -857,6 +865,8 @@ function reasonKey(reason: RagChunk['reason']): string {
       return 'agent.ragReasonHeading'
     case 'summary':
       return 'agent.ragReasonSummary'
+    case 'doc':
+      return 'agent.ragReasonDoc'
     case 'fallback':
       return 'agent.ragReasonFallback'
     default:

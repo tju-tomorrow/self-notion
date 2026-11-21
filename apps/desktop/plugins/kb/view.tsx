@@ -17,6 +17,7 @@ import type { KbCurateResult, KbStatus } from '../../src/kernel/contract'
 
 const CURATOR_KEY = 'kb.curator'
 const MODEL_KEY = 'kb.embedModel'
+const RERANK_KEY = 'kb.ragRerank'
 
 /** 计数那格：等宽右对齐，眼睛能上下比（同 `mem-monitor` 的 `num`）。 */
 const num = { fontVariantNumeric: 'tabular-nums', color: 'var(--affine-v2-text-secondary)' } as const
@@ -34,6 +35,9 @@ export function KbSection({ ctx }: { ctx: Context }) {
   // 开关读 `ctx.settings`（默认开）—— Rust 那边只有明确的 false 才算关。
   const readCurator = () => ctx.settings.get<boolean>(CURATOR_KEY) !== false
   const [curatorOn, setCuratorOn] = useState(readCurator)
+  // 向量重排默认关：开着才在检索时联网 embed query。
+  const readRerank = () => ctx.settings.get<boolean>(RERANK_KEY) === true
+  const [rerankOn, setRerankOn] = useState(readRerank)
 
   useEffect(() => {
     ctx.rpc
@@ -46,6 +50,7 @@ export function KbSection({ ctx }: { ctx: Context }) {
   }, [ctx])
 
   useEffect(() => ctx.settings.onChange(CURATOR_KEY, () => setCuratorOn(readCurator())), [ctx])
+  useEffect(() => ctx.settings.onChange(RERANK_KEY, () => setRerankOn(readRerank())), [ctx])
 
   // 每个键一写：输入框没有 blur 钩子，Rust 那边又是懒读的，半截值无所谓。
   const writeModel = (next: string) => {
@@ -85,6 +90,14 @@ export function KbSection({ ctx }: { ctx: Context }) {
 
       <Row label={t('kb.settings.model')} desc={t('kb.settings.semantic.hint')}>
         <Field value={model} onChange={writeModel} placeholder="text-embedding-3-small" width={220} />
+      </Row>
+
+      <Row label={t('kb.settings.rerank')} desc={t('kb.settings.rerank.hint')}>
+        <Switch
+          on={rerankOn}
+          label={t('kb.settings.rerank')}
+          onChange={(next) => ctx.settings.set(RERANK_KEY, next)}
+        />
       </Row>
 
       <Row label={t('kb.settings.curateNow')}>

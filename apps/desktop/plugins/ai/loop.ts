@@ -76,6 +76,8 @@ const BASE_PROMPT = [
 export interface Quote {
   text: string
   path: string | null
+  /** 划线所在文档 —— 检索时给它加权，而不是把整段引用词塞进查询。 */
+  id: string | null
 }
 
 /** 一个回合一个。`crypto.randomUUID` 要安全上下文，自建一个更省心。 */
@@ -177,7 +179,8 @@ async function retrieve(
     tool: { id, name: 'rag_search', detail: scopeLabel(scope), start: Date.now(), ms: null },
   })
   try {
-    const trace = await searchScope(ctx, scope, quote ? `${quote.text}\n${prompt}` : prompt)
+    // 引用正文只用来给所在文档加权，不并进 query —— 长引用会把真正的问题淹掉。
+    const trace = await searchScope(ctx, scope, prompt, quote?.id)
     finishRag(id, trace)
     return trace
   } catch (err) {

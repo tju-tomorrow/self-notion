@@ -128,6 +128,8 @@ function traceOf(raw: unknown): RagTrace | undefined {
   return {
     scope,
     query: typeof t.query === 'string' ? t.query : '',
+    terms: Array.isArray(t.terms) ? t.terms.filter((x): x is string => typeof x === 'string') : [],
+    semantic: t.semantic === true,
     docsTotal: numOr0(t.docsTotal),
     docsScanned: numOr0(t.docsScanned),
     docsHit: numOr0(t.docsHit),
@@ -140,6 +142,15 @@ function traceOf(raw: unknown): RagTrace | undefined {
       (d): d is RagTrace['usedDocs'][number] =>
         typeof d === 'object' && d !== null && typeof (d as { path?: unknown }).path === 'string',
     ),
+    docScores: Array.isArray(t.docScores)
+      ? t.docScores.filter(
+          (d): d is RagTrace['docScores'][number] =>
+            typeof d === 'object' &&
+            d !== null &&
+            typeof (d as { id?: unknown }).id === 'string' &&
+            typeof (d as { score?: unknown }).score === 'number',
+        )
+      : [],
     empty:
       t.empty === 'no_docs' || t.empty === 'no_projection' || t.empty === 'no_match'
         ? t.empty
@@ -148,7 +159,7 @@ function traceOf(raw: unknown): RagTrace | undefined {
 }
 
 function reasonOf(raw: unknown): RagChunk['reason'] {
-  return raw === 'title' || raw === 'heading' || raw === 'summary' || raw === 'fallback'
+  return raw === 'title' || raw === 'heading' || raw === 'summary' || raw === 'doc' || raw === 'fallback'
     ? raw
     : 'body'
 }

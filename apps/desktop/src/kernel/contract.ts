@@ -939,7 +939,7 @@ export interface RagChunk {
   /** 回原文定位用的文字前缀（≤32 字） */
   anchor: string
   score: number
-  reason: 'title' | 'heading' | 'body' | 'summary' | 'fallback'
+  reason: 'title' | 'heading' | 'body' | 'summary' | 'doc' | 'fallback'
 }
 
 export interface RagUsedDoc {
@@ -953,15 +953,22 @@ export interface RagUsedDoc {
 export interface RagTrace {
   scope: RagScope
   query: string
+  /** 实际参与打分的词项（已去停用词） */
+  terms: string[]
+  /** 本轮是否用了向量重排（`kb.ragRerank`） */
+  semantic: boolean
   docsTotal: number
   docsScanned: number
   docsHit: number
   docsSkipped: number
   chunksScored: number
+  /** 注入成本（正文 + 标题 + 路径 + 章节），不是纯正文字数 */
   chars: number
   tookMs: number
   chunks: RagChunk[]
   usedDocs: RagUsedDoc[]
+  /** 文档分 top 8，排查「为什么选它 / 为什么没选」 */
+  docScores: { id: string; title: string; score: number }[]
   empty?: 'no_docs' | 'no_projection' | 'no_match'
 }
 
