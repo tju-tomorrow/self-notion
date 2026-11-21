@@ -29,6 +29,7 @@ import { setSyncApi } from './sync'
 import { setScheme as setMermaidScheme } from './nodes/mermaid'
 import { FindPanel, type FindApi } from './find-panel'
 import { setLearnRpc } from './learn'
+import { PasteSection, readPasteMode } from './settings'
 import { registerEditorView, reloadDoc } from './view'
 
 type EditorModule = typeof import('./editor')
@@ -50,7 +51,7 @@ function namePool(): { title: string; parentId: string | null }[] {
 
 // 硬依赖（CONVENTIONS §6.4）：docs 没就位就不装载 —— 与其给一个打不开文档的编辑器，不如没有编辑器。
 // rpc：栏头的页名要 `doc:list`（跟标签条同一条路）。
-export const inject = ['docs', 'rpc']
+export const inject = ['docs', 'rpc', 'slot', 'i18n', 'settings']
 
 /** 字节 → base64。一次喂太多会爆栈（`String.fromCharCode` 约 6.5 万参数上限）—— 按块切。 */
 const CHUNK = 0x8000
@@ -63,6 +64,11 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 export function apply(ctx: Context) {
+  const section = () => createElement(PasteSection, { ctx })
+  ;(section as { label?: string }).label = ctx.i18n.t('editor.settings.title')
+  ;(section as { group?: string }).group = 'system'
+  ctx.effect(() => ctx.slot.register('settings.section', section))
+
   setLearnRpc((method, args) => ctx.rpc.call(method, args))
   // mermaid 的配色跟明暗走 —— `nodes/mermaid.ts` 那层拿不到 ctx，这边推给它（契约 D10）。
   const pushScheme = () => setMermaidScheme(ctx.theme.scheme)
@@ -146,6 +152,8 @@ export function apply(ctx: Context) {
         },
         // 网页端没有朗读插件：给 undefined，别在工具条上留一颗点了没反应的「读」。
         read: isWeb ? undefined : (range) => ctx.get('readaloud')?.speakSelection(range),
+        // 设置页的「粘贴格式」—— 每次粘贴现读，改完不用重开文档。
+        pasteMode: () => readPasteMode(ctx),
       })
       mod = editor
       // 判据（D-0126）：DOM 与模型那一组不变量。★ 装在**懒装载这一侧** —— `./diagnose` 要读

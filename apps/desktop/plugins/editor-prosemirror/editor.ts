@@ -89,6 +89,8 @@ export interface EditorWiring {
   trashed: string
   /** 图片块「复制图片」：写系统剪贴板（Rust 的 NSPasteboard）。没接上就退回 webview 自己那套。 */
   copyImage?(blobId: string): Promise<void>
+  /** 外部 HTML 粘进来的方式（设置页）。没接上按「保留原格式」。 */
+  pasteMode?(): import('./plugins/paste').PasteMode
 }
 
 export interface Live {
@@ -317,6 +319,7 @@ function buildPlugins(parts: {
       moveSubpage: (childId, parentId) => wiring?.moveSubpage?.(childId, parentId),
       duplicateSubpage: (sourceId, parentId) =>
         wiring?.duplicateSubpage?.(sourceId, parentId) ?? Promise.resolve(null),
+      pasteMode: () => wiring?.pasteMode?.() ?? 'original',
     }),
     // 拖拽的落点线。不装就没那条线（拖拽本身照样能用）。
     dropCursor({ color: 'var(--sn-accent, #1e96eb)', width: 2 }),

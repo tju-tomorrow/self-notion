@@ -36,12 +36,17 @@ interface Targets {
   replace: boolean
 }
 
+/** 外部 HTML（PDF / 网页）落进来的方式 —— 设置页那一格。 */
+export type PasteMode = 'original' | 'clean' | 'text'
+
 export interface PasteWiring {
   docId: string
   /** 剪切粘贴 / 移动拖放：把该文档的 `parent_id` 挪到这一篇下面。 */
   moveSubpage?(childId: string, parentId: string): void
   /** 复制粘贴：深拷一份新页面，返回新 id（卡片随后改指它）。 */
   duplicateSubpage?(sourceId: string, parentId: string): Promise<string | null>
+  /** 每次粘贴现读 —— 设置改了不用重建编辑器。 */
+  pasteMode?(): PasteMode
 }
 
 /** 「刚才剪切的是哪几张卡」—— copy / cut 都是系统剪贴板，区分不开，只能自己记一笔。 */
@@ -180,7 +185,10 @@ export function pastePlugin(wire: PasteWiring): Plugin {
       transformPasted: (slice, view) =>
         withMath(view.dragging?.move === true ? slice : freshIds(slice), view),
       // PM 自己解 HTML 的那条路（没列表的网页内容）：同样先摘空气块、把代码块语言归位。
-      transformPastedHTML: (html) => prepPastedHtml(html),
+      transformPastedHTML: (html) => {
+        const prepared = prepPastedHtml(html)
+        return wire.pasteMode?.() === 'clean' ? cleanPastedHtml(prepared) : prepared
+      },
       // 应用内拖放不走 `transformPasted`：移动就改父级，按住 ⌥ 复制就走「深拷一份新页面」。
       handleDrop: (view, _event, slice, moved) => {
         const ids = subpageIds(slice.content)
@@ -220,10 +228,19 @@ export function pastePlugin(wire: PasteWiring): Plugin {
         if (sources.length === 0) {
           // 代码块里粘贴就是原样落字 —— 当 markdown 解成块会插到代码块外面（用户 2026-11-19）。
           if (view.state.selection.$from.parent.type.spec.code) return false
+          const mode = wire.pasteMode?.() ?? 'original'
+          // 「仅纯文本」：HTML / markdown 一律不解析，一行一个段落。
+          if (mode === 'text') {
+            const blocks = plainBlocks(data.getData('text/plain'))
+            if (!blocks) return false
+            insertBlocks(view, blocks)
+            return true
+          }
           // 带列表的 HTML 自己解：`<li>` 里放 `<p>` 时 PM 会把段落甩到列表项外面（一条列表散成空条目 + 段落）。
           // 表格不抢 —— 那份 HTML 里表格的形状我们这边解不出来。
-          if (html && /<(?:ol|ul)[\s>]/i.test(html) && !/<table[\s>]/i.test(html)) {
-            const fromHtml = blocksFromHtml(html)
+          const listHtml = mode === 'clean' ? cleanPastedHtml(html) : html
+          if (listHtml && /<(?:ol|ul)[\s>]/i.test(listHtml) && !/<table[\s>]/i.test(listHtml)) {
+            const fromHtml = blocksFromHtml(listHtml)
             if (fromHtml) {
               insertBlocks(view, fromHtml)
               return true
@@ -330,6 +347,57 @@ function lastTopBlock(doc: PMNode): BlockRef | null {
 
 function emptyParagraphBlock(): PMNode {
   return schema.nodes.blockContainer.create({ id: newBlockId() }, schema.nodes.paragraph.create())
+}
+
+/** 纯文本粘贴：一行一段，不解析 markdown、不认 HTML。 */
+function plainBlocks(text: string): PMNode[] | null {
+  const lines = text.replace(/\r\n?/g, '\n').split('\n')
+  while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
+  if (lines.length === 0) return null
+  return lines.map((line) =>
+    schema.nodes.blockContainer.create(
+      { id: newBlockId() },
+      schema.nodes.paragraph.create(null, line === '' ? undefined : schema.text(line)),
+    ),
+  )
+}
+
+/**
+ * 去色 / 去底纹。PDF 复制出来的 HTML 常把每一行包在带 `color` / `background`
+ * 的 span 里；标题、列表、加粗、链接这些结构不动。应用内块复制（`data-pm-slice`）不碰。
+ */
+function cleanPastedHtml(html: string): string {
+  if (html.includes('data-pm-slice')) return html
+  try {
+    const dom = document.implementation.createHTMLDocument('')
+    dom.body.innerHTML = html
+    for (const el of Array.from(dom.body.querySelectorAll<HTMLElement>('[style]'))) {
+      const kept = (el.getAttribute('style') ?? '')
+        .split(';')
+        .filter((decl) => {
+          const prop = decl.split(':')[0]?.trim().toLowerCase() ?? ''
+          return prop !== '' && !prop.includes('color') && !prop.startsWith('background')
+        })
+        .join(';')
+      if (kept.trim() === '') el.removeAttribute('style')
+      else el.setAttribute('style', kept)
+    }
+    for (const el of Array.from(
+      dom.body.querySelectorAll<HTMLElement>('[color],[bgcolor],[data-color]'),
+    )) {
+      el.removeAttribute('color')
+      el.removeAttribute('bgcolor')
+      el.removeAttribute('data-color')
+    }
+    // `<mark>` 只剩底纹语义 —— 颜色拿掉后它不该再画一层默认黄底。
+    for (const el of Array.from(dom.body.querySelectorAll<HTMLElement>('mark'))) {
+      el.replaceWith(...Array.from(el.childNodes))
+    }
+    return dom.body.innerHTML
+  } catch (err) {
+    reportError('paste', err)
+    return html
+  }
 }
 
 function sourceOfFile(file: File): Source {
