@@ -23,6 +23,9 @@ export const name = 'ai-summary'
 // rpc：三条 ai:* 命令；slot：顶栏那一格和设置页那一段。
 export const inject = ['rpc', 'editor', 'slot', 'i18n']
 
+/** 顶栏那颗「总结」暂时收起（用户 2026-11-21）；设置页那段照旧。 */
+const SHOW_CHIP = false
+
 /** 切到一篇文档：换掉盯着的 id，然后把盘上那份读回来。 */
 function enterDoc(ctx: Context, id: string): void {
   setSummaryState({ docId: id, open: false, busy: false, error: '', data: null })
@@ -83,20 +86,22 @@ function text(err: unknown): string {
 }
 
 export function apply(ctx: Context) {
-  ctx.on(OPEN_DOC, ({ id }: OpenDocEvent) => enterDoc(ctx, id))
-  ctx.on(CLOSE_ALL, leaveDoc)
-  ctx.on(SHOW_LIST, leaveDoc)
+  if (SHOW_CHIP) {
+    ctx.on(OPEN_DOC, ({ id }: OpenDocEvent) => enterDoc(ctx, id))
+    ctx.on(CLOSE_ALL, leaveDoc)
+    ctx.on(SHOW_LIST, leaveDoc)
 
-  ctx.effect(() =>
-    ctx.slot.register('doc.header.actions', () =>
-      createElement(SummaryEntry, {
-        ctx,
-        onToggle: toggle,
-        onGenerate: () => void summarize(ctx),
-        onClose: close,
-      }),
-    ),
-  )
+    ctx.effect(() =>
+      ctx.slot.register('doc.header.actions', () =>
+        createElement(SummaryEntry, {
+          ctx,
+          onToggle: toggle,
+          onGenerate: () => void summarize(ctx),
+          onClose: close,
+        }),
+      ),
+    )
+  }
 
   const section = () => createElement(AiSection, { ctx })
   ;(section as { label?: string }).label = ctx.i18n.t('ai.title')

@@ -41,7 +41,7 @@ function step(): void {
   const pos = view ? findAnchor(view.state.doc, job.anchor) : -1
   if (view && pos >= 0) {
     pending = null
-    paint(view.nodeDOM(pos))
+    paint(view.nodeDOM(pos), job.anchor)
     return
   }
   timer = window.setTimeout(step, 60)
@@ -67,15 +67,26 @@ function findAnchor(doc: PMNode, anchor: string): number {
   return found
 }
 
-function paint(node: globalThis.Node | null): void {
+function paint(node: globalThis.Node | null, anchor: string): void {
   const el = node instanceof HTMLElement ? node : node?.parentElement
   if (!el) return
-  el.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  el.classList.remove(FLASH)
+  // 一段里可能只有一个列表项/段落，闪整块太吵 —— 收到包含锚点的最深子元素。
+  const target = deepest(el, flat(anchor)) ?? el
+  target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  target.classList.remove(FLASH)
   // 重排一下，连点同一处也能重新播动画。
-  void el.offsetWidth
-  el.classList.add(FLASH)
-  window.setTimeout(() => el.classList.remove(FLASH), FLASH_MS)
+  void target.offsetWidth
+  target.classList.add(FLASH)
+  window.setTimeout(() => target.classList.remove(FLASH), FLASH_MS)
+}
+
+function deepest(root: HTMLElement, needle: string): HTMLElement | null {
+  for (const child of Array.from(root.children)) {
+    if (!(child instanceof HTMLElement)) continue
+    if (!flat(child.textContent ?? '').includes(needle)) continue
+    return deepest(child, needle) ?? child
+  }
+  return null
 }
 
 function flat(text: string): string {

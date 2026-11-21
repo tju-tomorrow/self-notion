@@ -3,8 +3,8 @@
  * 也**不认 HTML** —— 全靠 React 建节点，没有 `dangerouslySetInnerHTML`，所以不担心注入。
  *
  * 认这些（模型实际会写的就这些）：围栏代码、标题、有序/无序列表（带缩进层次）、
- * 引用、分隔线、**加粗**、*斜体*、`行内码`、[链接](url)。
- * 不认的：表格、脚注、数学、HTML —— 要加之前先问一句为什么。
+ * 表格（含模型惯用的 ``` 包裹）、引用、分隔线、**加粗**、*斜体*、`行内码`、[链接](url)。
+ * 不认的：脚注、数学、HTML —— 要加之前先问一句为什么。
  * 段落里的单个换行当换行（`<br/>`）—— 聊天里它就是换行的意思，按 CommonMark 吞掉反而不对。
  */
 import { Fragment, memo, type ReactNode } from 'react'
@@ -23,6 +23,77 @@ const HEADING = /^(#{1,6})\s+(.*)$/
 const HR = /^\s*(?:[-*_])\s*(?:[-*_])\s*(?:[-*_])[\s\-*_]*$/
 const QUOTE = /^\s*>\s?(.*)$/
 const ITEM = /^(\s*)(?:([-*+])|(\d+)[.)])\s+(.*)$/
+const TABLE_DELIM = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/
+
+function isTableStart(lines: readonly string[], i: number): boolean {
+  return (lines[i] ?? '').includes('|') && TABLE_DELIM.test(lines[i + 1] ?? '')
+}
+
+interface TableData {
+  header: string[]
+  rows: string[][]
+}
+
+/** 表格从哪行开始、到哪行结束，以及拆开的表头/表体。 */
+function parseTable(
+  lines: readonly string[],
+): (TableData & { start: number; end: number }) | null {
+  const start = lines.findIndex((_, i) => isTableStart(lines, i))
+  if (start < 0) return null
+  const cells = (line: string): string[] => {
+    let s = line.trim()
+    if (s.startsWith('|')) s = s.slice(1)
+    if (s.endsWith('|')) s = s.slice(0, -1)
+    return s.split('|').map((c) => c.trim())
+  }
+  const header = cells(lines[start] ?? '')
+  const rows: string[][] = []
+  let end = start + 2
+  while (end < lines.length) {
+    const line = lines[end] ?? ''
+    if (!line.trim() || !line.includes('|')) break
+    rows.push(cells(line))
+    end++
+  }
+  return { start, end, header, rows }
+}
+
+export function looksLikeTable(lines: readonly string[]): boolean {
+  return parseTable(lines) !== null
+}
+
+/** 整段围栏就是一张表（前后只有空行）才算 —— 带散文的代码块不能吞字。 */
+function tableOnly(lines: readonly string[]): TableData | null {
+  let start = 0
+  let end = lines.length
+  while (start < end && !(lines[start] ?? '').trim()) start++
+  while (end > start && !(lines[end - 1] ?? '').trim()) end--
+  const body = lines.slice(start, end)
+  const table = parseTable(body)
+  return table && table.start === 0 && table.end === body.length ? table : null
+}
+
+/**
+ * 模型常把表格包进 ``` 里。剪贴板是 Markdown，包着粘进笔记就成代码块了；
+ * 表格围栏拆掉，粘贴时编辑器才会按表格块解析。
+ */
+export function unfenceTables(text: string): string {
+  const lines = text.split('\n')
+  const out: string[] = []
+  for (let i = 0; i < lines.length; i++) {
+    if (!FENCE.test(lines[i] ?? '')) {
+      out.push(lines[i] ?? '')
+      continue
+    }
+    let end = i + 1
+    while (end < lines.length && !FENCE.test(lines[end] ?? '')) end++
+    const body = lines.slice(i + 1, end)
+    if (looksLikeTable(body)) out.push(...body.map((line) => line.replace(/^\s{1,3}/, '')))
+    else out.push(...lines.slice(i, end + 1))
+    i = end
+  }
+  return out.join('\n')
+}
 
 export const Markdown = memo(function Markdown({
   text,
@@ -50,12 +121,26 @@ export const Markdown = memo(function Markdown({
         i++
       }
       i++ // 收尾那道围栏
+      const table = tableOnly(code)
       blocks.push(
-        <pre key={blocks.length} className={s.mdPre}>
-          <code>{code.join('\n')}</code>
-        </pre>,
+        table ? (
+          <Table key={blocks.length} table={table} cite={cite} />
+        ) : (
+          <pre key={blocks.length} className={s.mdPre}>
+            <code>{code.join('\n')}</code>
+          </pre>
+        ),
       )
       continue
+    }
+
+    if (isTableStart(lines, i)) {
+      const table = parseTable(lines.slice(i))
+      if (table) {
+        blocks.push(<Table key={blocks.length} table={table} cite={cite} />)
+        i += table.end
+        continue
+      }
     }
 
     const head = HEADING.exec(line)
@@ -119,7 +204,14 @@ export const Markdown = memo(function Markdown({
     const para: string[] = []
     while (i < lines.length) {
       const next = lines[i] ?? ''
-      if (next.trim() === '' || FENCE.test(next) || HEADING.test(next) || ITEM.test(next) || QUOTE.test(next)) {
+      if (
+        next.trim() === '' ||
+        FENCE.test(next) ||
+        HEADING.test(next) ||
+        ITEM.test(next) ||
+        QUOTE.test(next) ||
+        isTableStart(lines, i)
+      ) {
         break
       }
       para.push(next)
@@ -139,6 +231,37 @@ export const Markdown = memo(function Markdown({
 
   return blocks
 })
+
+/** 表格：单元格里仍然走同一套行内规则（加粗、行内码、引用角标都能用）。 */
+function Table({ table, cite }: { table: TableData; cite?: CiteCtx }) {
+  const width = table.header.length
+  return (
+    <div className={s.mdTableWrap}>
+      <table className={s.mdTable}>
+        <thead>
+          <tr>
+            {table.header.map((cell, n) => (
+              <th key={n} className={s.mdTh}>
+                {inline(cell, cite)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {table.rows.map((row, r) => (
+            <tr key={r}>
+              {Array.from({ length: width }, (_, n) => (
+                <td key={n} className={s.mdTd}>
+                  {inline(row[n] ?? '', cite)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
 
 /** 行内那一层：加粗、行内码、斜体、链接、引用角标。**不认转义** —— 模型回的字里没有这种需求。 */
 function inline(text: string, cite?: CiteCtx): ReactNode[] {

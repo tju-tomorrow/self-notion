@@ -449,6 +449,35 @@ export const bubble = style({
 
 /* ────────────────────────── 手机 sheet 顶上那一条 ────────────────────────── */
 
+/** 桌面窄栏顶部那颗收起——和顶栏评论图标再点一次同一条路（`closePanel`）。 */
+export const dockBar = style({
+  flex: '0 0 auto',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'flex-end',
+  height: 40,
+})
+
+export const dockClose = style({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 26,
+  height: 26,
+  padding: 0,
+  border: 'none',
+  borderRadius: 6,
+  background: 'transparent',
+  color: 'var(--affine-v2-text-tertiary)',
+  cursor: 'pointer',
+  selectors: {
+    '&:hover': {
+      color: 'var(--affine-v2-text-primary)',
+      background: 'var(--affine-v2-layer-background-hoverOverlay)',
+    },
+  },
+})
+
 export const sheetBar = style({
   flex: '0 0 auto',
   position: 'relative',

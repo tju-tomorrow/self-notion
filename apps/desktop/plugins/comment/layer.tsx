@@ -14,6 +14,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Context } from 'cordis'
+import { CloseIcon } from '@blocksuite/icons/rc'
 import { COMMENT_LAYOUT, type CommentLayout } from '../../src/kernel/contract'
 import { reportError } from '../../src/kernel/errors'
 import { closePanel, pendingTarget } from './actions'
@@ -181,7 +182,19 @@ export function CommentLayer({ ctx }: { ctx: Context }) {
             {ctx.i18n.t('comment.collapse')}
           </button>
         </div>
-      ) : null}
+      ) : (
+        <div className={s.dockBar}>
+          <button
+            type="button"
+            className={s.dockClose}
+            title={ctx.i18n.t('comment.collapse')}
+            aria-label={ctx.i18n.t('comment.collapse')}
+            onClick={closePanel}
+          >
+            <CloseIcon width={16} height={16} />
+          </button>
+        </div>
+      )}
       <div className={mobile ? `${s.stack} ${s.stackSheetOn}` : s.stack}>{cards}</div>
     </aside>
   )

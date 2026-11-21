@@ -222,6 +222,37 @@ export const bubbleAi = style({
   color: 'var(--affine-v2-text-primary)',
 })
 
+/** 一条回复下面那排小动作（左下角），现在只有「复制」。 */
+export const answerActions = style({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 4,
+  marginTop: 2,
+})
+
+export const answerAction = style({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 22,
+  height: 22,
+  padding: 0,
+  border: 'none',
+  borderRadius: 6,
+  background: 'transparent',
+  color: 'var(--affine-v2-text-tertiary)',
+  cursor: 'pointer',
+  opacity: 0.55,
+  transition: 'opacity .12s ease, background-color .12s ease, color .12s ease',
+  selectors: {
+    '&:hover': {
+      opacity: 1,
+      color: 'var(--affine-v2-text-primary)',
+      background: 'var(--affine-v2-layer-background-hoverOverlay)',
+    },
+  },
+})
+
 /** 工具那一行 —— Claude Code 那样走等宽：它是「过程」不是「话」。 */
 export const tool = style({
   alignSelf: 'flex-start',
@@ -512,6 +543,35 @@ export const mdPre = style({
   lineHeight: '20px',
 })
 
+/** 表格：窄面板里横向滚，不把消息撑破。 */
+export const mdTableWrap = style({
+  margin: '0 0 10px',
+  maxWidth: '100%',
+  overflowX: 'auto',
+})
+
+export const mdTable = style({
+  borderCollapse: 'collapse',
+  fontSize: 13,
+  lineHeight: '20px',
+})
+
+const cell = {
+  padding: '5px 10px',
+  border: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
+  textAlign: 'left' as const,
+  verticalAlign: 'top' as const,
+}
+
+export const mdTh = style({
+  ...cell,
+  background: 'var(--affine-v2-layer-background-secondary)',
+  fontWeight: 600,
+  whiteSpace: 'nowrap',
+})
+
+export const mdTd = style(cell)
+
 export const mdQuote = style({
   margin: '0 0 10px',
   paddingLeft: 12,
@@ -678,6 +738,31 @@ export const barAction = style({
   fontWeight: 500,
   cursor: 'pointer',
   padding: 0,
+})
+
+/** 撤销条右侧的 ×：只去掉这条提示，不改文档。 */
+export const barClose = style({
+  flex: '0 0 auto',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 18,
+  height: 18,
+  padding: 0,
+  border: 'none',
+  borderRadius: 9,
+  background: 'transparent',
+  color: 'var(--affine-v2-text-tertiary)',
+  fontFamily: 'inherit',
+  fontSize: 15,
+  lineHeight: 1,
+  cursor: 'pointer',
+  selectors: {
+    '&:hover': {
+      color: 'var(--affine-v2-text-primary)',
+      background: 'var(--affine-v2-layer-background-hoverOverlay)',
+    },
+  },
 })
 
 /** 输入框上面那颗「在看哪一篇」的小签（用户红框的位置）。小到不抢戏，但一眼能看见。 */
@@ -1202,14 +1287,24 @@ export const cite = style({
   selectors: { '&:hover': { background: 'var(--affine-primary-color)', color: '#fff' } },
 })
 
-/** 回原文时闪一下。编辑器那边只加 / 删这个类名。 */
+/** 回原文时扫一下：左→右的蓝色渐变，亮部扫出后底色淡掉。编辑器那边只加 / 删这个类名。 */
+const ragSweep = keyframes({
+  '0%': { backgroundPosition: '0% 0' },
+  '100%': { backgroundPosition: '100% 0' },
+})
+
 const ragFlash = keyframes({
-  '0%': { backgroundColor: 'rgba(29, 122, 252, 0.28)' },
+  '0%': { backgroundColor: 'rgba(29, 122, 252, 0.20)' },
+  '55%': { backgroundColor: 'rgba(29, 122, 252, 0.12)' },
   '100%': { backgroundColor: 'transparent' },
 })
 
 globalStyle('.sn-rag-flash', {
-  animation: `${ragFlash} 1.2s ease-out`,
+  backgroundImage:
+    'linear-gradient(90deg, rgba(29, 122, 252, 0.42), rgba(29, 122, 252, 0.08) 55%, transparent 85%)',
+  backgroundSize: '220% 100%',
+  backgroundRepeat: 'no-repeat',
+  animation: `${ragFlash} 1.4s ease-out, ${ragSweep} 1.1s ease-out`,
   borderRadius: 4,
 })
 

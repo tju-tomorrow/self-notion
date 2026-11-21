@@ -11,7 +11,7 @@ import type { Context } from 'cordis'
 
 import * as s from './ai.css'
 import { undo } from './loop'
-import { useAiState, type Undo } from './state'
+import { clearUndo, useAiState, type Undo } from './state'
 
 export function AiUndo({ ctx }: { ctx: Context }) {
   const st = useAiState()
@@ -32,6 +32,15 @@ function Bar({ ctx, entry }: { ctx: Context; entry: Undo }) {
       <span>{ctx.i18n.t('agent.undoBar', { n: entry.docs.length })}</span>
       <button type="button" className={s.barAction} onClick={() => void undo(ctx, entry)}>
         {ctx.i18n.t('agent.undoAll')}
+      </button>
+      <button
+        type="button"
+        className={s.barClose}
+        title={ctx.i18n.t('agent.undoDismiss')}
+        aria-label={ctx.i18n.t('agent.undoDismiss')}
+        onClick={() => clearUndo(entry.groupId)}
+      >
+        ×
       </button>
     </div>
   )

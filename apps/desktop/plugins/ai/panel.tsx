@@ -23,6 +23,8 @@ import type { Context } from 'cordis'
 import {
   ArrowUpBigIcon,
   CloseIcon,
+  CopyIcon,
+  DoneIcon,
   FolderIcon,
   PageIcon,
   PlusIcon,
@@ -31,11 +33,13 @@ import {
 } from '@blocksuite/icons/rc'
 
 import { AGENT_TAB_ID, CLOSE_TAB, type AiService } from '../../src/kernel/contract'
+import { reportError } from '../../src/kernel/errors'
 import { readLocal, writeLocal } from '../../src/kernel/local'
+import { copyText } from '../../src/ui/clipboard'
 import { useImeGuard } from '../../src/ui/ime'
 import * as s from './ai.css'
 import { runTurn, type Quote } from './loop'
-import { Markdown, type CiteCtx } from './md'
+import { Markdown, unfenceTables, type CiteCtx } from './md'
 import { placeOf, type Place } from './place'
 import {
   loadScopes,
@@ -703,6 +707,9 @@ function rows(lines: Line[], ctx: Context): ReactNode[] {
           one.role === 'ai' ? (
             <div key={i} className={s.bubbleAi}>
               <Markdown text={one.text} cite={cite} />
+              <div className={s.answerActions}>
+                <CopyAnswer ctx={ctx} text={one.text} />
+              </div>
             </div>
           ) : (
             // 老会话里工具行没有 `tool`（D-0097 之前存的）—— 当一句淡字画出来。
@@ -877,6 +884,38 @@ function reasonKey(reason: RagChunk['reason']): string {
       return 'agent.ragReasonBody'
   }
 }
+
+/** 复制一条回复。`[n]` 是对话里的定位角标，不跟着粘走。 */
+function CopyAnswer({ ctx, text }: { ctx: Context; text: string }) {
+  const [done, setDone] = useState(false)
+  const timer = useRef(0)
+
+  useEffect(() => () => window.clearTimeout(timer.current), [])
+
+  const copy = () => {
+    const plain = unfenceTables(text.replace(/\[(\d+)\](?!\()/g, '')).trim()
+    copyText(plain)
+      .then(() => {
+        setDone(true)
+        window.clearTimeout(timer.current)
+        timer.current = window.setTimeout(() => setDone(false), 1200)
+      })
+      .catch((err: unknown) => reportError('ai.copy', err))
+  }
+
+  return (
+    <button
+      type="button"
+      className={s.answerAction}
+      title={ctx.i18n.t('agent.copyAnswer')}
+      aria-label={ctx.i18n.t('agent.copyAnswer')}
+      onClick={copy}
+    >
+      {done ? <DoneIcon width={14} height={14} /> : <CopyIcon width={14} height={14} />}
+    </button>
+  )
+}
+
 
 /** 一轮的工具调用：平时只有一行标题，点开才是每一步。跑着的时候自己走时钟。 */
 function ThoughtBlock({ ctx, marks }: { ctx: Context; marks: ToolMark[] }) {
