@@ -1016,8 +1016,9 @@ export type AiChunk =
 export interface AiService {
   ask(messages: AiMessage[], tools?: string[]): Promise<AsyncIterable<string>>
   /** 流式 + 工具调用（D-0087）。**工具的执行在前端**（`plugin-ai` 拿到 `call` 之后
-   *  自己 `ctx.tools` 里找、自己 await），Rust 只负责把 HTTP 和 SSE 讲完。 */
-  chat(messages: AiMessage[], tools?: ToolSpec[]): AsyncIterable<AiChunk>
+   *  自己 `ctx.tools` 里找、自己 await），Rust 只负责把 HTTP 和 SSE 讲完。
+   *  `signal` 一响就立刻结束迭代、摘掉事件监听 —— 中断按钮不能等下一块 token 才生效。 */
+  chat(messages: AiMessage[], tools?: ToolSpec[], signal?: AbortSignal): AsyncIterable<AiChunk>
 }
 
 /**

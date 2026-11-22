@@ -36,7 +36,8 @@ export function makeAi(ctx: Context): AiService {
     // `ask` 是 D-0042 留下的老形状（一次纯文本问答），一个消费者都没有了。
     // 不装死，也不另开一条路 —— 架在 `chat` 上：拿它的 `text` 片（契约里它回的是 Promise）。
     ask: async (messages: AiMessage[]) => ask(ctx, messages),
-    chat: (messages: AiMessage[], tools?: ToolSpec[]) => chat(ctx, messages, tools),
+    chat: (messages: AiMessage[], tools?: ToolSpec[], signal?: AbortSignal) =>
+      chat(ctx, messages, tools, signal),
   }
 }
 
@@ -50,6 +51,7 @@ async function* chat(
   ctx: Context,
   messages: AiMessage[],
   tools?: ToolSpec[],
+  signal?: AbortSignal,
 ): AsyncGenerator<AiChunk> {
   const requestId = `chat-${++seq}-${Date.now()}`
   // 状态装在一个对象里而不是三个 `let` —— 三个 `let` 会在闭包里被 TS 收窄成初始字面量。
@@ -60,6 +62,13 @@ async function* chat(
     flow.wake = null
     w?.()
   }
+  // 中断不靠「下一块 token 到了再检查」—— 直接把等着的队列叫醒，然后立刻返回。
+  const onAbort = () => {
+    flow.ended = true
+    kick()
+  }
+  if (signal?.aborted) return
+  signal?.addEventListener('abort', onAbort, { once: true })
 
   const offs = await Promise.all([
     listen<DeltaEvent>('ai:delta', (e) => {
@@ -93,6 +102,7 @@ async function* chat(
     })
 
     while (!flow.ended || queue.length > 0) {
+      if (signal?.aborted) return
       const next = queue.shift()
       if (next) {
         yield next
@@ -106,8 +116,9 @@ async function* chat(
       })
     }
     // 流中途断了（HTTP 错 / 没配 / 网关把错误塞在 200 里）—— 命令早就返回了，只能从这儿抛。
-    if (flow.failure !== '') throw new Error(flow.failure)
+    if (!signal?.aborted && flow.failure !== '') throw new Error(flow.failure)
   } finally {
+    signal?.removeEventListener('abort', onAbort)
     for (const off of offs) off()
   }
 }

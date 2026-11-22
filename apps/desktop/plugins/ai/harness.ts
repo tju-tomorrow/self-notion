@@ -12,14 +12,14 @@
  *   · `EventStream`、附件、`Agent` 类、会话 / 扩展 / 技能 —— 那是 pi 的壳，不是循环；
  *   · steering / follow-up 队列 —— 界面忙着的时候输入框那颗就是「中断」，没有插话的入口。
  *
- * 留下来的四条，就是移植它的理由：
+ * 留下来的三条，就是移植它的理由：
  *   1. **读并发**：同一批里的读工具一起跑（写工具标 `executionMode: 'sequential'` 会把整批
  *      拉成串行）—— 之前五个 `vfs_list` / `vfs_read` 是一个一个来的；
  *   2. **中断**：`AbortSignal` 串到每一个 await 边界，不再靠一个旗子被轮询；
  *   3. **截断保护**：`stop === 'length'` 的那一批工具**整批不跑** —— 流式拼出来的参数可能是
- *      半句，跑一半写错地方比不写更坏（pi 的 `failToolCallsFromTruncatedMessage`）；
- *   4. **每轮上限**：模型绕圈时有个硬收口（pi 靠 `finishTurn` / `terminate` 收，我们面向单人、
- *      只有「中断」这一个出口，所以留一条硬上限）。
+ *      半句，跑一半写错地方比不写更坏（pi 的 `failToolCallsFromTruncatedMessage`）。
+ *
+ * ★ 不设轮次上限（用户 2026-11-22）：模型不再提工具就是回答完了；要停由用户按中断。
  */
 import type { AiImage, AiMessage, AiToolCall } from '../../src/kernel/contract'
 
@@ -49,8 +49,6 @@ export interface HarnessTool {
 
 export interface HarnessHooks {
   tools: readonly HarnessTool[]
-  /** 一次回答最多转几轮。到了就停。 */
-  maxRounds: number
   /** 一轮的请求刚发出去 —— 界面上的计时从这儿算。 */
   onRound?(round: number): void
   /** 这一轮的 assistant 定稿了（不管它是说话还是提工具）。 */
@@ -70,7 +68,8 @@ export async function runLoop(
   signal: AbortSignal,
   streamTurn: StreamTurn,
 ): Promise<void> {
-  for (let round = 1; round <= hooks.maxRounds; round++) {
+  // 不设代码级轮次上限：模型不再提工具就是回答完了；要停由用户按中断。
+  for (let round = 1; ; round++) {
     if (signal.aborted) return
     hooks.onRound?.(round)
 

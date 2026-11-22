@@ -49,9 +49,6 @@ import {
 } from './state'
 import { estimateTokens, requestTokens } from './tokens'
 
-/** 一次回答最多转几轮工具。够解「先 grep 再读再写」这种；再长就是模型在绕圈。 */
-const MAX_ROUNDS = 6
-
 /** 写工具的名字 —— 只有它们会动库（进撤销条），也只有它们不许和别的调用并发。 */
 const WRITES = new Set(['doc_create', 'doc_append', 'doc_replace', 'doc_blocks'])
 
@@ -69,6 +66,8 @@ const BASE_PROMPT = [
   '用户消息里用 """ 圈起来的那段是他在正文里划出来的原文 —— 问题多半针对它，先读它再答。',
   '用户问「这篇里哪些地方标了颜色 / 哪些句子有评论 / 这条评论对应哪段」时调 doc_annotations；' +
     'vfs_read 只有纯文字，颜色和评论锚点都不在里面。不给 id 就是当前这篇。',
+  '工具够用就停：拿到 doc_annotations / 检索资料后就开始整理或写答案，不要为了补全每一条再反复 grep。' +
+    '用户说「总结成笔记」时，资料齐了就调 doc_create 写出来，别一直读。',
   '不要尝试删除文档 —— 没有这个工具。回答用用户提问的语言，简短。',
 ].join('\n')
 
@@ -88,8 +87,8 @@ function newGroupId(): string {
 /**
  * 跑一个回合。
  *
- * 历史**只带这一回合**（system + 用户这句 + 中间几轮工具），不跨回合攒 ——
- * 单人应用、你问它才答（`docs/ai.md` 第十一节），攒历史只会把上下文喂爆。
+ * 历史带**上一回合的问和答**（只文字、限量）+ 这一回合的工具往返；不跨会话攒 ——
+ * 攒历史只会把上下文喂爆。
  */
 export async function runTurn(
   ctx: Context,
@@ -114,6 +113,7 @@ export async function runTurn(
     draft: '',
     stopRequested: false,
   })
+  const prior = recentContext()
   pushLine({ role: 'user', text: prompt, scope })
 
   // 有范围先检索。这一步不等模型、也不占回合轮次 —— 它决定这一问的上下文。
@@ -122,17 +122,20 @@ export async function runTurn(
   const system = await systemPrompt(ctx, scope !== undefined)
   const messages: AiMessage[] = [
     { role: 'system', content: rules === '' ? system : `${system}\n\n${rules}` },
+    ...prior,
     { role: 'user', content: userContent(prompt, quote, trace) },
   ]
 
+  let answered = false
   try {
     await runLoop(
       messages,
       {
         tools: toolsFor(ctx, specs, groupId, written),
-        maxRounds: MAX_ROUNDS,
         onAssistant: (turn) => {
-          if (turn.content.trim()) pushLine({ role: 'ai', text: turn.content.trim() })
+          if (!turn.content.trim()) return
+          answered = true
+          pushLine({ role: 'ai', text: turn.content.trim() })
         },
         onToolStart: (call) =>
           pushLine({
@@ -145,6 +148,10 @@ export async function runTurn(
       controller.signal,
       makeStreamTurn(ctx, ai, specs),
     )
+    // 一整轮下来一个字都没吐：别让界面看着像「说完了」。
+    if (!answered && !controller.signal.aborted) {
+      pushLine({ role: 'note', text: ctx.i18n.t('agent.noAnswer') })
+    }
   } finally {
     onStopRequest(null)
     // 中断留一行字：不然对话里看着跟「说完了」一样（已流出的那半句还在上面）。
@@ -155,6 +162,25 @@ export async function runTurn(
       setAiState({ undo: [...getAiState().undo, { groupId, docs: [...written] }] })
     }
   }
+}
+
+/** 上一回合的问和答只带文字、不带工具回执 —— 让「继续」接得上，又不把上下文喂爆。 */
+function recentContext(): AiMessage[] {
+  const st = getAiState()
+  const cur = st.sessions.find((s) => s.id === st.currentId)
+  if (!cur) return []
+  const kept = cur.lines.filter((l) => l.role === 'user' || l.role === 'ai').slice(-4)
+  while (kept.length > 0 && kept[0].role === 'ai') kept.shift()
+  const out: AiMessage[] = []
+  let budget = 4_000
+  for (const line of kept) {
+    if (budget <= 0) break
+    const text = clip(line.text, 1_200)
+    if (text === '') continue
+    budget -= text.length
+    out.push({ role: line.role === 'user' ? 'user' : 'assistant', content: text })
+  }
+  return out
 }
 
 /** 划线段只进给模型这一轮 —— 气泡里还是用户自己问的那句话（他选的）。 */
@@ -249,7 +275,7 @@ function makeStreamTurn(ctx: Context, ai: AiService, specs: readonly ToolSpec[])
     const calls: AiToolCall[] = []
     let stop = 'stop'
     try {
-      for await (const chunk of ai.chat([...messages], [...specs])) {
+      for await (const chunk of ai.chat([...messages], [...specs], signal)) {
         if (chunk.type === 'text') {
           text += chunk.text
           setAiState({ draft: text })
