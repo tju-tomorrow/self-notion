@@ -143,6 +143,7 @@ export function SyncSection({ ctx }: { ctx: Context }) {
         <span className={`${s.dot} ${dotClass(snap)}`} />
         {ctx.i18n.t(labelKey(snap))}
       </p>
+      {st.online ? null : <p className={s.hint}>{ctx.i18n.t('sync.offlineHint')}</p>}
       <button type="button" className={s.btn} disabled={snap.triggered} onClick={() => runSync(ctx)}>
         {ctx.i18n.t('sync.run')}
       </button>

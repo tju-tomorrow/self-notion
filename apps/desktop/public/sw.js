@@ -146,16 +146,32 @@ self.addEventListener('fetch', (e) => {
     return
   }
 
-  // 页面导航：网络优先，失败回壳。
+  // 页面导航：网络优先，但只等 1.5s —— 电脑关机时别让用户干等局域网超时。
   if (req.mode === 'navigate') {
     e.respondWith(
-      fetch(req)
-        .then((res) => {
-          const copy = res.clone()
-          caches.open(V).then((c) => c.put('/index.html', copy))
-          return res
-        })
-        .catch(() => caches.match('/index.html').then((hit) => hit ?? caches.match('/'))),
+      (async () => {
+        const cached = (await caches.match('/index.html')) ?? (await caches.match('/'))
+        const net = fetch(req)
+          .then((res) => {
+            const copy = res.clone()
+            caches.open(V).then((c) => c.put('/index.html', copy))
+            return res
+          })
+          .catch(() => null)
+        if (!cached) {
+          return (
+            (await net) ??
+            new Response('<!doctype html><meta charset="utf-8"><p>还没有离线副本，先连上电脑打开一次。', {
+              headers: { 'content-type': 'text/html; charset=utf-8' },
+            })
+          )
+        }
+        const hit = await Promise.race([
+          net,
+          new Promise((r) => setTimeout(() => r(null), 1500)),
+        ])
+        return hit ?? cached
+      })(),
     )
     return
   }

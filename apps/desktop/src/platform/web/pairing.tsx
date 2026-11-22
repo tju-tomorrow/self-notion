@@ -5,12 +5,37 @@
  */
 import { useEffect, useRef, useState } from 'react'
 
-export async function authState(): Promise<'ok' | 'pair'> {
+const PAIRED = 'sn.paired'
+
+function pairedBefore(): boolean {
   try {
-    const res = await fetch('/sync/hello', { credentials: 'include' })
-    return res.status === 401 ? 'pair' : 'ok'
+    return localStorage.getItem(PAIRED) === '1'
   } catch {
+    return false
+  }
+}
+
+function markPaired(): void {
+  try {
+    localStorage.setItem(PAIRED, '1')
+  } catch {
+    /* 隐私模式禁用存储：本次能连上就够了 */
+  }
+}
+
+export async function authState(): Promise<'ok' | 'pair'> {
+  // 电脑关机时局域网请求可能吊很久；超时就看本地有没有配对过，别把人挡在门外。
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(), 2_000)
+  try {
+    const res = await fetch('/sync/hello', { credentials: 'include', signal: ctl.signal })
+    if (res.status === 401) return 'pair'
+    markPaired()
     return 'ok'
+  } catch {
+    return pairedBefore() ? 'ok' : 'pair'
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -37,6 +62,7 @@ export function PairingScreen() {
         return
       }
       // 码已用掉，别留在地址栏 / 历史记录里。
+      markPaired()
       history.replaceState(null, '', '/')
       location.reload()
     } catch {

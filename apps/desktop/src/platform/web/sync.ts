@@ -45,6 +45,10 @@ const ACTIVE_MS = 5_000
 const IDLE_MS = 30_000
 const HIDDEN_MS = 120_000
 const BACKOFF_MAX = 120_000
+/** 连不上电脑（关机 / 不同网络）时的退避上限：电脑一开机就该尽快补上。 */
+const OFFLINE_BACKOFF_MAX = 30_000
+const API_TIMEOUT = 10_000
+const BLOB_TIMEOUT = 60_000
 /** 图片预取上限：一次最多 200 张、单张超过 15MB 就跳过。 */
 const PREFETCH_MAX = 200
 const PREFETCH_MAX_BYTES = 15 * 1024 * 1024
@@ -121,8 +125,21 @@ interface CommentPushResult {
   comment: ServerComment | null
 }
 
+/** 带超时的 fetch。连不上 / 超时统一标成 `network`，跟真正的接口错误分开。 */
+async function fetchT(input: string, init: RequestInit = {}, ms = API_TIMEOUT): Promise<Response> {
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(), ms)
+  try {
+    return await fetch(input, { ...init, signal: ctl.signal })
+  } catch (err) {
+    throw Object.assign(err instanceof Error ? err : new Error(String(err)), { code: 'network' })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, { credentials: 'include', ...init })
+  const res = await fetchT(path, { credentials: 'include', ...init })
   if (res.status === 401) {
     throw Object.assign(new Error('网页版还没配对'), { code: 'unauthorized' })
   }
@@ -544,10 +561,10 @@ async function prefetchBlobs(): Promise<void> {
         if (!id) return
         try {
           // 先探大小：十几 MB 的附件不在手机上缓存。
-          const head = await fetch(`/blob/${id}`, { method: 'HEAD', credentials: 'include' })
+          const head = await fetchT(`/blob/${id}`, { method: 'HEAD', credentials: 'include' }, 5_000)
           const len = Number(head.headers.get('content-length') ?? 0)
           if (!len || len <= PREFETCH_MAX_BYTES) {
-            await fetch(`/blob/${id}`, { credentials: 'include' })
+            await fetchT(`/blob/${id}`, { credentials: 'include' }, 30_000)
           }
         } catch {
           /* 断网 / 图不在库里：下一个 */
@@ -570,12 +587,16 @@ async function uploadBlobs(): Promise<void> {
   pendingBlobs = all.length
   const pending = all.slice(0, 3)
   for (const b of pending) {
-    const res = await fetch('/blob', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'x-sn-id': b.id, 'x-sn-mime': b.mime },
-      body: b.bytes,
-    })
+    const res = await fetchT(
+      '/blob',
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'x-sn-id': b.id, 'x-sn-mime': b.mime },
+        body: b.bytes,
+      },
+      BLOB_TIMEOUT,
+    )
     if (res.ok) {
       b.synced = true
       await putBlob(b)
@@ -627,6 +648,10 @@ async function syncOnce(): Promise<void> {
     if (code === 'unauthorized') {
       patchStatus({ state: 'unauthorized', error: '配对失效' })
       if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('sn:need-pair'))
+    } else if (code === 'network') {
+      // 电脑关机 / 不在同一网络：不是故障，等人回来。
+      patchStatus({ online: false, state: 'idle', error: undefined })
+      backoff = Math.min(OFFLINE_BACKOFF_MAX, backoff === 0 ? 5_000 : backoff * 2)
     } else {
       backoff = Math.min(BACKOFF_MAX, backoff === 0 ? 5_000 : backoff * 2)
       patchStatus({ state: 'error', error: err instanceof Error ? err.message : String(err) })

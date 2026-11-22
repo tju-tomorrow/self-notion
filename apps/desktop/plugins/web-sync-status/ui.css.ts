@@ -27,6 +27,12 @@ export const status = style({
   color: 'var(--affine-v2-text-secondary, #777)',
 })
 
+export const hint = style({
+  fontSize: 12,
+  lineHeight: 1.6,
+  color: 'var(--affine-v2-text-secondary, #777)',
+})
+
 export const dotBtn = style({
   display: 'inline-flex',
   alignItems: 'center',
