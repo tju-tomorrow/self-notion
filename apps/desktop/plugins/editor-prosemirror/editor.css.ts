@@ -418,7 +418,7 @@ globalStyle('.ProseMirror', {
   fontFamily: DOC_FONT,
   fontSize: 'calc(16px * var(--sn-font-scale, 1))',
   lineHeight: 1.7,
-  color: 'color-mix(in srgb, var(--sn-text, #333) 94%, #000)',
+  color: 'color-mix(in srgb, var(--sn-text, #333) var(--sn-body-ink, 93%), #000)',
   outline: 'none',
 })
 

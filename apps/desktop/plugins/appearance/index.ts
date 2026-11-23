@@ -13,9 +13,11 @@ import type { SchemePref, ThemeController } from '../../src/theme/tokens'
 import { Group, Row } from '../../src/ui/settings'
 import {
   FOLLOW_THEME,
+  INK_KEY,
   PAPER_ALPHA_KEY,
   PAPER_KEY,
   PAPER_PRESETS,
+  bodyInk,
   createPaper,
   paperAlpha,
   paperChoice,
@@ -150,6 +152,7 @@ function AppearanceSection({ ctx }: { ctx: Context }) {
 function PaperRows({ ctx }: { ctx: Context }) {
   const choice = useSetting(ctx, PAPER_KEY, paperChoice)
   const alpha = useSetting(ctx, PAPER_ALPHA_KEY, paperAlpha)
+  const ink = useSetting(ctx, INK_KEY, bodyInk)
   const scheme = schemeNow(ctx)
   const t = (key: string) => ctx.i18n.t(key)
   const pick = (value: string) => ctx.settings.set(PAPER_KEY, value)
@@ -201,6 +204,21 @@ function PaperRows({ ctx }: { ctx: Context }) {
           onChange: (e: { target: HTMLInputElement }) => pick(e.target.value),
         }),
       ),
+    ),
+    createElement(
+      Row,
+      { label: t('settings.paper.ink'), desc: t('settings.paper.ink.desc') },
+      createElement('input', {
+        type: 'range',
+        min: 50,
+        max: 100,
+        step: 1,
+        className: p.slider,
+        value: ink,
+        'aria-label': t('settings.paper.ink'),
+        onChange: (e: { target: HTMLInputElement }) => ctx.settings.set(INK_KEY, Number(e.target.value)),
+      }),
+      createElement('span', { className: p.pct }, `${ink}%`),
     ),
     createElement(
       Row,

@@ -1,18 +1,21 @@
 /**
- * 正文纸面的底色 + 磨砂。**只有这一处往 `<html>` 上写变量** —— 设置页只管改 `ctx.settings`，
+ * 正文的底色 / 磨砂 / 字色深浅。**只有这一处往 `<html>` 上写变量** —— 设置页只管改 `ctx.settings`，
  * 改完由订阅回到这里重算（同 `shell-doc-header/fonts.ts` 的分工）。
  *
  *   --sn-paper        纸面颜色。跟随主题时**不写**：CSS 那边 `var()` 的兜底是按主题给的，
  *                     写死一个值反而换主题时不跟着走。
  *   --sn-paper-alpha  0..100 的百分比，编辑器那边算成透明度。
+ *   --sn-body-ink     正文色往画布兑多少（D-0206）。真 Notion 是 93% 白，不是 81%。
  *
- * ★ 消费者只有一个：`editor-prosemirror/editor.css.ts` 里 `.sn-pane-body` 那条背景。
+ * ★ 纸面的消费者只有 `editor-prosemirror/editor.css.ts` 里 `.sn-pane-body`；
+ *   字色深浅有两个：那里和 `theme/notion.ts` 的 `.ProseMirror`。
  */
 import type { Context } from 'cordis'
 import type { ThemeController } from '../../src/theme/tokens'
 
 export const PAPER_KEY = 'appearance.paper'
 export const PAPER_ALPHA_KEY = 'appearance.paperAlpha'
+export const INK_KEY = 'appearance.ink'
 
 /** 跟随主题：纸面就是外壳原来的底色，一点变化都没有。 */
 export const FOLLOW_THEME = 'theme'
@@ -31,6 +34,9 @@ export type PaperPreset = (typeof PAPER_PRESETS)[number]
 /** 88%：看得出玻璃，字还读得清。滑到 100 就是完全实心。 */
 export const PAPER_ALPHA_DEFAULT = 88
 
+/** 93%：真 Notion 深色正文的实测浓度；100% 就是标题那种纯白。 */
+export const INK_DEFAULT = 93
+
 /** 存的是一个字符串：`theme` / 预设 id / `#rrggbb`（自定义取色）。 */
 export function paperChoice(ctx: Context): string {
   const raw = ctx.settings.get<string>(PAPER_KEY)
@@ -42,6 +48,13 @@ export function paperAlpha(ctx: Context): number {
   const n = typeof raw === 'number' ? raw : Number(raw)
   if (!Number.isFinite(n)) return PAPER_ALPHA_DEFAULT
   return Math.min(100, Math.max(0, n))
+}
+
+export function bodyInk(ctx: Context): number {
+  const raw = ctx.settings.get<unknown>(INK_KEY)
+  const n = typeof raw === 'number' ? raw : Number(raw)
+  if (!Number.isFinite(n)) return INK_DEFAULT
+  return Math.min(100, Math.max(50, n))
 }
 
 export function schemeNow(ctx: Context): 'light' | 'dark' {
@@ -70,9 +83,10 @@ export function createPaper(ctx: Context): () => void {
     if (hex === null) root.style.removeProperty('--sn-paper')
     else root.style.setProperty('--sn-paper', hex)
     root.style.setProperty('--sn-paper-alpha', String(paperAlpha(ctx)))
+    root.style.setProperty('--sn-body-ink', `${bodyInk(ctx)}%`)
   }
 
-  const offs = [PAPER_KEY, PAPER_ALPHA_KEY].map((key) => ctx.settings.onChange(key, paint))
+  const offs = [PAPER_KEY, PAPER_ALPHA_KEY, INK_KEY].map((key) => ctx.settings.onChange(key, paint))
   // 换主题要重算：预设色是按主题分开的两档。
   const offTheme = ctx.theme.onChange(paint)
   // 预热是异步的，这会儿可能还读到 undefined —— plugin-settings 预热完会 notify 一次，那时再画。
@@ -84,5 +98,6 @@ export function createPaper(ctx: Context): () => void {
     // 拔插件把变量收回：留着的话「没改过设置」和「插件不在」就成两种样子了。
     root.style.removeProperty('--sn-paper')
     root.style.removeProperty('--sn-paper-alpha')
+    root.style.removeProperty('--sn-body-ink')
   }
 }

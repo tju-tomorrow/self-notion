@@ -80,7 +80,7 @@ export function notionVars(seeds: Seeds): Record<string, string> {
 }
 
 /**
- * 变量到不了的差：侧栏通顶、标题 40、正文按 81% 白、子页面不加粗。
+ * 变量到不了的差：侧栏通顶、标题 40、正文按 `--sn-body-ink`（默认 93%，D-0206）、子页面不加粗。
  * 选择器都挂在 `data-sn-theme="notion"` 上，卸掉主题这些规则一起走。
  */
 export const NOTION_CSS = `
@@ -214,7 +214,7 @@ html[data-sn-theme="notion"] .sn-pm-title {
 }
 html[data-sn-theme="notion"] .ProseMirror {
   line-height: 1.5;
-  color: color-mix(in srgb, var(--sn-text) 81%, var(--sn-canvas));
+  color: color-mix(in srgb, var(--sn-text) var(--sn-body-ink, 93%), var(--sn-canvas));
 }
 html[data-sn-theme="notion"] .ProseMirror :is(h1, h2, h3) {
   color: var(--sn-text);

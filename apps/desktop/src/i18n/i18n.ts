@@ -180,7 +180,7 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'settings.followSystem': '跟随系统',
     // 正文纸面（D-0074）
     'settings.paper': '正文',
-    'settings.paper.desc': '编辑器那块纸面：底色和磨砂。',
+    'settings.paper.desc': '编辑器那块纸面：底色、字色和磨砂。',
     'settings.paper.color': '纸面颜色',
     'settings.paper.theme': '跟随主题',
     'settings.paper.white': '纸白',
@@ -189,6 +189,8 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'settings.paper.green': '豆绿',
     'settings.paper.coral': '珊瑚',
     'settings.paper.custom': '自定义颜色',
+    'settings.paper.ink': '文字深浅',
+    'settings.paper.ink.desc': '越深字越实。默认 93% 是 Notion 深色的浓度；100% 等于标题的纯白。',
     'settings.paper.glass': '磨砂',
     'settings.paper.glass.desc': '100% 是实心；调低就透出窗外的壁纸。',
     // 代码配色（`plugins/code-theme`）
@@ -951,7 +953,7 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'settings.theme': 'Colour scheme',
     'settings.followSystem': 'Follow system',
     'settings.paper': 'Page',
-    'settings.paper.desc': 'The paper the editor sits on: colour and frost.',
+    'settings.paper.desc': 'The paper the editor sits on: colour, text depth and frost.',
     'settings.paper.color': 'Page colour',
     'settings.paper.theme': 'Match theme',
     'settings.paper.white': 'Paper',
@@ -960,6 +962,8 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     'settings.paper.green': 'Sage',
     'settings.paper.coral': 'Coral',
     'settings.paper.custom': 'Custom colour',
+    'settings.paper.ink': 'Text depth',
+    'settings.paper.ink.desc': 'Higher reads more solid. 93% matches Notion dark; 100% is the pure white of headings.',
     'settings.paper.glass': 'Frost',
     'settings.paper.glass.desc': '100% is solid; lower it to let the wallpaper through.',
     // Code colours (`plugins/code-theme`)
