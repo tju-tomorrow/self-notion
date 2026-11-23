@@ -9,9 +9,9 @@ import type { NodeViewConstructor } from 'prosemirror-view'
 import { metaOf, openDoc, subscribe } from '../doc-meta'
 import { asString } from './attrs'
 
-/** 目标页没设图标时的兜底（内联 SVG，不引图标库，跟 file 那个一个写法）。 */
+/** 目标页没设图标时的兜底：Notion 那张「带两行字的竖长页」，比正文大一号（内联 SVG，不引图标库）。 */
 const DOC_ICON =
-  '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 1.5H4.5A1.5 1.5 0 0 0 3 3v10a1.5 1.5 0 0 0 1.5 1.5h7A1.5 1.5 0 0 0 13 13V5.5z"/><path d="M9 1.5V5.5H13"/></svg>'
+  '<svg viewBox="0 0 16 20" width="18" height="22" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 1.5H9L14.5 7v9.5A2 2 0 0 1 12.5 18.5h-9A2 2 0 0 1 1.5 16.5v-13A2 2 0 0 1 3.5 1.5z"/><path d="M9 1.5V7h5.5"/><path d="M4.5 12h7M4.5 14.8h6.5"/></svg>'
 
 export const subpageView: NodeViewConstructor = (node) => {
   const dom = document.createElement('div')

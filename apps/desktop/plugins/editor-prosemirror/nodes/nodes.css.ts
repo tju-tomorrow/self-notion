@@ -497,8 +497,8 @@ globalStyle('.sn-subpage-icon', {
   alignItems: 'center',
   justifyContent: 'center',
   width: 18,
-  height: 18,
-  fontSize: 16,
+  height: 22,
+  fontSize: 18,
   lineHeight: 1,
   opacity: 0.9,
 })
