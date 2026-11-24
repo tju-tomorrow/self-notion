@@ -31,12 +31,13 @@ import {
   CodeIcon,
   CollectionsIcon,
   DeleteTemporarilyIcon,
+  FavoriteIcon,
+  FavoritedIcon,
   FileIconMdIcon,
   FolderIcon,
   HistoryIcon,
   InboxIcon,
   MindmapNodeIcon,
-  FavoriteIcon,
   PageIcon,
   PinIcon,
   PlusIcon,
@@ -552,7 +553,7 @@ export function Sidebar({ ctx }: { ctx: Context }) {
               void favorite(node)
             }}
           >
-            {node.isFavorite ? <FavoriteIcon width={16} height={16} /> : <StarIcon width={16} height={16} />}
+            {node.isFavorite ? <FavoritedIcon width={16} height={16} /> : <FavoriteIcon width={16} height={16} />}
           </button>
           <button
             type="button"

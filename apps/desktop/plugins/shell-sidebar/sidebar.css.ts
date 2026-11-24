@@ -213,10 +213,9 @@ export const act = style({
   '@media': { '(hover: none)': { display: 'flex', flex: '0 0 28px', width: 28, height: 28 } },
 })
 
-/** 已收藏：星常亮，不用悬停才知道这篇在收藏里。 */
+/** 已收藏：实心星留在行上，悬停走了也能看见。 */
 export const actOn = style({
   display: 'flex',
-  color: 'var(--affine-primary-color)',
 })
 
 export const input = style({

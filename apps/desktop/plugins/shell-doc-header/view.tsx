@@ -14,6 +14,8 @@ import {
   DoneIcon,
   DuplicateIcon,
   ExpandWideIcon,
+  FavoriteIcon,
+  FavoritedIcon,
   FileIconMdIcon,
   FontIcon,
   HistoryIcon,
@@ -22,7 +24,6 @@ import {
   MoveToIcon,
   PageIcon,
   SplitViewIcon,
-  StarIcon,
   TagIcon,
   TextIcon,
 } from '@blocksuite/icons/rc'
@@ -278,11 +279,14 @@ export function DocHeader({ ctx }: { ctx: Context }) {
             <button
               type="button"
               className={s.iconButton}
-              style={here?.isFavorite ? { color: 'var(--affine-primary-color)' } : undefined}
               aria-label={ctx.i18n.t(here?.isFavorite ? 'doc.unfavorite' : 'doc.favorite')}
               onClick={favorite}
             >
-              <StarIcon width={ICON} height={ICON} />
+              {here?.isFavorite ? (
+                <FavoritedIcon width={ICON} height={ICON} />
+              ) : (
+                <FavoriteIcon width={ICON} height={ICON} />
+              )}
             </button>
           </Hint>
         )}
