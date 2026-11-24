@@ -84,7 +84,7 @@ const STARRY_THEME: Theme = {
 const CLAUDE_THEME: Theme = {
   id: CLAUDE_ID,
   name: 'Claude',
-  scheme: 'light',
+  scheme: null,
   tone: 'claude',
   seeds: {
     canvas: '#faf9f5',

@@ -9,7 +9,6 @@ import type { Context } from 'cordis'
 import { reportError } from '../../src/kernel/errors'
 // 契约靠 module augmentation 挂在 Context 上；显式 import 一次，保证它进编译单元
 import type {} from '../../src/kernel/contract'
-import type { ThemeController } from '../../src/theme/tokens'
 import { installTheme } from './apply'
 import { CLAUDE_ID } from './builtin'
 import { ACTIVE_KEY, DRAFT_KEY } from './store'
@@ -47,7 +46,6 @@ export function apply(ctx: Context) {
     .then((all) => {
       if (all[CLAUDE_SEEN] === 'true') return
       ctx.settings.set(DRAFT_KEY, {})
-      if (ctx.theme.scheme !== 'light') (ctx.theme as ThemeController).set('light')
       ctx.settings.set(ACTIVE_KEY, CLAUDE_ID)
       ctx.settings.set(CLAUDE_SEEN, true)
     })

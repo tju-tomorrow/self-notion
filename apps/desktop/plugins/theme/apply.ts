@@ -13,8 +13,10 @@
 import type { Context } from 'cordis'
 import { reportError } from '../../src/kernel/errors'
 import { DECOR_CSS, artVars } from './art'
+import { CLAUDE_DARK } from './claude'
 import { expand } from './expand'
 import { ACTIVE_KEY, DRAFT_KEY, USERS_KEY, resolved } from './store'
+import type { Seeds } from './types'
 
 /** 圆角只给「本来就是一张卡片 / 一个浮层」的稳定类名，不动结构类的。 */
 const RADIUS_TARGETS = '.sn-code, .sn-slash, .sn-template-pick, .sn-pane-side'
@@ -42,9 +44,11 @@ export function installTheme(ctx: Context): () => void {
     if (!theme.seeds) return
     if (theme.scheme && theme.scheme !== ctx.theme.scheme) return
 
+    const seeds: Seeds =
+      theme.tone === 'claude' && ctx.theme.scheme === 'dark' ? CLAUDE_DARK : theme.seeds
     const vars = {
-      ...expand(theme.seeds, theme.tone),
-      ...artVars(theme.seeds, theme),
+      ...expand(seeds, theme.tone),
+      ...artVars(seeds, theme),
     }
     for (const [key, value] of Object.entries(vars)) {
       root.style.setProperty(key, value)

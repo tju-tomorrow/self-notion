@@ -1,79 +1,103 @@
 /**
- * Claude 网页那套：奶油底、选中是一粒暖灰胶囊、主按钮近黑、大标题用 Anthropic Serif。
- * 只在 `data-sn-theme="claude"` 上生效。
+ * Claude 网页那套。界面是 Anthropic Sans，正文和标题是 Anthropic Serif。
+ * 中文不在那两套里：正文跟标题一样走宋体，别掉回苹方黑体。
+ * 浅色 / 黑夜共用这段 CSS，颜色从种子来。
  */
 import type { Seeds } from './types'
 
 const on = (color: string, pct: number) => `color-mix(in srgb, ${color} ${pct}%, transparent)`
+const mix = (a: string, pct: number, b: string) => `color-mix(in srgb, ${a} ${pct}%, ${b})`
 
 const SANS = '"Anthropic Sans","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif'
 const SERIF = '"Anthropic Serif","Songti SC","Noto Serif SC",Georgia,serif'
 const MONO = '"Anthropic Mono",ui-monospace,"SFMono-Regular",Menlo,monospace'
 
-const INK = '#1c1b19'
-const CREAM = '#faf9f5'
-const SAGE = '#e8e6dc'
-const WASH = '#f3f1ea'
+/** claude.ai 黑夜：暖炭，不是冷黑。 */
+export const CLAUDE_DARK: Seeds = {
+  canvas: '#262624',
+  sidebar: '#262624',
+  surface: '#30302e',
+  accent: '#faf9f5',
+  text: '#faf9f5',
+  border: '#3d3d3a',
+}
+
+function darkCanvas(hex: string): boolean {
+  const h = hex.replace('#', '')
+  if (h.length !== 6) return false
+  const n = Number.parseInt(h, 16)
+  const r = (n >> 16) & 255
+  const g = (n >> 8) & 255
+  const b = n & 255
+  return r * 0.299 + g * 0.587 + b * 0.114 < 140
+}
 
 export function claudeVars(seeds: Seeds): Record<string, string> {
-  const { text, canvas } = seeds
+  const { text, canvas, surface } = seeds
+  const dark = darkCanvas(canvas)
+  const chip = mix(text, 10, canvas)
+  const wash = mix(text, 6, canvas)
+  const muted = mix(text, 62, canvas)
+  const quiet = mix(text, 42, canvas)
+
   return {
     '--affine-font-family': SANS,
-    '--sn-font-doc': SANS,
-    '--sn-font-over': SANS,
+    '--sn-font-doc': SERIF,
+    '--sn-font-over': SERIF,
     '--affine-font-code-family': MONO,
     '--affine-font-mono-family': MONO,
 
-    '--affine-v2-text-secondary': '#5e5d59',
-    '--affine-text-secondary-color': '#5e5d59',
-    '--affine-v2-text-tertiary': '#8a887f',
-    '--affine-v2-text-placeholder': '#8a887f',
-    '--affine-v2-icon-primary': '#3f3e3a',
-    '--affine-v2-icon-secondary': '#6f6d66',
-    '--affine-v2-icon-tertiary': '#9a978e',
-    '--affine-icon-color': '#3f3e3a',
+    '--affine-v2-text-secondary': muted,
+    '--affine-text-secondary-color': muted,
+    '--affine-v2-text-tertiary': quiet,
+    '--affine-v2-text-placeholder': quiet,
+    '--affine-v2-icon-primary': mix(text, 82, canvas),
+    '--affine-v2-icon-secondary': muted,
+    '--affine-v2-icon-tertiary': quiet,
+    '--affine-icon-color': mix(text, 82, canvas),
 
-    '--affine-v2-layer-background-hoverOverlay': WASH,
-    '--affine-v2-layer-background-hover': SAGE,
-    '--affine-hover-color': WASH,
-    '--affine-primary-color-04': WASH,
-    '--affine-link-color': '#3266ad',
+    '--affine-v2-layer-background-hoverOverlay': wash,
+    '--affine-v2-layer-background-hover': chip,
+    '--affine-hover-color': wash,
+    '--affine-primary-color-04': wash,
+    '--affine-link-color': dark ? '#9ec0f0' : '#3266ad',
 
-    '--affine-v2-button-primary': INK,
-    '--affine-v2-button-secondary': WASH,
+    '--affine-v2-button-primary': text,
+    '--affine-v2-button-secondary': wash,
     '--affine-v2-button-iconButtonSolid': 'transparent',
-    '--affine-v2-button-emptyIconBackground': WASH,
-    '--affine-v2-button-buttonOverHover': SAGE,
-    '--affine-v2-button-pureWhiteText': CREAM,
+    '--affine-v2-button-emptyIconBackground': wash,
+    '--affine-v2-button-buttonOverHover': chip,
+    '--affine-v2-button-pureWhiteText': canvas,
 
-    '--affine-v2-layer-background-codeBlock': '#f4f3ee',
+    '--affine-v2-layer-background-codeBlock': surface,
     '--affine-v2-tab-tabBackground-default': 'transparent',
-    '--affine-v2-tab-tabBackground-active': '#ffffff',
-    '--affine-v2-tab-iconColor-default': '#6f6d66',
-    '--affine-v2-tab-fontColor-default': '#5e5d59',
+    '--affine-v2-tab-tabBackground-active': surface,
+    '--affine-v2-tab-iconColor-default': muted,
+    '--affine-v2-tab-fontColor-default': muted,
 
-    '--affine-shadow-2': `0 1px 2px ${on(INK, 5)}, 0 8px 24px ${on(INK, 6)}`,
-    '--affine-shadow-3': `0 12px 32px ${on(INK, 10)}`,
-    '--affine-menu-shadow': `0 8px 28px ${on(INK, 10)}, 0 0 0 1px ${on(INK, 6)}`,
-    '--affine-popover-shadow': `0 8px 28px ${on(INK, 10)}`,
-    '--affine-overlay-shadow': `0 8px 24px ${on(INK, 8)}`,
+    '--affine-shadow-2': `0 1px 2px ${on(text, 6)}, 0 8px 24px ${on(text, 8)}`,
+    '--affine-shadow-3': `0 12px 32px ${on(text, 12)}`,
+    '--affine-menu-shadow': `0 8px 28px ${on(text, 12)}, 0 0 0 1px ${on(text, 8)}`,
+    '--affine-popover-shadow': `0 8px 28px ${on(text, 12)}`,
+    '--affine-overlay-shadow': `0 8px 24px ${on(text, 10)}`,
 
     '--sn-text': text,
-    '--sn-muted': '#5e5d59',
-    '--sn-line': '#e6e4dc',
-    '--sn-hover': WASH,
+    '--sn-muted': muted,
+    '--sn-line': mix(text, 14, canvas),
+    '--sn-hover': wash,
     '--sn-nav-on': text,
-    '--sn-nav-on-bg': SAGE,
+    '--sn-nav-on-bg': chip,
     '--sn-nav-on-bar': '0px',
-    '--sn-search-bg': '#ffffff',
+    '--sn-search-bg': surface,
     '--sn-search-radius': '12px',
     '--sn-search-h': '36px',
     '--sn-add-bg': 'transparent',
     '--sn-add-radius': '10px',
     '--sn-add-hover': text,
     '--sn-row-radius': '10px',
-    '--sn-tab-ring': on(INK, 8),
+    '--sn-tab-ring': on(text, 10),
     '--sn-canvas': canvas,
+    '--sn-panel': surface,
   }
 }
 
@@ -81,20 +105,20 @@ export const CLAUDE_CSS = `
 html[data-sn-theme="claude"] {
   font-family: ${SANS} !important;
   --affine-font-family: ${SANS} !important;
-  --sn-font-doc: ${SANS} !important;
-  --sn-font-over: ${SANS} !important;
+  --sn-font-doc: ${SERIF} !important;
+  --sn-font-over: ${SERIF} !important;
   --affine-font-code-family: ${MONO} !important;
   --affine-font-mono-family: ${MONO} !important;
   -webkit-font-smoothing: antialiased;
-  color: ${INK};
-  scrollbar-color: #d4d1c7 transparent;
+  color: var(--sn-text);
+  scrollbar-color: color-mix(in srgb, var(--sn-text) 28%, transparent) transparent;
 }
 
 html[data-sn-theme="claude"] [data-sn-shell] {
   display: grid;
   grid-template-columns: var(--shell-sidebar-w, 260px) minmax(0, 1fr);
   grid-template-rows: 40px minmax(0, 1fr);
-  background: ${CREAM};
+  background: var(--sn-canvas);
 }
 html[data-sn-theme="claude"] [data-sn-shell][data-collapsed="1"] {
   grid-template-columns: 0px minmax(0, 1fr);
@@ -103,7 +127,7 @@ html[data-sn-theme="claude"] [data-sn-shell] > header {
   grid-column: 2;
   grid-row: 1;
   min-width: 0;
-  background: ${CREAM};
+  background: var(--sn-canvas);
   border: none;
 }
 html[data-sn-theme="claude"] [data-sn-shell] > header > div:first-child {
@@ -127,7 +151,7 @@ html[data-sn-theme="claude"] [data-sn-shell] aside {
   min-width: 0;
   min-height: 0;
   padding-top: 36px;
-  background: ${CREAM} !important;
+  background: var(--sn-canvas) !important;
   border-right: none;
 }
 html[data-sn-theme="claude"] [data-sn-shell][data-collapsed="1"] aside {
@@ -139,7 +163,7 @@ html[data-sn-theme="claude"] [data-sn-shell] main {
   grid-row: 2;
   min-width: 0;
   min-height: 0;
-  background: ${CREAM};
+  background: var(--sn-canvas);
 }
 
 html[data-sn-theme="claude"] [data-sn-shell][data-mobile="1"] {
@@ -177,60 +201,66 @@ html[data-sn-theme="claude"] aside button {
 }
 html[data-sn-theme="claude"] .sn-kbd {
   border: none;
-  background: ${WASH};
+  background: var(--sn-hover);
   border-radius: 6px;
-  color: #8a887f;
+  color: var(--sn-muted);
   font-family: ${SANS};
 }
 
 html[data-sn-theme="claude"] main > div > div:first-child {
   border-bottom-color: transparent;
-  background-color: ${CREAM};
+  background-color: var(--sn-canvas);
 }
 html[data-sn-theme="claude"] main > div > div:only-child,
 html[data-sn-theme="claude"] .sn-pane-body {
-  background-color: ${CREAM};
+  background-color: var(--sn-canvas);
   background-image: none;
 }
 
-html[data-sn-theme="claude"] .sn-display {
+html[data-sn-theme="claude"] .sn-display,
+html[data-sn-theme="claude"] .sn-pm-title,
+html[data-sn-theme="claude"] .ProseMirror,
+html[data-sn-theme="claude"] .ProseMirror :is(h1, h2, h3) {
   font-family: ${SERIF};
+  color: var(--sn-text);
+}
+html[data-sn-theme="claude"] .sn-display {
   font-size: 28px;
   font-weight: 460;
   letter-spacing: -0.02em;
   line-height: 1.2;
 }
 html[data-sn-theme="claude"] .sn-pm-title {
-  font-family: ${SERIF};
   font-size: calc(36px * var(--sn-font-scale, 1));
   font-weight: 460;
   letter-spacing: -0.025em;
   line-height: 1.2;
-  color: ${INK};
 }
 html[data-sn-theme="claude"] .ProseMirror {
-  font-family: ${SANS};
-  line-height: 1.65;
-  color: ${INK};
+  font-weight: 400;
+  line-height: 1.75;
 }
 html[data-sn-theme="claude"] .ProseMirror :is(h1, h2, h3) {
-  font-family: ${SERIF};
   font-weight: 500;
   letter-spacing: -0.02em;
-  color: ${INK};
+}
+html[data-sn-theme="claude"] .ProseMirror :is(strong, b) {
+  font-weight: 650;
 }
 html[data-sn-theme="claude"] .ProseMirror a {
-  color: #3266ad;
+  color: var(--affine-link-color);
   text-underline-offset: 3px;
+}
+html[data-sn-theme="claude"] .sn-code-text,
+html[data-sn-theme="claude"] .sn-inline-code {
+  font-family: ${MONO};
 }
 html[data-sn-theme="claude"] .sn-codeblock,
 html[data-sn-theme="claude"] .sn-code {
   border-radius: 12px;
-  background: #ffffff;
-  border: 1px solid #e6e4dc;
 }
 html[data-sn-theme="claude"] ::selection {
-  background: #e4dcc8;
+  background: color-mix(in srgb, var(--sn-text) 18%, var(--sn-canvas));
 }
 
 html[data-sn-theme="claude"] .sn-btn {
@@ -240,11 +270,11 @@ html[data-sn-theme="claude"] .sn-btn {
   font-weight: 500;
 }
 html[data-sn-theme="claude"] .sn-btn-primary {
-  background: ${INK};
-  color: ${CREAM};
+  background: var(--sn-text);
+  color: var(--sn-canvas);
 }
 html[data-sn-theme="claude"] .sn-btn-primary:hover:not(:disabled) {
-  filter: brightness(1.15);
+  filter: brightness(1.12);
 }
 html[data-sn-theme="claude"] input,
 html[data-sn-theme="claude"] textarea,
@@ -252,11 +282,11 @@ html[data-sn-theme="claude"] select {
   border-radius: 12px;
 }
 html[data-sn-theme="claude"] :where(button, a, input, textarea, select):focus-visible {
-  outline-color: #c4bfb0;
+  outline-color: color-mix(in srgb, var(--sn-text) 35%, transparent);
 }
 html[data-sn-theme="claude"] [role="menu"],
 html[data-sn-theme="claude"] [role="dialog"] {
   border-radius: 16px;
-  background: #ffffff;
+  background: var(--sn-panel);
 }
 `
