@@ -17,8 +17,14 @@ export interface Line {
   text: string
   /** 只有 `note` 那一行有：界面上要转圈、要计时、要合堆，光有工具名不够。 */
   tool?: ToolMark
-  /** 用户那一行圈定的范围（D-0200）—— 发完留着，历史里也看得见当时圈的是哪。 */
+  /** 用户那一行圈定的范围。老会话只有一颗 `scope`。 */
   scope?: RagScope
+  /** 一条消息里可以 @ 多个目录或笔记。 */
+  scopes?: RagScope[]
+  /** 发出去时正文里划着的那段。只留在这一行上，模型那侧另有全文。 */
+  quote?: string
+  /** 粘贴进来的图。`data` 是缩过的 jpeg base64。 */
+  images?: { mime: string; data: string }[]
   /** 检索那一行的结果：过程、预算、片段和来源卡都从这里画。 */
   rag?: RagTrace
 }

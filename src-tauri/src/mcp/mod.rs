@@ -20,8 +20,13 @@ use std::path::PathBuf;
 mod learn;
 mod media;
 mod nav;
-mod notes;
+pub mod notes;
 mod write;
+
+/// 内置助手没有 MCP 那种会话内导航，关联查询用一份空导航。
+pub fn related_notes(db: &Db, args: &notes::RelatedArgs) -> ApiResult<String> {
+    notes::related(db, &nav::Nav::new(), args)
+}
 
 /// 客户端没报版本（或报了个我们不认识的）时的兜底 —— 我们只用得到 `tools` 那一块。
 const PROTOCOL: &str = "2024-11-05";

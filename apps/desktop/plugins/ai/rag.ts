@@ -32,6 +32,68 @@ export async function loadScopes(ctx: Context): Promise<RagScopeItem[]> {
   return cached.items
 }
 
+const MERGED_CHUNKS = 8
+const MERGED_CHARS = 3_600
+
+/** 一条问题圈了多个范围：各自检索后按分数合成一份，编号重新从 1 排。 */
+export function mergeTraces(traces: RagTrace[]): RagTrace | null {
+  if (!traces.length) return null
+  const withText = traces.filter((t) => t.chunks.length > 0)
+  if (!withText.length) return traces[0] ?? null
+
+  const ranked = withText.flatMap((t) => t.chunks).sort((a, b) => b.score - a.score)
+  const seen = new Set<string>()
+  const chunks: RagChunk[] = []
+  let chars = 0
+  for (const chunk of ranked) {
+    const key = `${chunk.docId}\u0000${chunk.anchor}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const cost = chunk.text.length + chunk.title.length + chunk.path.length + 24
+    if (chunks.length > 0 && chars + cost > MERGED_CHARS) continue
+    chars += cost
+    chunks.push({ ...chunk, n: chunks.length + 1 })
+    if (chunks.length >= MERGED_CHUNKS) break
+  }
+
+  const head = withText[0]
+  if (!head) return null
+  const scope: RagScope =
+    withText.length === 1
+      ? head.scope
+      : {
+          kind: 'dir',
+          path: withText.map((t) => scopeLabel(t.scope)).join(' · '),
+          title: withText.map((t) => t.scope.title).join(' · '),
+        }
+  const used = new Map<string, RagTrace['usedDocs'][number]>()
+  for (const trace of withText) {
+    for (const doc of trace.usedDocs) {
+      const prev = used.get(doc.id)
+      used.set(doc.id, prev ? { ...prev, chunks: prev.chunks + doc.chunks } : doc)
+    }
+  }
+  return {
+    scope,
+    query: head.query,
+    terms: [...new Set(withText.flatMap((t) => t.terms))].slice(0, 14),
+    semantic: withText.some((t) => t.semantic),
+    docsTotal: withText.reduce((n, t) => n + t.docsTotal, 0),
+    docsScanned: withText.reduce((n, t) => n + t.docsScanned, 0),
+    docsHit: withText.reduce((n, t) => n + t.docsHit, 0),
+    docsSkipped: withText.reduce((n, t) => n + t.docsSkipped, 0),
+    chunksScored: withText.reduce((n, t) => n + t.chunksScored, 0),
+    chars,
+    tookMs: Math.max(...withText.map((t) => t.tookMs)),
+    chunks,
+    usedDocs: [...used.values()],
+    docScores: withText
+      .flatMap((t) => t.docScores)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8),
+  }
+}
+
 export function searchScope(
   ctx: Context,
   scope: RagScope,

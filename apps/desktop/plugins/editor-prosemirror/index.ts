@@ -20,7 +20,7 @@ import {
   type DocMeta,
 } from '../../src/kernel/contract'
 import { nextCopyTitle, retitleDocJson } from '../../src/kernel/doc-name'
-import { reportError } from '../../src/kernel/errors'
+import { reportError, reportNote } from '../../src/kernel/errors'
 import { isWeb } from '../../src/platform/env'
 import { setLoadBacklinks } from './backlinks'
 import { setPutBlob } from './blob'
@@ -70,6 +70,21 @@ export function apply(ctx: Context) {
   ctx.effect(() => ctx.slot.register('settings.section', section))
 
   setLearnRpc((method, args) => ctx.rpc.call(method, args))
+  // TEMP 表格边框探针：只为查「桌面端看不到线」，查完删。
+  let probed = false
+  const probe = setInterval(() => {
+    const cell = document.querySelector<HTMLElement>('.sn-table-cell')
+    if (!cell || probed) return
+    probed = true
+    clearInterval(probe)
+    const cs = getComputedStyle(cell)
+    const table = cell.closest('table')
+    const pm = document.querySelector('.ProseMirror')
+    reportNote(
+      'probe',
+      `theme=${document.documentElement.dataset.theme} cell=${cell.tagName}.${cell.className} border=${cs.borderTopWidth} ${cs.borderTopStyle} ${cs.borderTopColor} color=${cs.color} collapse=${table ? getComputedStyle(table).borderCollapse : '-'} pm=${pm ? getComputedStyle(pm).color : '-'} ink=${getComputedStyle(document.documentElement).getPropertyValue('--sn-body-ink')}`,
+    )
+  }, 2000)
   // mermaid 的配色跟明暗走 —— `nodes/mermaid.ts` 那层拿不到 ctx，这边推给它（契约 D10）。
   const pushScheme = () => setMermaidScheme(ctx.theme.scheme)
   pushScheme()

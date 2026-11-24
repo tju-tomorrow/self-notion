@@ -45,7 +45,7 @@ function restore(err: unknown): unknown {
  * 会联网 / 拉模型的方法，几秒级。它们必须走 `api_bg`（Rust 侧扔阻塞池）——
  * 同步的 `api` 在主线程上跑，GitHub 备份那 5–8 秒会把窗口帧一起冻住。
  */
-const SLOW = /^(?:backup:|kb:|voice:download$|ai:(?:models|summarize|chat)$|agent:pending$)/
+const SLOW = /^(?:backup:|kb:|voice:download$|ai:(?:models|summarize|chat)$|agent:pending$|doc:marks$)/
 
 export function apply(ctx: Context) {
   const rpc: RpcService = {

@@ -32,8 +32,16 @@ import {
   type StreamTurn,
   type ToolOutput,
 } from './harness'
-import { whereNow } from './place'
-import { emptyPrompt, scopeLabel, searchScope, sourcesBlock, type RagScope, type RagTrace } from './rag'
+import { placeOf, whereNow } from './place'
+import {
+  emptyPrompt,
+  mergeTraces,
+  scopeLabel,
+  searchScope,
+  sourcesBlock,
+  type RagScope,
+  type RagTrace,
+} from './rag'
 import {
   addSpend,
   askApproval,
@@ -45,30 +53,39 @@ import {
   onStopRequest,
   pushLine,
   setAiState,
+  type Line,
   type Undo,
 } from './state'
 import { estimateTokens, requestTokens } from './tokens'
 
-/** 写工具的名字 —— 只有它们会动库（进撤销条），也只有它们不许和别的调用并发。 */
-const WRITES = new Set(['doc_create', 'doc_append', 'doc_replace', 'doc_blocks'])
+/** 写工具的名字 —— 只有它们会动库，也只有它们不许和别的调用并发。正文改动才进撤销条。 */
+const WRITES = new Set([
+  'doc_create',
+  'doc_append',
+  'doc_replace',
+  'doc_blocks',
+  'doc_rename',
+  'doc_move',
+  'doc_tag',
+  'notes_familiarity',
+])
 
 const BASE_PROMPT = [
-  '你是这个笔记应用里的助手。你能读（vfs_list / vfs_grep / vfs_read）也能写（doc_create / doc_append / doc_replace）。',
-  '读写都走一棵虚拟目录：先看 /index.md 拿全局地图，用 vfs_grep 定位，再 vfs_read 读正文（长文用 offset / limit 分页，别一次灌满）。',
-  '笔记里的图片会随 vfs_read 一起给你，正文里对应 [图片 N] —— 看得到内容，别再说图片读不了。',
-  '要写就用 Markdown：新建一篇用 doc_create，往已有的末尾加用 doc_append，改一小段用 doc_replace。',
-  '结构化块用 doc_blocks（或 doc_create 的 blocks）：每项 {type, text, …}。' +
-    'type = paragraph / heading(level 1-3) / quote / callout(icon) / codeBlock(language) / equation(tex) / divider / ' +
+  '你是这个笔记应用里的助手。先给结论，再按需要展开；用户要求短就短。用用户提问的语言。',
+  '定位用 notes_find。读正文用 vfs_read（默认一段，长文用 offset 续读）。列目录用 vfs_list。主题分布用 notes_map。关联用 notes_related。',
+  '学习数据（打开次数、阅读时长、深度、行为分、熟悉度）用 notes_learn。打熟悉度用 notes_familiarity（1 不熟 / 2 略懂 / 3 熟悉 / 4 很熟，0 清除）。',
+  '颜色和评论：当前这篇用 doc_annotations；在多篇里找用 doc_marks。vfs_read 只有纯文字。',
+  '笔记里的图片会随 vfs_read 一起给你，正文里对应 [图片 N]。',
+  '要写就用 Markdown：新建 doc_create，追加 doc_append，改一小段 doc_replace。结构化块用 doc_blocks（或 doc_create 的 blocks）。',
+  '结构化块每项 {type, text, …}。type = paragraph / heading(level 1-3) / quote / callout(icon) / codeBlock(language) / equation(tex) / divider / ' +
     'bulletedListItem / numberedListItem(start) / todoItem(checked) / toggle(open) / table(rows，第一行表头) / ' +
     'image(blobId,caption) / video|audio|file(blobId,name) / subpage(docId) / columnList(columns，每列一个块数组) / ' +
-    'tableOfContents / breadcrumb。text 支持行内 markdown（**粗体** *斜体* `代码` [链接](url)），' +
-    'children 是嵌套块，color / bg 是块级文字色和背景色。',
-  '用户消息里用 """ 圈起来的那段是他在正文里划出来的原文 —— 问题多半针对它，先读它再答。',
-  '用户问「这篇里哪些地方标了颜色 / 哪些句子有评论 / 这条评论对应哪段」时调 doc_annotations；' +
-    'vfs_read 只有纯文字，颜色和评论锚点都不在里面。不给 id 就是当前这篇。',
-  '工具够用就停：拿到 doc_annotations / 检索资料后就开始整理或写答案，不要为了补全每一条再反复 grep。' +
-    '用户说「总结成笔记」时，资料齐了就调 doc_create 写出来，别一直读。',
-  '不要尝试删除文档 —— 没有这个工具。回答用用户提问的语言，简短。',
+    'tableOfContents / breadcrumb。text 支持行内 markdown，children 是嵌套块，color / bg 是块级文字色和背景色。',
+  '改标题 doc_rename，移动 doc_move，改标签 doc_tag（整组替换）。',
+  '用户贴了图片就看图，结合他的问题和圈定的笔记一起答。',
+  '圈了一个或多个范围时，只根据那些笔记和资料里的【相关笔记】回答，并标明哪句来自相关笔记。没圈范围、也不是在问当前这篇时，就正常聊天，不要主动翻库。',
+  '用户消息里 """ 圈起来的是他划出的原文。追问时以上一回合附带的依据摘要为准，不要换一批笔记重答。',
+  '工具够用就停并回答。用户要总结成笔记时，资料齐了就写。不要删除文档。不要用 vfs_grep 扫整库，除非 notes_find 明确不够。',
 ].join('\n')
 
 /** 用户划线送进来的那段正文。`path` 拿不到就只说「当前笔记」。 */
@@ -95,7 +112,8 @@ export async function runTurn(
   ai: AiService,
   prompt: string,
   quote?: Quote,
-  scope?: RagScope,
+  scopes?: RagScope[],
+  images?: AiImage[],
 ): Promise<void> {
   const state = getAiState()
   if (state.busy) return
@@ -114,16 +132,30 @@ export async function runTurn(
     stopRequested: false,
   })
   const prior = recentContext()
-  pushLine({ role: 'user', text: prompt, scope })
+  const picked = await focusScopes(ctx, prompt, quote, scopes ?? [])
+  pushLine({
+    role: 'user',
+    text: prompt,
+    scope: picked[0],
+    scopes: picked.length ? picked : undefined,
+    quote: quote?.text,
+    images: images?.length ? images : undefined,
+  })
 
-  // 有范围先检索。这一步不等模型、也不占回合轮次 —— 它决定这一问的上下文。
-  const trace = scope ? await retrieve(ctx, scope, prompt, quote, groupId) : null
-  const rules = scopeRules(ctx, scope, trace)
-  const system = await systemPrompt(ctx, scope !== undefined)
+  // 只有圈了范围、划了字、或这句话是在问当前这篇时才检索。普通闲聊不翻库。
+  const found = picked.length ? await retrieve(ctx, picked, prompt, quote, groupId) : null
+  const trace = found?.trace ?? null
+  const rules = scopeRules(ctx, picked, trace, found?.related ?? '')
+  const system = await systemPrompt(ctx, picked.length > 0)
+  const user: AiMessage = {
+    role: 'user',
+    content: userContent(prompt, quote, trace, found?.related ?? ''),
+  }
+  if (images?.length) user.images = images
   const messages: AiMessage[] = [
     { role: 'system', content: rules === '' ? system : `${system}\n\n${rules}` },
     ...prior,
-    { role: 'user', content: userContent(prompt, quote, trace) },
+    user,
   ]
 
   let answered = false
@@ -131,7 +163,7 @@ export async function runTurn(
     await runLoop(
       messages,
       {
-        tools: toolsFor(ctx, specs, groupId, written),
+        tools: toolsFor(ctx, specs, groupId, written, picked, found?.extra ?? []),
         onAssistant: (turn) => {
           if (!turn.content.trim()) return
           answered = true
@@ -173,14 +205,77 @@ function recentContext(): AiMessage[] {
   while (kept.length > 0 && kept[0].role === 'ai') kept.shift()
   const out: AiMessage[] = []
   let budget = 4_000
+  const lastUser = [...kept].reverse().find((line) => line.role === 'user')
   for (const line of kept) {
     if (budget <= 0) break
     const text = clip(line.text, 1_200)
     if (text === '') continue
     budget -= text.length
-    out.push({ role: line.role === 'user' ? 'user' : 'assistant', content: text })
+    const msg: AiMessage = { role: line.role === 'user' ? 'user' : 'assistant', content: text }
+    // 只把最近一条用户消息上的图带回去，追问还看得到那张图。
+    if (line === lastUser && line.images?.length) msg.images = line.images
+    out.push(msg)
+  }
+  const evidence = clip(evidenceOf(cur.lines), 1_200)
+  const last = out[out.length - 1]
+  if (evidence && last?.role === 'assistant') {
+    last.content = `${last.content}\n\n（上一回合依据，追问以此为准）\n${evidence}`
   }
   return out
+}
+
+/** 追问要认得上一次读过什么。带路径和短摘，不把工具原文再灌一遍。 */
+function evidenceOf(lines: readonly Line[]): string {
+  const bits: string[] = []
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i]
+    if (line?.role === 'user' && line.quote) {
+      bits.push(`划线：${clip(line.quote, 240)}`)
+      break
+    }
+  }
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const rag = lines[i]?.rag
+    if (!rag?.chunks.length) continue
+    bits.push(
+      rag.chunks
+        .slice(0, 6)
+        .map((c) => `[${c.n}] ${c.title} ${clip(c.text, 80)}`)
+        .join('\n'),
+    )
+    break
+  }
+  const tools = lines.filter((l) => l.tool && l.tool.ms !== null).slice(-6)
+  if (tools.length) {
+    bits.push(tools.map((t) => `${t.tool?.name ?? ''} ${t.tool?.detail ?? ''}`.trim()).join('；'))
+  }
+  return bits.join('\n')
+}
+
+/** 这句话是在问笔记，而不是闲聊或让它新写一篇。 */
+function aboutNotes(prompt: string): boolean {
+  if (prompt.length < 4) return false
+  if (/新建|写一篇|日记/.test(prompt) && !/[?？]/.test(prompt)) return false
+  return /[?？]|什么|为何|为什么|怎么|哪些|总结|解释|区别|这篇|这里|这段|相关/.test(prompt)
+}
+
+/** `@` 优先。没圈时，划线或「在问当前这篇」才锁到那一篇。 */
+async function focusScopes(
+  ctx: Context,
+  prompt: string,
+  quote: Quote | undefined,
+  picked: readonly RagScope[],
+): Promise<RagScope[]> {
+  if (picked.length) return [...picked]
+  if (quote?.id && quote.path) {
+    return [{ kind: 'doc', id: quote.id, path: quote.path, title: quote.path }]
+  }
+  if (!aboutNotes(prompt)) return []
+  const id = getAiState().viewingDoc
+  if (!id) return []
+  const place = await placeOf(ctx, id)
+  if (!place) return []
+  return [{ kind: 'doc', id, path: place.path, title: place.title }]
 }
 
 /** 划线段只进给模型这一轮 —— 气泡里还是用户自己问的那句话（他选的）。 */
@@ -190,56 +285,117 @@ function withQuote(prompt: string, quote?: Quote): string {
   return `用户选中了${where}里的这一段：\n"""\n${quote.text}\n"""\n\n${prompt}`
 }
 
-/** 圈了范围就先检索一次，把过程画进对话。失败不挡这一问 —— 模型会被告知没有资料。 */
+interface Found {
+  trace: RagTrace | null
+  related: string
+  /** 相关笔记的路径。范围门放行这些，否则模型读不到圈外的关联。 */
+  extra: string[]
+}
+
+/** 每个范围各检索一次，再按问题的相关度合成。命中的笔记再拉关联。 */
 async function retrieve(
   ctx: Context,
-  scope: RagScope,
+  scopes: readonly RagScope[],
   prompt: string,
   quote: Quote | undefined,
   groupId: string,
-): Promise<RagTrace | null> {
+): Promise<Found> {
   const id = `rag-${groupId}`
+  const detail = scopes.map(scopeLabel).join(' · ')
   pushLine({
     role: 'note',
     text: 'rag_search',
-    tool: { id, name: 'rag_search', detail: scopeLabel(scope), start: Date.now(), ms: null },
+    tool: { id, name: 'rag_search', detail, start: Date.now(), ms: null },
   })
   try {
-    // 引用正文只用来给所在文档加权，不并进 query —— 长引用会把真正的问题淹掉。
-    const trace = await searchScope(ctx, scope, prompt, quote?.id)
-    finishRag(id, trace)
-    return trace
+    const traces = await Promise.all(
+      scopes.map((scope) => searchScope(ctx, scope, prompt, quote?.id)),
+    )
+    const trace = mergeTraces(traces)
+    const related = await relatedBlock(ctx, scopes, trace, quote?.id)
+    if (trace) finishRag(id, trace)
+    else finishTool(id, true)
+    return { trace, related: related.text, extra: related.paths }
   } catch (err) {
     reportError('ai.rag', err)
     finishTool(id, true)
-    return null
+    return { trace: null, related: '', extra: [] }
   }
 }
 
-/** 有范围时多一段规则：结论先行、标引用、只在范围里补读。 */
-function scopeRules(ctx: Context, scope?: RagScope, trace?: RagTrace | null): string {
-  if (!scope) return ''
-  const head = `本轮用户把检索范围圈在了《${scopeLabel(scope)}》。`
-  if (!trace) {
-    return `${head}预检索失败了，按没有资料处理；要读也只能读这个范围里的路径。`
+/** 命中的那几篇（加上圈定的单篇）各拉一截关联。路径从结果里抠出来，给范围门用。 */
+async function relatedBlock(
+  ctx: Context,
+  scopes: readonly RagScope[],
+  trace: RagTrace | null,
+  focusId?: string | null,
+): Promise<{ text: string; paths: string[] }> {
+  const ids: string[] = []
+  const push = (id: string) => {
+    if (id && !ids.includes(id) && ids.length < 3) ids.push(id)
   }
-  if (trace.empty || trace.chunks.length === 0) {
-    return `${head}${emptyPrompt(ctx, trace)}`
+  if (focusId) push(focusId)
+  for (const scope of scopes) if (scope.kind === 'doc') push(scope.id)
+  for (const chunk of trace?.chunks ?? []) push(chunk.docId)
+  const parts: string[] = []
+  const paths: string[] = []
+  for (const id of ids) {
+    try {
+      const text = await ctx.rpc.call<string>('notes:related', { id, limit: 4 })
+      if (!text || text.includes('暂无关联')) continue
+      parts.push(text.trim())
+      for (const match of text.matchAll(/^\s+(\/\S+\.md)\s*$/gm)) {
+        const path = match[1]
+        if (path && !paths.includes(path)) paths.push(path)
+      }
+    } catch (err) {
+      reportError('ai.related', err)
+    }
   }
+  return { text: parts.join('\n\n'), paths }
+}
+
+/** 有范围时多一段规则：按用户的问题用这些笔记和它们的关联来答。 */
+function scopeRules(
+  ctx: Context,
+  scopes: readonly RagScope[],
+  trace: RagTrace | null,
+  related: string,
+): string {
+  if (!scopes.length) return ''
+  const names = scopes.map((scope) => `《${scopeLabel(scope)}》`).join('、')
+  const head =
+    scopes.length === 1
+      ? `本轮用户把检索范围圈在了${names}。按他的原问题使用这些资料。`
+      : `本轮用户在同一句话里圈了${names}。按他的原问题把这些范围合在一起答，不要逐个范围各写一篇无关的综述。`
+  const tail = related
+    ? '资料后面的【相关笔记】是从这些篇链出去的，可以用，但要说清那是相关笔记而不是范围内的原文。补读可以读范围内的路径，也可以读相关笔记给出的路径。'
+    : '需要补读时只读这些范围里的路径（vfs_list / vfs_read）。'
+  if (!trace) return `${head}预检索失败了，按没有资料处理。${tail}`
+  if (trace.empty || trace.chunks.length === 0) return `${head}${emptyPrompt(ctx, trace)}`
   return [
     `${head}下面的【检索资料】是主要依据。`,
     '- 先用 2-3 句给结论，再分节讲；每节先说是什么/为什么，再给依据。',
     '- 每个事实性结论后标 [n]，n 是资料编号。',
     '- 资料不够或互相矛盾就直说，不要补片段里没有的事实。',
-    '- 需要补读时只读这个范围里的路径（vfs_list / vfs_read）。',
+    `- ${tail}`,
   ].join('\n')
 }
 
-/** 资料在前、问题在后 —— 模型先看到依据，引用编号也就在眼前。 */
-function userContent(prompt: string, quote: Quote | undefined, trace: RagTrace | null): string {
+/** 资料在前、问题在后 —— 模型先看到依据和相关笔记，再看到他怎么问的。 */
+function userContent(
+  prompt: string,
+  quote: Quote | undefined,
+  trace: RagTrace | null,
+  related: string,
+): string {
   const question = withQuote(prompt, quote)
-  if (!trace || trace.chunks.length === 0) return question
-  return `${sourcesBlock(trace)}\n\n我的问题：${question}`
+  const blocks = [
+    trace && trace.chunks.length ? sourcesBlock(trace) : '',
+    related ? `【相关笔记】\n${related}` : '',
+  ].filter((part) => part !== '')
+  if (!blocks.length) return question
+  return `${blocks.join('\n\n')}\n\n我的问题：${question}`
 }
 
 /** 系统提示：`/index.md` + `/AGENTS.md` 就是这棵树自己的说明书（`docs/ai.md` 第四节）。
@@ -252,7 +408,7 @@ async function systemPrompt(ctx: Context, scoped = false): Promise<string> {
   if (!vfs || scoped) return parts.join('\n\n')
   for (const path of ['/index.md', '/AGENTS.md']) {
     try {
-      parts.push(`# ${path}\n${await vfs.read(path)}`)
+      parts.push(`# ${path}\n${clip(await vfs.read(path), 1_800)}`)
     } catch {
       // 目录里没有这一篇就不塞 —— 提示词少一段好过整轮起不来。
     }
@@ -267,15 +423,16 @@ async function systemPrompt(ctx: Context, scoped = false): Promise<string> {
  *   后面到的 `ai:delta` 没人收（Rust 那条线程自己会跑到干，它不占 IPC）。
  */
 function makeStreamTurn(ctx: Context, ai: AiService, specs: readonly ToolSpec[]): StreamTurn {
-  return async (messages, signal) => {
+  return async (messages, signal, toolsOn) => {
+    const tools = toolsOn ? specs : []
     // ★ 这一轮真发出去的那一包（含系统提示）。每转一轮就要重发一遍，所以**每轮各计一次**
     //   —— 那正是账单上的样子。
-    const spent = requestTokens(messages, specs)
+    const spent = requestTokens(messages, tools)
     let text = ''
     const calls: AiToolCall[] = []
     let stop = 'stop'
     try {
-      for await (const chunk of ai.chat([...messages], [...specs], signal)) {
+      for await (const chunk of ai.chat([...messages], [...tools], signal)) {
         if (chunk.type === 'text') {
           text += chunk.text
           setAiState({ draft: text })
@@ -362,6 +519,8 @@ function toolsFor(
   specs: readonly ToolSpec[],
   groupId: string,
   written: Set<string>,
+  scopes: readonly RagScope[],
+  extra: readonly string[],
 ): HarnessTool[] {
   return specs.map((spec) => ({
     name: spec.name,
@@ -377,6 +536,8 @@ function toolsFor(
             ? { currentDocId: getAiState().viewingDoc ?? '' }
             : {}),
         }
+        fillScope(spec.name, args, scopes)
+        await assertScope(ctx, scopes, extra, spec.name, args)
         await gate(ctx, spec, call, args, signal)
         const result = await spec.run(args)
         const id = (result as { id?: unknown } | null)?.id
@@ -390,6 +551,66 @@ function toolsFor(
       }
     },
   }))
+}
+
+/** 只圈了一处时，把那一篇或那个目录补进参数。没圈时，关联默认当前正在看的那篇。 */
+function fillScope(name: string, args: Record<string, unknown>, scopes: readonly RagScope[]): void {
+  const viewing = getAiState().viewingDoc ?? ''
+  const scope = scopes.length === 1 ? scopes[0] : undefined
+  if (!scope && viewing && name === 'notes_related' && !strArg(args, 'id')) args['id'] = viewing
+  if (!scope) return
+  if (name === 'doc_marks' && scope.kind === 'dir' && !strArg(args, 'path')) args['path'] = scope.path
+  if (name === 'doc_marks' && scope.kind === 'doc') args['ids'] = [scope.id]
+  if (name === 'notes_related' && scope.kind === 'doc' && !strArg(args, 'id')) args['id'] = scope.id
+  if (name === 'notes_learn' && scope.kind === 'doc' && !strArg(args, 'target')) args['target'] = scope.id
+}
+
+/** 范围是门。多个范围取并集，相关笔记的路径也放行。 */
+async function assertScope(
+  ctx: Context,
+  scopes: readonly RagScope[],
+  extra: readonly string[],
+  name: string,
+  args: Record<string, unknown>,
+): Promise<void> {
+  if (!scopes.length) return
+  if (name === 'doc_create') return
+  const label = scopes.map(scopeLabel).join('、')
+  if (name === 'vfs_grep' || name === 'notes_find' || name === 'notes_map') {
+    throw new Error(`这一问圈在${label}，不要再做全库检索。用 vfs_read / vfs_list 读这些范围里的路径。`)
+  }
+  for (const key of ['path', 'id', 'target', 'parent', 'parentId']) {
+    const ref = strArg(args, key)
+    if (!ref) continue
+    if (ref.startsWith('/')) {
+      if (!allowedPath(scopes, extra, ref)) throw new Error(`路径 ${ref} 不在这一问的范围里`)
+      continue
+    }
+    if (scopes.some((scope) => scope.kind === 'doc' && scope.id === ref)) continue
+    if (scopes.every((scope) => scope.kind === 'doc')) {
+      throw new Error(`这一问只许动 ${label}`)
+    }
+    const place = await placeOf(ctx, ref)
+    if (place && !allowedPath(scopes, extra, place.path)) {
+      throw new Error(`《${place.path}》不在这一问的范围里`)
+    }
+  }
+}
+
+function allowedPath(scopes: readonly RagScope[], extra: readonly string[], path: string): boolean {
+  if (extra.includes(path)) return true
+  return scopes.some((scope) => pathInside(scope, path))
+}
+
+function pathInside(scope: RagScope, path: string): boolean {
+  if (scope.kind === 'doc') return path === scope.path
+  const dir = scope.path.endsWith('/') ? scope.path : `${scope.path}/`
+  return path === scope.path || path === `${scope.path}.md` || path.startsWith(dir)
+}
+
+function strArg(args: Record<string, unknown>, key: string): string {
+  const v = args[key]
+  return typeof v === 'string' ? v : ''
 }
 
 /** 读工具可以带回图片（`{ text, images }`）；其余结果照旧序列化成一句话。 */

@@ -76,6 +76,9 @@ function parse(raw: string): { sessions: Session[]; currentId: string } | null {
           text: l.text,
           tool: toolOf(l.tool),
           scope: scopeOf(l.scope),
+          scopes: scopesOf(l.scopes) ?? (scopeOf(l.scope) ? [scopeOf(l.scope)!] : undefined),
+          quote: typeof l.quote === 'string' && l.quote !== '' ? l.quote : undefined,
+          images: imagesOf(l.images),
           rag: traceOf(l.rag),
         }]
       }),
@@ -88,6 +91,26 @@ function parse(raw: string): { sessions: Session[]; currentId: string } | null {
       ? box.currentId
       : sessions[0].id
   return { sessions, currentId }
+}
+
+function scopesOf(raw: unknown): RagScope[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const out = raw.map(scopeOf).filter((s): s is RagScope => s !== undefined)
+  return out.length ? out : undefined
+}
+
+function imagesOf(raw: unknown): { mime: string; data: string }[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const out: { mime: string; data: string }[] = []
+  for (const item of raw) {
+    if (typeof item !== 'object' || item === null) continue
+    const v = item as { mime?: unknown; data?: unknown }
+    if (typeof v.mime !== 'string' || !v.mime.startsWith('image/')) continue
+    if (typeof v.data !== 'string' || v.data.length < 16 || v.data.length > 1_200_000) continue
+    out.push({ mime: v.mime, data: v.data })
+    if (out.length >= 4) break
+  }
+  return out.length ? out : undefined
 }
 
 /** 范围签。路径和标题有一个坏的，整颗丢掉（半颗更难看）。 */

@@ -1,8 +1,10 @@
 /**
  * `ctx.tools` —— agent 的工具面（D-0042 / D-0087）。
  *
- * **八条**：读四条（`vfs_list` / `vfs_grep` / `vfs_read` / `doc_annotations`）+ 写四条（`doc_create` /
- * `doc_append` / `doc_replace` / `doc_blocks`）。`ToolSpec.parameters` 就是给模型看的 JSON Schema ——
+ * 读走有预算的检索（`notes_find` / `notes_map` / `notes_related` / `notes_learn` / `doc_marks`），
+ * `vfs_*` 只负责列目录和按路径读，并且结果截断。
+ * 写四条正文（`doc_create` / `doc_append` / `doc_replace` / `doc_blocks`）加改名、移动、标签、熟悉度。
+ * `ToolSpec.parameters` 就是给模型看的 JSON Schema ——
  * **一份定义**，唯一的消费者是 `plugin-ai`（D-0084 把 MCP 改成进程外只读 bin 之后，
  * 「一个定义两处导出」那句作废了）。见 `docs/ai.md` 第三节。
  *
@@ -19,13 +21,21 @@
  *   参数）。模型看不见它：它不在上面那些 `parameters` 里，是调用方加的。
  */
 import type { Context } from 'cordis'
-import type {
-  DocMeta,
-  DocWriteService,
-  ToolSpec,
-  ToolsService,
+import {
+  DOCS_CHANGED,
+  type DocMeta,
+  type DocWriteService,
+  type LearnRow,
+  type ToolSpec,
+  type ToolsService,
+  type VfsHit,
 } from '../../src/kernel/contract'
 import { readWithImages } from './media'
+
+/** 一次读给模型的上限。再长就让它带 offset 续读。 */
+const READ_CAP = 6_000
+const LIST_CAP = 80
+const GREP_CAP = 30
 
 export const name = 'plugin-tools'
 
@@ -64,11 +74,20 @@ export function apply(ctx: Context) {
   add(listTool(ctx))
   add(grepTool(ctx))
   add(readTool(ctx))
+  add(findTool(ctx))
+  add(mapTool(ctx))
+  add(relatedTool(ctx))
+  add(learnTool(ctx))
+  add(marksTool(ctx))
   add(annotationsTool(ctx))
   add(createTool(ctx))
   add(appendTool(ctx))
   add(replaceTool(ctx))
   add(blocksTool(ctx))
+  add(renameTool(ctx))
+  add(moveTool(ctx))
+  add(tagTool(ctx))
+  add(familiarityTool(ctx))
 }
 
 /* ─────────────────────────── 读 ─────────────────────────── */
@@ -87,7 +106,10 @@ function listTool(ctx: Context): ToolSpec {
     },
     async run(args) {
       const a = obj(args)
-      return needVfs(ctx).list(str(a, 'path'))
+      const rows = await needVfs(ctx).list(str(a, 'path'))
+      const shown = rows.slice(0, LIST_CAP).map((e) => `${e.kind}\t${e.path}`)
+      if (rows.length <= LIST_CAP) return shown.join('\n')
+      return `${shown.join('\n')}\n…还有 ${rows.length - LIST_CAP} 项，缩小目录再列`
     },
   }
 }
@@ -95,7 +117,8 @@ function listTool(ctx: Context): ToolSpec {
 function grepTool(ctx: Context): ToolSpec {
   return {
     name: 'vfs_grep',
-    description: '在整棵目录里按关键字找，返回命中的路径 + 行号 + 那一行。定位一篇最快的路。',
+    description:
+      '整库按字面找一行。结果最多 30 条。定位优先用 notes_find，这条只在它不够时用。',
     parameters: {
       type: 'object',
       properties: {
@@ -106,7 +129,10 @@ function grepTool(ctx: Context): ToolSpec {
     },
     async run(args) {
       const a = obj(args)
-      return needVfs(ctx).grep(str(a, 'pattern'), { ignoreCase: a['ignoreCase'] === true })
+      const hits = await needVfs(ctx).grep(str(a, 'pattern'), { ignoreCase: a['ignoreCase'] === true })
+      const shown = hits.slice(0, GREP_CAP).map((h) => grepLine(h))
+      if (hits.length <= GREP_CAP) return shown.join('\n')
+      return `${shown.join('\n')}\n…还有 ${hits.length - GREP_CAP} 条。换 notes_find，或把 pattern 写具体`
     },
   }
 }
@@ -115,8 +141,8 @@ function readTool(ctx: Context): ToolSpec {
   return {
     name: 'vfs_read',
     description:
-      '读一个文件的正文（Markdown）。长文档用 offset / limit 分页读，别一次灌满上下文。' +
-      '笔记里的图片会作为图片一起给你，正文里对应 [图片 N]。',
+      '读一个文件的正文（Markdown）。不给 limit 时只读前 160 行，并且最多 6000 字。' +
+      '长文用 offset 续读。笔记里的图片会一起给你，正文里对应 [图片 N]。',
     parameters: {
       type: 'object',
       properties: {
@@ -129,9 +155,10 @@ function readTool(ctx: Context): ToolSpec {
     async run(args) {
       const a = obj(args)
       const offset = num(a, 'offset')
-      const limit = num(a, 'limit')
+      const limit = num(a, 'limit') ?? 160
       const text = await needVfs(ctx).read(str(a, 'path'), { offset, limit })
-      return readWithImages(ctx, text)
+      const packed = await readWithImages(ctx, cap(text, READ_CAP))
+      return packed
     },
   }
 }
@@ -196,11 +223,11 @@ function appendTool(ctx: Context): ToolSpec {
     name: 'doc_append',
     description:
       '在**已有**文档的末尾追加内容（不覆盖已有的东西）。' +
-      'id 用 doc_list 里那个 id（最稳）。只给路径也行，但文件名跟标题对不上时会报错。',
+      'id 用 notes_find 结果里的路径（最稳）。文件名跟标题对不上时会报错。',
     parameters: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: '文档 id（先用 doc_list 拿）；也可以给 "/tree/某某.md" 路径' },
+        id: { type: 'string', description: '文档 id，或 "/tree/某某.md" 路径（notes_find 会给路径）' },
         markdown: { type: 'string', description: '要追加的 Markdown' },
       },
       required: ['id', 'markdown'],
@@ -223,11 +250,11 @@ function replaceTool(ctx: Context): ToolSpec {
     description:
       '把**某一小段**换掉（不是整篇重写）。两种定位方式给一种：' +
       'blockIds 是块 id 列表（精确）；quote 是那段原文里的一句话（省事）。' +
-      'id 用 doc_list 里那个 id（最稳）。只给路径也行，但文件名跟标题对不上时会报错。',
+      'id 用 notes_find 给的路径（最稳）。文件名跟标题对不上时会报错。',
     parameters: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: '文档 id（先用 doc_list 拿）；也可以给 "/tree/某某.md" 路径' },
+        id: { type: 'string', description: '文档 id，或 "/tree/某某.md" 路径（notes_find 会给路径）' },
         blockIds: {
           type: 'array',
           items: { type: 'string' },
@@ -300,6 +327,225 @@ function blocksTool(ctx: Context): ToolSpec {
   }
 }
 
+function findTool(ctx: Context): ToolSpec {
+  return {
+    name: 'notes_find',
+    description: '在库里定位笔记。返回最多 8 篇：标题、路径、一句摘要。要读正文再 vfs_read 那条路径。',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: '关键词，中英文都行' },
+        limit: { type: 'number', description: '最多几篇，默认 8，上限 20' },
+      },
+      required: ['query'],
+    },
+    async run(args) {
+      const a = obj(args)
+      const limit = num(a, 'limit')
+      return ctx.rpc.call<string>('notes:find', {
+        query: str(a, 'query'),
+        ...(limit === undefined ? {} : { limit }),
+      })
+    },
+  }
+}
+
+function mapTool(ctx: Context): ToolSpec {
+  return {
+    name: 'notes_map',
+    description: '看库里有哪些主题、各有多少篇。给一个主题名就只列那一类。',
+    parameters: {
+      type: 'object',
+      properties: {
+        scope: { type: 'string', description: '主题名或目录名；不给 = 全库地图' },
+      },
+    },
+    async run(args) {
+      const a = obj(args)
+      const scope = str(a, 'scope')
+      return ctx.rpc.call<string>('notes:map', { scope: scope || undefined })
+    },
+  }
+}
+
+function relatedTool(ctx: Context): ToolSpec {
+  return {
+    name: 'notes_related',
+    description: '一篇笔记的关联：显式链接、还没采纳的关联建议、标题相近。不给 id 时用当前圈定或正在看的那篇。',
+    parameters: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: '文档 id 或 /tree 路径' },
+      },
+    },
+    async run(args) {
+      const a = obj(args)
+      const ref = str(a, 'id')
+      const id = ref ? await resolve(ctx, ref) : ''
+      if (!id) throw new Error('notes_related：给 id 或路径')
+      return ctx.rpc.call<string>('notes:related', { id })
+    },
+  }
+}
+
+function learnTool(ctx: Context): ToolSpec {
+  return {
+    name: 'notes_learn',
+    description:
+      '读学习数据：打开次数、阅读时长、读到的深度、行为分、手动熟悉度。' +
+      'unfamiliar=true 只列标成「不熟」的。给 target 就只看那一篇。',
+    parameters: {
+      type: 'object',
+      properties: {
+        target: { type: 'string', description: '文档 id 或路径；不给 = 有记录的笔记' },
+        unfamiliar: { type: 'boolean', description: '只要熟悉度第 1 档' },
+      },
+    },
+    async run(args) {
+      const a = obj(args)
+      const target = str(a, 'target')
+      if (target) {
+        const id = await resolve(ctx, target)
+        const row = await ctx.rpc.call<LearnRow>('learn:get', { id })
+        const title = await titleOf(ctx, id)
+        return formatLearn(title, row)
+      }
+      const [rows, docs] = await Promise.all([
+        ctx.rpc.call<LearnRow[]>('learn:list', {}),
+        ctx.rpc.call<DocMeta[]>('doc:list', { includeTrashed: false }),
+      ])
+      const titles = new Map(docs.map((d) => [d.id, d.title]))
+      const picked = (a['unfamiliar'] === true
+        ? rows.filter((r) => r.familiarity === 1)
+        : rows.filter((r) => r.opens > 0 || r.familiarity != null)
+      ).slice(0, 40)
+      if (!picked.length) return a['unfamiliar'] === true ? '没有标成「不熟」的笔记。' : '还没有学习数据。'
+      return picked.map((r) => formatLearn(titles.get(r.docId) ?? r.docId, r)).join('\n')
+    },
+  }
+}
+
+function marksTool(ctx: Context): ToolSpec {
+  return {
+    name: 'doc_marks',
+    description:
+      '在笔记里找标了颜色 / 高亮 / 写了评论的句子。query 是颜色名（红、黄）或原文里的词。' +
+      '不给 path 就在最近改过的笔记里找；圈了范围时调用方会把 path 补上。',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: '颜色名或关键词' },
+        path: { type: 'string', description: '只在这个 /tree 目录下找' },
+      },
+      required: ['query'],
+    },
+    async run(args) {
+      const a = obj(args)
+      const path = str(a, 'path')
+      const ids = Array.isArray(a['ids']) ? a['ids'].filter((x): x is string => typeof x === 'string') : undefined
+      return ctx.rpc.call<string>('doc:marks', {
+        query: str(a, 'query'),
+        path: path || undefined,
+        ids,
+      })
+    },
+  }
+}
+
+function renameTool(ctx: Context): ToolSpec {
+  return {
+    name: 'doc_rename',
+    description: '改一篇笔记的标题。',
+    parameters: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: '文档 id 或路径' },
+        title: { type: 'string', description: '新标题' },
+      },
+      required: ['id', 'title'],
+    },
+    async run(args) {
+      const a = obj(args)
+      const id = await resolve(ctx, str(a, 'id'))
+      const title = str(a, 'title')
+      if (!title) throw new Error('doc_rename：没有新标题')
+      await ctx.rpc.call('doc:rename', { id, title })
+      ctx.emit(DOCS_CHANGED)
+      return { docId: id, title }
+    },
+  }
+}
+
+function moveTool(ctx: Context): ToolSpec {
+  return {
+    name: 'doc_move',
+    description: '把一篇笔记移到另一个父页面下。parent 不给或给 / 就是移到顶层。',
+    parameters: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: '要移动的文档 id 或路径' },
+        parent: { type: 'string', description: '新的父页面 id 或路径' },
+      },
+      required: ['id'],
+    },
+    async run(args) {
+      const a = obj(args)
+      const id = await resolve(ctx, str(a, 'id'))
+      const parent = str(a, 'parent') || str(a, 'parentId')
+      const parentId = !parent || parent === '/' ? null : await resolve(ctx, parent)
+      await ctx.rpc.call('doc:move', { id, parentId })
+      ctx.emit(DOCS_CHANGED)
+      return { docId: id, parentId }
+    },
+  }
+}
+
+function tagTool(ctx: Context): ToolSpec {
+  return {
+    name: 'doc_tag',
+    description: '整组替换一篇笔记的标签。要保留旧标签就连同新的一起给。',
+    parameters: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: '文档 id 或路径' },
+        tags: { type: 'array', items: { type: 'string' }, description: '替换后的全部标签' },
+      },
+      required: ['id', 'tags'],
+    },
+    async run(args) {
+      const a = obj(args)
+      const id = await resolve(ctx, str(a, 'id'))
+      const tags = strs(a, 'tags')
+      await ctx.rpc.call('doc:tags', { id, tags })
+      ctx.emit(DOCS_CHANGED)
+      return { docId: id, tags }
+    },
+  }
+}
+
+function familiarityTool(ctx: Context): ToolSpec {
+  return {
+    name: 'notes_familiarity',
+    description: '给一篇笔记打熟悉度。1 不熟，2 略懂，3 熟悉，4 很熟，0 清除。不改打开次数和阅读时长。',
+    parameters: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: '文档 id 或路径' },
+        level: { type: 'number', description: '0–4' },
+      },
+      required: ['id', 'level'],
+    },
+    async run(args) {
+      const a = obj(args)
+      const level = num(a, 'level')
+      if (level === undefined || level < 0 || level > 4) throw new Error('notes_familiarity：level 是 0–4')
+      const id = await resolve(ctx, str(a, 'id'))
+      await ctx.rpc.call('learn:familiarity', { id, level: level === 0 ? null : level })
+      return { docId: id, familiarity: level === 0 ? null : level }
+    },
+  }
+}
+
 /* ─────────────────────────── 帮手 ─────────────────────────── */
 
 /** 块包那几 MB 在这一句才进来（`plugins/tools/index.ts` 的文件头写了为什么）。 */
@@ -308,27 +554,36 @@ const write = () => import('./doc')
 /**
  * 把模型给的"哪一篇"换成真的 doc id。
  *
- * ★ **直接给 id 是唯一可靠的路**（`doc_list` 里有）。路径那条只是兜底 ——
- *   因为虚拟目录里**没有 doc id**，只能拿文件名去比标题，于是有两个坑：
+ * ★ **直接给 id 或 notes_find 给的路径**。路径那条只是兜底 ——
+ *   虚拟目录的文件名拿去比标题，有两个坑：
  *   1. 两篇同名 → 不知道改哪个。**这里选择报错**，不挑第一篇：
  *      静默改错一篇比报错坏得多（用户看不出来）。
  *   2. 文件名是去重过的（`untitled (2).md`），标题里那串后缀根本不存在 → 对不上。
- *   兜底那条路存在的理由：模型有时只 grep 到了路径、没调 `doc_list`。
+ *   兜底那条路存在的理由：模型有时只拿到路径、没拿到 id。
  */
 async function resolve(ctx: Context, ref: string): Promise<string> {
   if (!ref.startsWith('/')) return ref
-  const want = ref.split('/').pop()?.replace(/\.md$/i, '') ?? ''
+  const file = ref.split('/').pop()?.replace(/\.md$/i, '') ?? ''
+  const marked = /~([0-9a-f]{6})$/i.exec(file)
+  const want = marked ? file.slice(0, -7) : file
   const all = await ctx.rpc.call<DocMeta[]>('doc:list', { includeTrashed: false })
   const hits = all.filter((d) => d.title === want)
+  if (marked) {
+    const prefix = marked[1].toLowerCase()
+    const byId = all.filter((d) => d.id.toLowerCase().startsWith(prefix))
+    const hit = byId.length === 1 ? byId[0] : hits.find((d) => d.id.toLowerCase().startsWith(prefix))
+    if (!hit) throw new Error(`路径「${ref}」上的 ~${marked[1]} 对不上任何一篇`)
+    return hit.id
+  }
   if (hits.length > 1) {
     throw new Error(
-      `「${want}」有 ${hits.length} 篇同名的，说不清改哪个 —— 先 doc_list，用它给的 id 指定`,
+      `「${want}」有 ${hits.length} 篇同名的，说不清改哪个 —— 用 notes_find 拿到的那条路径（带 ~id 的那个）`,
     )
   }
   if (!hits.length) {
     throw new Error(
       `路径「${ref}」对不上任何一篇（虚拟目录里没有 doc id，只能拿文件名比标题）。` +
-        `先 doc_list 拿 id，再用 id 调一次`,
+        `先 notes_find 拿带 ~ 的路径，再用那条路径调一次`,
     )
   }
   return hits[0].id
@@ -364,4 +619,27 @@ function num(a: Record<string, unknown>, key: string): number | undefined {
 function strs(a: Record<string, unknown>, key: string): string[] {
   const v = a[key]
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+}
+
+function cap(text: string, max: number): string {
+  if (text.length <= max) return text
+  return `${text.slice(0, max)}\n…（已截断，用 offset 续读）`
+}
+
+function grepLine(hit: VfsHit): string {
+  const text = hit.text.length > 160 ? `${hit.text.slice(0, 160)}…` : hit.text
+  return `${hit.path}:${hit.line}: ${text}`
+}
+
+const FAM = ['', '不熟', '略懂', '熟悉', '很熟']
+
+function formatLearn(title: string, row: LearnRow): string {
+  const fam = row.familiarity == null ? '未打' : (FAM[row.familiarity] ?? String(row.familiarity))
+  const mins = Math.round(row.readMs / 60_000)
+  return `《${title}》 熟悉度${fam} 打开${row.opens} 阅读${mins}分钟 深度${row.depth} 行为分${row.score}`
+}
+
+async function titleOf(ctx: Context, id: string): Promise<string> {
+  const docs = await ctx.rpc.call<DocMeta[]>('doc:list', { includeTrashed: false })
+  return docs.find((d) => d.id === id)?.title ?? id
 }

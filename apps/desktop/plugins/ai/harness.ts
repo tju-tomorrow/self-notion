@@ -19,7 +19,8 @@
  *   3. **截断保护**：`stop === 'length'` 的那一批工具**整批不跑** —— 流式拼出来的参数可能是
  *      半句，跑一半写错地方比不写更坏（pi 的 `failToolCallsFromTruncatedMessage`）。
  *
- * ★ 不设轮次上限（用户 2026-11-22）：模型不再提工具就是回答完了；要停由用户按中断。
+ * ★ 不靠「到次数就掐掉」收口（那会一个字都不答）。工具转过 `SPEAK_AFTER` 轮后，
+ *   再给一轮**不带工具**的请求，逼它用已经拿到的资料开口。要停仍是用户按中断。
  */
 import type { AiImage, AiMessage, AiToolCall } from '../../src/kernel/contract'
 
@@ -29,8 +30,15 @@ export interface AssistantTurn extends AiMessage {
   stop: string
 }
 
-/** 一次模型往返：键在**流**里（自己往界面上推增量），回一条定稿的 turn。 */
-export type StreamTurn = (messages: readonly AiMessage[], signal: AbortSignal) => Promise<AssistantTurn>
+/** 一次模型往返。`toolsOn` 为假时这一轮不给工具，用来把已经绕够的回合收成回答。 */
+export type StreamTurn = (
+  messages: readonly AiMessage[],
+  signal: AbortSignal,
+  toolsOn: boolean,
+) => Promise<AssistantTurn>
+
+/** 工具转了这么多轮还在调，下一轮把工具摘掉，让它回答。 */
+const SPEAK_AFTER = 6
 
 /** 工具的返回。带图时循环会在这一批工具回执后面补一条 user 消息把图发过去。 */
 export interface ToolOutput {
@@ -68,17 +76,25 @@ export async function runLoop(
   signal: AbortSignal,
   streamTurn: StreamTurn,
 ): Promise<void> {
-  // 不设代码级轮次上限：模型不再提工具就是回答完了；要停由用户按中断。
   for (let round = 1; ; round++) {
     if (signal.aborted) return
     hooks.onRound?.(round)
 
-    const turn = await streamTurn(messages, signal)
+    const toolsOn = round <= SPEAK_AFTER
+    if (!toolsOn) {
+      messages.push({
+        role: 'user',
+        content: '停止调用工具。用已经拿到的资料直接回答；资料不够就说明缺什么。',
+      })
+    }
+
+    const turn = await streamTurn(messages, signal, toolsOn)
     messages.push(turn)
     hooks.onAssistant?.(turn)
 
     // 出错 / 被中断 = **硬退出**：这一轮没有工具要跑，也不该再问一次（同 pi）。
     if (turn.stop === 'error' || turn.stop === 'aborted') return
+    if (!toolsOn) return
 
     const calls = turn.toolCalls ?? []
     if (!calls.length) return

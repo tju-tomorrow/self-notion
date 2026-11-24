@@ -197,6 +197,19 @@ export const suggestChip = style({
 })
 
 /** 用户说的：靠右的圆气泡。 */
+export const userQuote = style({
+  alignSelf: 'flex-end',
+  maxWidth: '80%',
+  margin: 0,
+  fontSize: 12,
+  lineHeight: '18px',
+  color: 'var(--affine-v2-text-tertiary)',
+  display: '-webkit-box',
+  WebkitLineClamp: 3,
+  WebkitBoxOrient: 'vertical',
+  overflow: 'hidden',
+})
+
 export const bubbleUser = style({
   alignSelf: 'flex-end',
   maxWidth: '80%',
@@ -432,6 +445,80 @@ export const foot = style([
 export const dockFoot = style([foot, { paddingLeft: 14, paddingRight: 14 }])
 
 /** 输入那一块整体是一个圆角胶囊 —— 输入框自己**不能**再带边框，不然就是两层框。 */
+export const boxMain = style({
+  flex: '1 1 auto',
+  minWidth: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+})
+
+export const scopeRow = style({
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 4,
+  padding: '2px 4px 0',
+})
+
+export const shots = style({
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 8,
+  padding: '4px 4px 0',
+})
+
+export const shot = style({
+  position: 'relative',
+  width: 72,
+  height: 72,
+  borderRadius: 10,
+  overflow: 'hidden',
+  flex: '0 0 auto',
+  border: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
+  background: 'var(--affine-v2-layer-background-primary)',
+})
+
+export const shotX = style({
+  position: 'absolute',
+  top: 3,
+  right: 3,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 16,
+  height: 16,
+  padding: 0,
+  border: 'none',
+  borderRadius: 8,
+  background: 'color-mix(in srgb, #000 62%, transparent)',
+  color: '#fff',
+  cursor: 'pointer',
+})
+
+export const shotRow = style({
+  display: 'flex',
+  flexWrap: 'wrap',
+  justifyContent: 'flex-end',
+  gap: 6,
+  maxWidth: '80%',
+})
+
+export const shotShown = style({
+  maxWidth: 240,
+  maxHeight: 180,
+  borderRadius: 12,
+  objectFit: 'cover',
+  border: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
+  background: 'var(--affine-v2-layer-background-primary)',
+})
+
+globalStyle(`${shot} > img`, {
+  width: '100%',
+  height: '100%',
+  objectFit: 'cover',
+  display: 'block',
+})
+
 export const box = style({
   display: 'flex',
   alignItems: 'flex-end',

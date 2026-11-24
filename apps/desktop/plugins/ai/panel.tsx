@@ -16,6 +16,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ClipboardEvent,
   type PointerEvent,
   type ReactNode,
 } from 'react'
@@ -59,6 +60,7 @@ import {
   openSession,
   resolveApproval,
   sessionsByRecency,
+  setAiState,
   stop,
   toggleAutoRun,
   useAiState,
@@ -286,11 +288,13 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
   const [picked, setPicked] = useState<string | null>(null)
   /** 点过 ✕ 的那一段 —— 选区还在，但用户说了不要，别每帧又冒出来。 */
   const dropped = useRef('')
-  /** 这一问圈定的范围（D-0200）。发完清空，不带进下一问。 */
-  const [scope, setScope] = useState<RagScope | null>(null)
+  /** 这一问圈定的范围。一条消息里可以有多个，发完清空。 */
+  const [scopes, setScopes] = useState<RagScope[]>([])
+  /** ⌘V / Ctrl+V 贴进来的图。发出去之前先缩成 jpeg。 */
+  const [shots, setShots] = useState<{ mime: string; data: string }[]>([])
   /** `@` 选择器。`start` 是那个 `@` 在正文里的位置。 */
   const [picker, setPicker] = useState<{ start: number; q: string; active: number } | null>(null)
-  const [scopes, setScopes] = useState<RagScopeItem[]>([])
+  const [catalog, setCatalog] = useState<RagScopeItem[]>([])
   const [scopesLoaded, setScopesLoaded] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
   const ime = useImeGuard()
@@ -353,7 +357,7 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
     return undefined
   }, [lines, ctx])
 
-  const options = picker ? scopes.filter((item) => matchesScope(item, picker.q)).slice(0, 8) : []
+  const options = picker ? catalog.filter((item) => matchesScope(item, picker.q)).slice(0, 8) : []
   const active = picker ? Math.min(picker.active, Math.max(0, options.length - 1)) : 0
 
   const syncPicker = (value: string, caret: number) => {
@@ -364,8 +368,8 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
     }
     if (!scopesLoaded) {
       void loadScopes(ctx)
-        .then((items) => setScopes(items))
-        .catch(() => setScopes([]))
+        .then((items) => setCatalog(items))
+        .catch(() => setCatalog([]))
         .finally(() => setScopesLoaded(true))
     }
     setPicker((prev) =>
@@ -377,20 +381,50 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
 
   const pick = (item: RagScopeItem) => {
     if (!picker) return
-    setText(text.slice(0, picker.start) + text.slice(picker.start + 1 + picker.q.length))
-    setScope(
+    const next: RagScope | null =
       item.kind === 'doc'
         ? item.id === undefined
           ? null
           : { kind: 'doc', id: item.id, path: item.path, title: item.title }
-        : { kind: 'dir', path: item.path, title: item.title },
-    )
+        : { kind: 'dir', path: item.path, title: item.title }
+    setText(text.slice(0, picker.start) + text.slice(picker.start + 1 + picker.q.length))
+    if (next) {
+      setScopes((prev) =>
+        prev.some((one) => one.path === next.path) || prev.length >= 6 ? prev : [...prev, next],
+      )
+    }
     setPicker(null)
     requestAnimationFrame(() => input.current?.focus())
   }
 
+  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = [...(e.clipboardData?.items ?? [])].filter((item) => item.type.startsWith('image/'))
+    if (!items.length) return
+    e.preventDefault()
+    const typed = e.clipboardData.getData('text/plain')
+    if (typed) {
+      const el = e.currentTarget
+      const at = el.selectionStart ?? text.length
+      const end = el.selectionEnd ?? at
+      const value = text.slice(0, at) + typed + text.slice(end)
+      setText(value)
+      syncPicker(value, at + typed.length)
+    }
+    for (const item of items) {
+      const file = item.getAsFile()
+      if (!file) continue
+      void shrinkShot(file).then((shot) => {
+        if (!shot) {
+          setAiState({ error: ctx.i18n.t('agent.imageBig') })
+          return
+        }
+        setShots((prev) => (prev.length >= 4 ? prev : [...prev, shot]))
+      })
+    }
+  }
+
   const ask = (prompt: string) => {
-    const q = prompt.trim()
+    const q = prompt.trim() || (shots.length ? '看这张图' : '')
     if (!q || st.busy) return
     // 发的那一刻现读一次 —— 「选完立刻回车」不会错过还没跑到的 rAF。
     const now = ctx.editor.selectedText()
@@ -398,11 +432,13 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
       now && now !== dropped.current
         ? { text: now, path: place?.path ?? null, id: st.viewingDoc }
         : undefined
+    const images = shots.map((shot) => ({ mime: shot.mime, data: shot.data }))
     setText('')
     setPicker(null)
+    setShots([])
     stick.current = true
-    void runTurn(ctx, ai, q, quote, scope ?? undefined)
-    setScope(null)
+    void runTurn(ctx, ai, q, quote, scopes, images)
+    setScopes([])
   }
 
   return (
@@ -447,32 +483,9 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
         {/* 写操作过闸：模型要改库，卡就贴在这儿等人点（不会被聊天记录滚走）。 */}
         {st.pending ? <ApprovalCard ctx={ctx} pending={st.pending} /> : null}
         {/* 这一问圈定的范围。看得见、可撤 —— 发出去之后这里会清空。 */}
-        {scope ? (
-          <div className={s.scopeChip} title={scopeLabel(scope)}>
-            {scope.kind === 'dir' ? (
-              <FolderIcon width={12} height={12} />
-            ) : (
-              <PageIcon width={12} height={12} />
-            )}
-            <span className={s.scopePath}>{scopeLabel(scope)}</span>
-            <span className={s.scopeKind}>
-              {ctx.i18n.t(scope.kind === 'dir' ? 'agent.scopeDir' : 'agent.scopeDoc')}
-            </span>
-            <button
-              type="button"
-              className={s.scopeClear}
-              title={ctx.i18n.t('agent.scopeRemove')}
-              aria-label={ctx.i18n.t('agent.scopeRemove')}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => setScope(null)}
-            >
-              <CloseIcon width={12} height={12} />
-            </button>
-          </div>
-        ) : null}
         {/* 「在看哪一篇」看得见的一颗（用户红框：输入框上面、靠左）。系统提示里也带同一条
             （D-0107），这颗是给人看的：让他知道 AI 这会儿把「这篇」当成哪一篇。 */}
-        {place && !scope ? (
+        {place && scopes.length === 0 ? (
           <div className={s.place} title={`${place.path} · ${ctx.i18n.t('agent.placeHint')}`}>
             <PageIcon width={12} height={12} />
             <span>{place.path}</span>
@@ -536,12 +549,56 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
             </div>
           ) : null}
           <div className={s.box}>
+            <div className={s.boxMain}>
+              {shots.length ? (
+                <div className={s.shots}>
+                  {shots.map((shot, at) => (
+                    <div key={at} className={s.shot}>
+                      <img src={`data:${shot.mime};base64,${shot.data}`} alt="" />
+                      <button
+                        type="button"
+                        className={s.shotX}
+                        aria-label={ctx.i18n.t('agent.imageRemove')}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => setShots((prev) => prev.filter((_, i) => i !== at))}
+                      >
+                        <CloseIcon width={10} height={10} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {scopes.length ? (
+                <div className={s.scopeRow}>
+                  {scopes.map((one) => (
+                    <div key={one.path} className={s.scopeChip} title={scopeLabel(one)}>
+                      {one.kind === 'dir' ? (
+                        <FolderIcon width={12} height={12} />
+                      ) : (
+                        <PageIcon width={12} height={12} />
+                      )}
+                      <span className={s.scopePath}>{scopeLabel(one)}</span>
+                      <button
+                        type="button"
+                        className={s.scopeClear}
+                        title={ctx.i18n.t('agent.scopeRemove')}
+                        aria-label={ctx.i18n.t('agent.scopeRemove')}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => setScopes((prev) => prev.filter((item) => item.path !== one.path))}
+                      >
+                        <CloseIcon width={12} height={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             <textarea
               ref={input}
               className={s.input}
               value={text}
               rows={1}
               placeholder={ctx.i18n.t('agent.placeholder')}
+              onPaste={onPaste}
               onChange={(e) => {
                 setText(e.target.value)
                 syncPicker(e.target.value, e.target.selectionStart ?? e.target.value.length)
@@ -585,13 +642,14 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
                 }
               }}
             />
+            </div>
           {/* 忙着的时候同一颗位置换成中断（Claude Code 那样）—— 它一直在转圈不动，得有个出口。 */}
           <button
             type="button"
             className={st.busy ? s.stopButton : s.send}
             title={ctx.i18n.t(st.busy ? 'agent.stop' : 'agent.send')}
             aria-label={ctx.i18n.t(st.busy ? 'agent.stop' : 'agent.send')}
-            disabled={!st.busy && text.trim() === ''}
+            disabled={!st.busy && text.trim() === '' && shots.length === 0}
             onClick={() => (st.busy ? stop() : ask(text))}
           >
             {st.busy ? (
@@ -675,7 +733,22 @@ function rows(lines: Line[], ctx: Context): ReactNode[] {
     if (line.role === 'user') {
       out.push(
         <div key={i} className={s.userTurn}>
-          {line.scope ? <ScopeTag ctx={ctx} scope={line.scope} /> : null}
+          {(line.scopes ?? (line.scope ? [line.scope] : [])).map((one) => (
+            <ScopeTag key={one.path} ctx={ctx} scope={one} />
+          ))}
+          {line.images?.length ? (
+            <div className={s.shotRow}>
+              {line.images.map((img, at) => (
+                <img
+                  key={at}
+                  className={s.shotShown}
+                  src={`data:${img.mime};base64,${img.data}`}
+                  alt=""
+                />
+              ))}
+            </div>
+          ) : null}
+          {line.quote ? <p className={s.userQuote}>「{line.quote}」</p> : null}
           <p className={s.bubbleUser}>{line.text}</p>
         </div>,
       )
@@ -1007,6 +1080,34 @@ function secs(ms: number): string {
 
 function frame(now: number): string {
   return SPIN[Math.floor(now / 80) % SPIN.length] ?? '⠋'
+}
+
+/** 贴图先缩到最长边 1280，再压成 jpeg。太大的不收，避免把会话撑爆。 */
+async function shrinkShot(file: File): Promise<{ mime: string; data: string } | null> {
+  if (file.size > 12_000_000) return null
+  try {
+    const bmp = await createImageBitmap(file)
+    const max = 1280
+    const scale = Math.min(1, max / Math.max(bmp.width, bmp.height))
+    const w = Math.max(1, Math.round(bmp.width * scale))
+    const h = Math.max(1, Math.round(bmp.height * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const pen = canvas.getContext('2d')
+    if (!pen) {
+      bmp.close()
+      return null
+    }
+    pen.drawImage(bmp, 0, 0, w, h)
+    bmp.close()
+    const url = canvas.toDataURL('image/jpeg', 0.82)
+    const matched = /^data:([^;]+);base64,(.+)$/.exec(url)
+    if (!matched || matched[2].length > 900_000) return null
+    return { mime: matched[1] ?? 'image/jpeg', data: matched[2] ?? '' }
+  } catch {
+    return null
+  }
 }
 
 /** 光标前那个没被墙住的 `@` token。空白 / 括号之后才算新 token。 */

@@ -11,7 +11,7 @@ use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::commands::ApiResult;
+use crate::commands::{ApiError, ApiResult};
 use crate::store::{comment, db_err, not_found};
 
 /// 一次回给模型的量。正常笔记远到不了；到了也保住上下文。
@@ -354,4 +354,106 @@ fn rgb(color: &str) -> Option<(u8, u8, u8)> {
         parts[1].parse().ok()?,
         parts[2].parse().ok()?,
     ))
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+pub struct SearchArgs {
+    pub query: String,
+    pub path: Option<String>,
+    pub ids: Option<Vec<String>>,
+}
+
+/// 在最近改过的笔记里找颜色 / 高亮 / 评论。`only` 有值就只扫这几篇（范围问答）。
+pub fn search(conn: &Connection, query: &str, only: Option<&[String]>) -> ApiResult<String> {
+    let q = query.trim();
+    if q.is_empty() {
+        return Err(ApiError::new("bad_args", "query 不能为空（颜色名，或原文里的词）"));
+    }
+    let needle = q.to_lowercase();
+    let ids: Vec<String> = if let Some(only) = only {
+        only.iter().take(400).cloned().collect()
+    } else {
+        let mut st = conn
+            .prepare(
+                "SELECT id FROM documents WHERE deleted_at IS NULL ORDER BY updated_at DESC LIMIT 400",
+            )
+            .map_err(db_err)?;
+        let rows = st.query_map([], |r| r.get(0)).map_err(db_err)?;
+        rows.collect::<rusqlite::Result<Vec<String>>>().map_err(db_err)?
+    };
+
+    let mut out = String::new();
+    let mut n = 0usize;
+    for id in &ids {
+        if n >= 24 {
+            break;
+        }
+        let doc = match list(conn, id) {
+            Ok(doc) => doc,
+            Err(_) => continue,
+        };
+        let short = &id[..id.len().min(6)];
+        for span in &doc.colors {
+            if n >= 24 {
+                break;
+            }
+            let blob = format!("{} {} {}", span.name, span.text, span.kind).to_lowercase();
+            if !blob.contains(&needle) {
+                continue;
+            }
+            n += 1;
+            out.push_str(&format!(
+                "{n}. 《{}》 [{short}] {}「{}」\n",
+                doc.title,
+                span.name,
+                clip_line(&span.text)
+            ));
+        }
+        for block in &doc.block_colors {
+            if n >= 24 {
+                break;
+            }
+            let blob = format!("{} {} {}", block.color_name, block.bg_name, block.text).to_lowercase();
+            if !blob.contains(&needle) {
+                continue;
+            }
+            n += 1;
+            out.push_str(&format!(
+                "{n}. 《{}》 [{short}] 块 {} / {}「{}」\n",
+                doc.title,
+                block.color_name,
+                block.bg_name,
+                clip_line(&block.text)
+            ));
+        }
+        for c in &doc.comments {
+            if n >= 24 {
+                break;
+            }
+            let blob = format!("{} {}", c.text, c.body).to_lowercase();
+            if !blob.contains(&needle) {
+                continue;
+            }
+            n += 1;
+            out.push_str(&format!(
+                "{n}. 《{}》 [{short}] 评论「{}」\n",
+                doc.title,
+                clip_line(&c.text)
+            ));
+        }
+    }
+    if n == 0 {
+        return Ok(format!("没找到和「{q}」有关的颜色或评论。"));
+    }
+    Ok(out)
+}
+
+fn clip_line(text: &str) -> String {
+    let t: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let n = t.chars().count();
+    if n <= 80 {
+        return t;
+    }
+    t.chars().take(80).collect::<String>() + "…"
 }

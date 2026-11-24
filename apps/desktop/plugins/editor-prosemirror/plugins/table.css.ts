@@ -8,7 +8,8 @@
 import { globalStyle } from '@vanilla-extract/css'
 import type { GlobalStyleRule } from '@vanilla-extract/css'
 
-const BORDER = 'color-mix(in srgb, currentColor 34%, transparent)'
+// 中性灰、不跟 currentColor 走：深色画布上约 #474747，浅色上约 #c6c6c6，两档都看得见。
+const BORDER = 'rgba(128, 128, 128, .45)'
 const SELECT = 'var(--affine-primary-color, #1e96eb)'
 
 /** 外壳的 mobile 判定含 UA，移动规则得同时写 data 标记和窄屏 media 两份。 */

@@ -428,6 +428,15 @@ pub fn dispatch(
             let a: crate::annotations::Args = parse(args)?;
             crate::annotations::list(c, &a.id)
         }),
+        // 全库（或一个目录下）按词找颜色 / 评论。扫正文 JSON，走慢通道。
+        "doc:marks" => {
+            let a: crate::annotations::SearchArgs = parse(args)?;
+            let ids = match a.path.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                Some(path) => Some(crate::vfs::ids_under(db, path)?),
+                None => a.ids,
+            };
+            call(db, |c| crate::annotations::search(c, &a.query, ids.as_deref()))
+        }
 
         // ── 评论（D-0067）─────────────────────────────────────────────────────
         "comment:list" => call(db, |c| {
@@ -523,6 +532,19 @@ pub fn dispatch(
         "rag:search" => {
             let a: crate::rag::SearchArgs = parse(args)?;
             to_value(crate::rag::search(db, a)?)
+        }
+        // 内置助手的有预算检索。和 MCP 同一套实现，这里只是再开一个入口。
+        "notes:find" => {
+            let a: crate::mcp::notes::FindArgs = parse(args)?;
+            to_value(crate::mcp::notes::find(db, &a)?)
+        }
+        "notes:map" => {
+            let a: crate::mcp::notes::MapArgs = parse(args)?;
+            to_value(crate::mcp::notes::map(db, &a)?)
+        }
+        "notes:related" => {
+            let a: crate::mcp::notes::RelatedArgs = parse(args)?;
+            to_value(crate::mcp::related_notes(db, &a)?)
         }
 
         // ── 外部 Markdown 文件（D-0137，全文见 docs/external-md.md）─────────────
