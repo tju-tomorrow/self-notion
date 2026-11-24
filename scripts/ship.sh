@@ -6,6 +6,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# 根目录换了 app.png 就先重生成图标，没换就跳过，免得每次打包都脏一堆二进制。
+if [ -f app.png ] && [ app.png -nt src-tauri/icons/icon.icns ]; then
+  echo "==> 从 app.png 重新生成图标"
+  pnpm tauri icon app.png
+  # 只用 macOS，android/ios 那一堆别跟着进仓库。
+  rm -rf src-tauri/icons/android src-tauri/icons/ios
+fi
+
 echo "==> 打包（桌面 + 手机网页版）"
 pnpm tauri build --bundles app
 
