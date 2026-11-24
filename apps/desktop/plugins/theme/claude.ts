@@ -119,6 +119,10 @@ html[data-sn-theme="claude"] [data-sn-shell] {
   grid-template-columns: var(--shell-sidebar-w, 260px) minmax(0, 1fr);
   grid-template-rows: 40px minmax(0, 1fr);
   background: var(--sn-canvas);
+  transition: grid-template-columns 180ms cubic-bezier(0.22, 0.61, 0.36, 1), background-color 150ms ease-out;
+}
+html[data-sn-theme="claude"] [data-sn-shell][data-resizing] {
+  transition: none;
 }
 html[data-sn-theme="claude"] [data-sn-shell][data-collapsed="1"] {
   grid-template-columns: 0px minmax(0, 1fr);
@@ -134,6 +138,7 @@ html[data-sn-theme="claude"] [data-sn-shell] > header > div:first-child {
   flex: 0 0 auto;
   width: auto;
   padding-left: 4px;
+  transition: padding-left 180ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 html[data-sn-theme="claude"] [data-sn-shell][data-collapsed="1"] > header > div:first-child {
   padding-left: 78px;

@@ -90,6 +90,7 @@ globalStyle('.sn-pane-body', {
   minHeight: 0,
   overflow: 'auto',
   padding: '60px 0 24px',
+  transition: 'background-color 150ms ease-out',
   '@media': { '(max-width: 720px)': { padding: MOBILE_BODY } },
 })
 globalStyle('html[data-mobile="1"] .sn-pane-body', { padding: MOBILE_BODY })
@@ -418,6 +419,7 @@ globalStyle('.ProseMirror', {
   fontFamily: DOC_FONT,
   fontSize: 'calc(16px * var(--sn-font-scale, 1))',
   lineHeight: 1.7,
+  transition: 'color 150ms ease-out',
   color: 'color-mix(in srgb, var(--sn-text, #333) var(--sn-body-ink, 93%), #000)',
   outline: 'none',
 })

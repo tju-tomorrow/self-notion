@@ -67,6 +67,7 @@ export const root = style({
   colorScheme: 'var(--affine-theme-mode)',
   background: 'transparent',
   color: 'var(--affine-v2-text-primary)',
+  transition: 'background-color 150ms ease-out, color 150ms ease-out',
   // 界面字体跟着「全局字体」走（那个值由 shell-doc-header 写在 <html> 上）；取不到时
   // 退回字面量，别让整条声明废掉。
   fontFamily: 'var(--affine-font-family, Inter, "PingFang SC", system-ui, sans-serif)',
@@ -86,6 +87,8 @@ export const titlebar = style({
 })
 
 /** 和侧栏等宽的一格，标签条才能从侧栏右缘起。红绿灯压在这儿。 */
+const SLIDE = '180ms cubic-bezier(0.22, 0.61, 0.36, 1)'
+
 export const headerLeft = style({
   flex: `0 0 ${sidebarWidth}`,
   display: 'flex',
@@ -93,12 +96,14 @@ export const headerLeft = style({
   gap: 2,
   paddingLeft: TRAFFIC_LIGHTS_W + 8,
   alignSelf: 'stretch',
-  ...NO_DRAG,
+  transition: `flex-basis ${SLIDE}`,
+  '@media': { '(max-width: 720px)': { transition: 'none' } },
 })
 
-/** 侧栏折叠后，这格不再占满侧栏宽 —— 只包住那颗开关按钮，标签条跟着往左挪。 */
+/** 侧栏折叠后，这格收到内容那么宽。basis 收到 0，min-width 停在按钮上，宽度才能过渡。 */
 export const headerLeftCollapsed = style({
-  flex: '0 0 auto',
+  flexBasis: 0,
+  minWidth: 'max-content',
   paddingRight: 8,
 })
 
@@ -131,6 +136,7 @@ export const iconButton = style({  flex: '0 0 28px',
   background: 'transparent',
   color: 'var(--affine-v2-icon-primary)',
   cursor: 'pointer',
+  ...NO_DRAG,
   selectors: { '&:hover': { background: 'var(--affine-v2-layer-background-hoverOverlay)' } },
 })
 
@@ -152,6 +158,8 @@ export const sidebar = style({
   position: 'relative',
   background: 'color-mix(in srgb, var(--affine-v2-layer-background-primary) 82%, var(--sn-text, #333))',
   borderRight: '1px solid var(--sn-line, rgba(0, 0, 0, .1))',
+  transition: `flex-basis ${SLIDE}, background-color 150ms ease-out, border-color 150ms ease-out`,
+  '@media': { '(max-width: 720px)': { transition: 'background-color 150ms ease-out, border-color 150ms ease-out' } },
 })
 
 /** 拖拽改侧栏宽度的抓带。只有 4px 宽、贴右缘内侧：细到看不见，但够得着。
@@ -174,6 +182,11 @@ export const sidebarCollapsed = style({
   flex: '0 0 0px',
   padding: 0,
   borderRight: 'none',
+})
+
+/** 拖宽度时关掉过渡，不然侧栏会跟着指针慢半拍。 */
+globalStyle('[data-sn-shell][data-resizing], [data-sn-shell][data-resizing] aside, [data-sn-shell][data-resizing] > header > div:first-child', {
+  transition: 'none',
 })
 
 /** 主区。**这里现在不留底色** —— 底色交给两块：顶栏（`docHeader`）和正文纸面（编辑器那条）。
@@ -208,6 +221,7 @@ export const docHeader = style({
   alignItems: 'center',
   borderBottom: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
   background: 'var(--affine-v2-layer-background-primary)',
+  transition: 'background-color 150ms ease-out, color 150ms ease-out, border-color 150ms ease-out',
   selectors: { '[data-theme="dark"] &': { background: '#191919' } },
   // ★ 压在编辑器**上面**。编辑器里那些浮出来的东西（代码块那条工具条是
   //   floating-ui 算的位置）在块滚到顶上时会飘到编辑器框外、盖住这一行
@@ -259,6 +273,7 @@ export const sidebarDrawer = style({
   paddingBottom: 'calc(8px + env(safe-area-inset-bottom))',
   boxShadow: '0 12px 40px rgba(0, 0, 0, .28)',
   borderRight: '1px solid var(--sn-line, rgba(0, 0, 0, .12))',
+  transition: 'none',
 })
 
 /** 顶栏在手机上矮一点、给状态栏让位；没有红绿灯，左边那格也随之收窄。 */

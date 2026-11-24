@@ -16,6 +16,8 @@ export const button = style({
   background: 'transparent',
   color: 'var(--affine-v2-icon-primary)',
   cursor: 'pointer',
+  // 前进后退在可拖动的顶栏里，按钮自己不能拖，否则点了是挪窗口。
+  ...{ WebkitAppRegion: 'no-drag' as const },
   selectors: {
     '&:hover:not(:disabled)': {
       background: 'var(--affine-v2-layer-background-hoverOverlay)',

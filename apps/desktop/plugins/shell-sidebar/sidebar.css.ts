@@ -39,6 +39,7 @@ export const search = style({
   fontSize: 14,
   cursor: 'pointer',
   textAlign: 'left',
+  transition: 'background-color 120ms ease-out, color 120ms ease-out',
   selectors: { '&:hover': { background: 'var(--affine-v2-layer-background-hoverOverlay)' } },
 })
 
@@ -79,6 +80,7 @@ export const navItem = style({
   fontSize: 14,
   cursor: 'pointer',
   textAlign: 'left',
+  transition: 'background-color 120ms ease-out, color 120ms ease-out',
   selectors: { '&:hover': { background: 'var(--affine-v2-layer-background-hoverOverlay)' } },
 })
 
@@ -148,6 +150,7 @@ export const row = style({
   cursor: 'default',
   // 拖拽的插入线是绝对定位在这一行上的。
   position: 'relative',
+  transition: 'background-color 120ms ease-out',
   selectors: {
     '&:hover': { background: 'var(--affine-hover-color)' },
   },
@@ -208,6 +211,12 @@ export const act = style({
   },
   // 触屏没有 hover：行尾动作必须常显，否则手机上根本删不了 / 恢复不了。
   '@media': { '(hover: none)': { display: 'flex', flex: '0 0 28px', width: 28, height: 28 } },
+})
+
+/** 已收藏：星常亮，不用悬停才知道这篇在收藏里。 */
+export const actOn = style({
+  display: 'flex',
+  color: 'var(--affine-primary-color)',
 })
 
 export const input = style({
@@ -282,6 +291,7 @@ export const sectionHeader = style({
   color: 'var(--affine-v2-text-tertiary)',
   userSelect: 'none',
   cursor: 'pointer',
+  transition: 'background-color 120ms ease-out, color 120ms ease-out',
   selectors: {
     '&:hover': { background: 'var(--affine-v2-layer-background-hoverOverlay)' },
     // 悬在右边的「+」上时别把整条也点亮。

@@ -48,6 +48,7 @@ export const tab = style({
   color: 'var(--affine-v2-tab-fontColor-default)',
   cursor: 'default',
   userSelect: 'none',
+  transition: 'background-color 120ms ease-out, color 120ms ease-out, box-shadow 120ms ease-out',
   selectors: { '&:hover': { color: 'var(--affine-v2-text-primary)' } },
 })
 

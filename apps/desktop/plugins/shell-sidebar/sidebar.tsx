@@ -36,6 +36,7 @@ import {
   HistoryIcon,
   InboxIcon,
   MindmapNodeIcon,
+  FavoriteIcon,
   PageIcon,
   PinIcon,
   PlusIcon,
@@ -410,6 +411,11 @@ export function Sidebar({ ctx }: { ctx: Context }) {
             ? {
                 draggable: true,
                 onDragStart: (e: DragEvent<HTMLDivElement>) => {
+                  // 行尾的收藏 / 新建是按钮。父级 draggable 会把按下当成拖拽，click 就丢了。
+                  if (e.target instanceof Element && e.target.closest('button, input')) {
+                    e.preventDefault()
+                    return
+                  }
                   e.dataTransfer.setData('text/plain', node.id)
                   e.dataTransfer.effectAllowed = 'move'
                   // ★ 拖影：**照这一行克隆**一张浮动卡片（用户要的是 Notion 那种感觉），
@@ -537,14 +543,16 @@ export function Sidebar({ ctx }: { ctx: Context }) {
           </button>
           <button
             type="button"
-            className={s.act}
-            title={ctx.i18n.t('sidebar.favorite')}
+            draggable={false}
+            className={node.isFavorite ? `${s.act} ${s.actOn}` : s.act}
+            title={ctx.i18n.t(node.isFavorite ? 'doc.unfavorite' : 'sidebar.favorite')}
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation()
               void favorite(node)
             }}
           >
-            <StarIcon width={16} height={16} />
+            {node.isFavorite ? <FavoriteIcon width={16} height={16} /> : <StarIcon width={16} height={16} />}
           </button>
           <button
             type="button"

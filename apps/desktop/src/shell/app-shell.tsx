@@ -2,7 +2,7 @@
  * 应用外壳：顶栏 + 侧栏 + 主区。只搭骨架、只挂槽位，里面全由插件塞。
  * 结构照 AFFiNE 的 `app-container`：上面一条通栏，下面才左右分栏。
  */
-import { useCallback, useEffect, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react'
 import type { Context } from 'cordis'
 import { PageIcon, PlusIcon, SearchIcon, SettingsIcon, SidebarIcon } from '@blocksuite/icons/rc'
 import { AGENT_TAB_ID, CLOSE_ALL, DOCS_CHANGED, OPEN_DOC, SHOW_LIST, isFileId } from '../kernel/contract'
@@ -286,16 +286,19 @@ export function AppShell({ ctx }: { ctx: Context }) {
 
   /** 拖右缘改宽度。监听挂在 window 上而不是抓带上 —— 指针跑出那 4px 也得跟着走。
    *  宽度只活在内存里（跟 `collapsed` 一样），重开回默认值。 */
+  const shellRef = useRef<HTMLDivElement>(null)
   const onResizeStart = useCallback((e: PointerEvent<HTMLDivElement>) => {
     e.preventDefault()
     const startX = e.clientX
     const startWidth = width
     const clamp = (w: number) => Math.min(s.SIDEBAR_MAX_W, Math.max(s.SIDEBAR_MIN_W, w))
     const move = (ev: globalThis.PointerEvent) => setWidth(clamp(startWidth + ev.clientX - startX))
-    // 拖动时别选中文字/触发拖拽
+    // 拖动时别选中文字/触发拖拽，也别让宽度过渡跟着指针慢半拍。
     document.body.style.userSelect = 'none'
+    shellRef.current?.setAttribute('data-resizing', '1')
     const up = () => {
       document.body.style.userSelect = ''
+      shellRef.current?.removeAttribute('data-resizing')
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
     }
@@ -306,6 +309,7 @@ export function AppShell({ ctx }: { ctx: Context }) {
   // `data-sn-shell` / `data-collapsed` 只给 Notion 主题把侧栏拉到窗口顶，原版不读。
   return (
     <div
+      ref={shellRef}
       className={`${s.root} ${motion.fadeIn}`}
       data-sn-shell=""
       data-collapsed={collapsed ? '1' : '0'}
@@ -352,7 +356,7 @@ export function AppShell({ ctx }: { ctx: Context }) {
               入场动画（`motion.fadeIn`）于是每次切换都重放 —— 不套这一层的话，
               换页是「啪」一下直接顶上来。 */}
           {view !== 'home' ? (
-            <div key={view} className={`${s.view} ${motion.fadeIn}`}>
+            <div key={view} className={s.view}>
               {view === 'agent' ? (
                 // 助手那一页（D-0095）：整块主区，自己带左历史右对话
                 <SlotHost ctx={ctx} name="main.page" />
@@ -371,7 +375,7 @@ export function AppShell({ ctx }: { ctx: Context }) {
               </div>
               {/* 正文 + 右侧评论栏。`doc.aside` 空着时里面一个节点都没有 → 宽度 0，不占地方
                   （槽宿主不给插件包壳，见 slot-host.tsx）。 */}
-              <div className={s.docBody}>
+              <div className={`${s.docBody} ${motion.fadeIn}`}>
                 <SlotHost ctx={ctx} name="main.view" />
                 <SlotHost ctx={ctx} name="doc.aside" />
                 {/* 再往外那一列：web 版 AI 面板（D-0074）。和评论那一列能同时开着。 */}
@@ -385,7 +389,7 @@ export function AppShell({ ctx }: { ctx: Context }) {
             </div>
           ) : (
             // 没开文档就给主页。插件没装时退到那句话 —— 空的主区不能是一片纯黑，那看起来就是「坏了」。
-            <div key="home" className={`${s.view} ${motion.fadeIn}`}>
+            <div key="home" className={s.view}>
               <SlotHost
                 ctx={ctx}
                 name="main.home"
