@@ -326,12 +326,14 @@ export function Home({ ctx }: { ctx: Context }) {
    *   `Date.now()` 进不了依赖（每秒都变）—— 分组只看「今天 / 今天之前」这条界，
    *   换成下次数据变化时再重算，用户看不出来。
    */
+  // 回收站不跟「不熟悉」走：那 422 篇也得能看见、能恢复。
+  const unfamOn = unfamiliar && active !== 'trash'
   const visible = useMemo(() => {
     let base = filterGroup(docs, active)
-    if (unfamiliar) base = base.filter((doc) => learn.get(doc.id)?.familiarity === 1)
+    if (unfamOn) base = base.filter((doc) => learn.get(doc.id)?.familiarity === 1)
     const q = filter.trim().toLowerCase()
     return q === '' ? base : base.filter((doc) => doc.title.toLowerCase().includes(q))
-  }, [docs, active, filter, unfamiliar, learn])
+  }, [docs, active, filter, unfamOn, learn])
 
   const close = useCallback(() => setOpen(null), [])
   const toggle = useCallback((key: string) => setOpen((cur) => (cur === key ? null : key)), [])
@@ -686,7 +688,7 @@ export function Home({ ctx }: { ctx: Context }) {
       {check(doc)}
       {icon(doc, ROW_ICON)}
       <span className={s.rowBrief}>{titleOf(doc, s.rowTitle)}</span>
-      {unfamiliar ? (
+      {unfamOn ? (
         <span className={s.learnLine} onClick={(e) => e.stopPropagation()}>
           <span>{learnText(doc)}</span>
           {FAMILIARITY.map((name, i) => (
@@ -738,7 +740,7 @@ export function Home({ ctx }: { ctx: Context }) {
         {titleOf(doc, s.cardTitle)}
         {actionsFor(doc)}
       </div>
-      {unfamiliar ? <div className={s.cardLearn}>{learnText(doc)}</div> : null}
+      {unfamOn ? <div className={s.cardLearn}>{learnText(doc)}</div> : null}
     </div>
   )
 
@@ -753,13 +755,15 @@ export function Home({ ctx }: { ctx: Context }) {
         </div>
 
           <div className={s.actions}>
-          <button
-            type="button"
-            className={unfamiliar ? s.chipOn : s.ghostBtn}
-            onClick={() => setUnfamiliar((on) => !on)}
-          >
-            {ctx.i18n.t('home.unfamiliar')}
-          </button>
+          {active === 'trash' ? null : (
+            <button
+              type="button"
+              className={unfamiliar ? s.chipOn : s.ghostBtn}
+              onClick={() => setUnfamiliar((on) => !on)}
+            >
+              {ctx.i18n.t('home.unfamiliar')}
+            </button>
+          )}
           {/* 筛选：库里几百篇时只靠滚动找太累，⌘K 又得先想起关键词。 */}
           <input
             className={s.filter}
@@ -855,7 +859,7 @@ export function Home({ ctx }: { ctx: Context }) {
             <AllDocsIcon width={64} height={64} />
             <p className={s.emptyText}>
               {ctx.i18n.t(
-                unfamiliar
+                unfamOn
                   ? 'home.empty.unfamiliar'
                   : active === 'all'
                     ? 'home.empty'
