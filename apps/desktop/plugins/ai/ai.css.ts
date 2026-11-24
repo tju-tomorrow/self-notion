@@ -556,9 +556,12 @@ export const mdTable = style({
   lineHeight: '20px',
 })
 
+// 0.5px + 主题 border 色（深色 #343434）在画布上几乎看不见，改 1px 并按字色兑。
+const CELL_BORDER = '1px solid color-mix(in srgb, var(--sn-text, currentColor) 24%, transparent)'
+
 const cell = {
   padding: '5px 10px',
-  border: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
+  border: CELL_BORDER,
   textAlign: 'left' as const,
   verticalAlign: 'top' as const,
 }
