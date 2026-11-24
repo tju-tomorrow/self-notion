@@ -168,9 +168,9 @@ export function Button({
   disabled?: boolean
 }) {
   const cls =
-    variant === 'primary' ? `${s.button} ${s.buttonPrimary}`
-    : variant === 'danger' ? `${s.button} ${s.buttonDanger}`
-    : s.button
+    variant === 'primary' ? `${s.button} ${s.buttonPrimary} sn-btn sn-btn-primary`
+    : variant === 'danger' ? `${s.button} ${s.buttonDanger} sn-btn`
+    : `${s.button} sn-btn`
   return (
     <button type="button" className={cls} disabled={disabled} onClick={onClick}>
       {children}

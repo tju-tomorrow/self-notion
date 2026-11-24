@@ -5,6 +5,7 @@
  *   `plugins/shell-doc-header/config.ts` 那张表里，改字体栈去那儿改。
  * ★ font-family 的名字必须和 config.ts 的栈里写的**逐字一致**，写错就是静默回退（看着像没生效）。
  */
+@import url('./anthropic/anthropic.css');
 @import url('./lxgw-wenkai/lxgw-wenkai.css');
 @import url('./zcool-kuaile/zcool-kuaile.css');
 @import url('./noto-serif-sc/noto-serif-sc.css');

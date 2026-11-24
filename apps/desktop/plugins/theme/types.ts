@@ -50,7 +50,7 @@ export interface Theme {
    * `notion`：悬停 / 选中是中性灰，字色按透明度阶走，不拿强调色去染。
    * 缺省 = 夜空那套（悬停跟着强调色）。
    */
-  tone?: 'notion'
+  tone?: 'notion' | 'claude'
   /** 用户存的，不是内置的 */
   user?: boolean
 }

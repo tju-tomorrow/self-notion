@@ -749,7 +749,7 @@ export function Home({ ctx }: { ctx: Context }) {
       <div className={s.header}>
         <div className={s.tabs}>
           {/* 顶部当 mac 的 pwd 用：`~/` + 当前分组名，跟侧栏同一套词条（all 那页侧栏叫 tree）。 */}
-          <span className={s.headTitle}>
+          <span className={`${s.headTitle} sn-display`}>
             {`~/${ctx.i18n.t(`sidebar.group.${active === 'all' ? 'tree' : active}`)}`}
           </span>
         </div>
@@ -844,7 +844,7 @@ export function Home({ ctx }: { ctx: Context }) {
           {/* 「收藏」「置顶」和「回收站」是**从已有的来**的列表（用户：收藏不需要可以新建）——
               这几页不给新建按钮。全部文档 / 最近照旧。 */}
           {active === 'favorite' || active === 'pinned' || active === 'trash' ? null : (
-            <button type="button" className={s.newDocBtn} onClick={create}>
+            <button type="button" className={`${s.newDocBtn} sn-btn sn-btn-primary`} onClick={create}>
               <PlusIcon width={16} height={16} />
               {ctx.i18n.t('home.new')}
             </button>

@@ -224,7 +224,7 @@ function Mine({ ctx }: { ctx: Context }) {
           bgStrength: raw.bgStrength,
           bgSize: raw.bgSize,
           bgPos: raw.bgPos,
-          tone: raw.tone === 'notion' ? 'notion' : undefined,
+          tone: raw.tone === 'notion' || raw.tone === 'claude' ? raw.tone : undefined,
           css: typeof raw.css === 'string' ? raw.css : undefined,
           user: true,
         }

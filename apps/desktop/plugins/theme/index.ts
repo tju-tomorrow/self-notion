@@ -11,12 +11,12 @@ import { reportError } from '../../src/kernel/errors'
 import type {} from '../../src/kernel/contract'
 import type { ThemeController } from '../../src/theme/tokens'
 import { installTheme } from './apply'
-import { NOTION_ID } from './builtin'
+import { CLAUDE_ID } from './builtin'
 import { ACTIVE_KEY, DRAFT_KEY } from './store'
 import { ThemeSection } from './ui'
 
-/** 只切一次。之后在设置里改回原版 / 夜空，下次启动不再抢。 */
-const NOTION_SEEN = 'theme.notion.seen'
+/** 只切一次。之后在设置里改走别的主题，下次启动不再抢。 */
+const CLAUDE_SEEN = 'theme.claude.seen'
 
 export const name = 'theme'
 
@@ -45,11 +45,11 @@ export function apply(ctx: Context) {
   void ctx.rpc
     .call<Record<string, string>>('settings:list')
     .then((all) => {
-      if (all[NOTION_SEEN] === 'true') return
-      ctx.settings.set(ACTIVE_KEY, NOTION_ID)
+      if (all[CLAUDE_SEEN] === 'true') return
       ctx.settings.set(DRAFT_KEY, {})
-      ctx.settings.set(NOTION_SEEN, true)
-      if (ctx.theme.scheme !== 'dark') (ctx.theme as ThemeController).set('dark')
+      if (ctx.theme.scheme !== 'light') (ctx.theme as ThemeController).set('light')
+      ctx.settings.set(ACTIVE_KEY, CLAUDE_ID)
+      ctx.settings.set(CLAUDE_SEEN, true)
     })
     .catch((err: unknown) => reportError('theme', err))
 }

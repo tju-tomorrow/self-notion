@@ -1,11 +1,12 @@
 /**
- * 内置主题：原版 + Notion 深色 + 夜空。
+ * 内置主题：原版 + Claude 浅色 + Notion 深色 + 夜空。
  *
  * 原版 `seeds: null` —— 一个变量都不写，就是今天这个样子（D-0145）。
  * 但它在界面上仍要能调色，所以另外给一份 `EDIT_BASE`：那两组值 = AFFiNE 深/浅两档的
  * 画布 / 卡片 / 强调色（实测从 `combined*CssVariables` 抄的，暗色画布那档换成了
  * Notion 的 #191919，D-0171），用户从原版起手调时起点就是原版的颜色，而不是凭空冒出一个紫的。
  */
+import { CLAUDE_CSS } from './claude'
 import { NOTION_CSS } from './notion'
 import type { Seeds, Theme } from './types'
 
@@ -13,6 +14,7 @@ import type { Seeds, Theme } from './types'
 export const DEFAULT_ID = 'default'
 export const NOTION_ID = 'notion'
 export const STARRY_ID = 'starry'
+export const CLAUDE_ID = 'claude'
 
 export const EDIT_BASE: Readonly<Record<'dark' | 'light', Seeds>> = {
   dark: {
@@ -78,7 +80,26 @@ const STARRY_THEME: Theme = {
   radius: 12,
 }
 
-export const BUILTIN: readonly Theme[] = [DEFAULT_THEME, NOTION_THEME, STARRY_THEME]
+/** claude.ai 2026 浅色：奶油底、近黑字、选中暖灰，主按钮是墨色胶囊。 */
+const CLAUDE_THEME: Theme = {
+  id: CLAUDE_ID,
+  name: 'Claude',
+  scheme: 'light',
+  tone: 'claude',
+  seeds: {
+    canvas: '#faf9f5',
+    sidebar: '#faf9f5',
+    surface: '#ffffff',
+    accent: '#1c1b19',
+    text: '#1c1b19',
+    border: '#e6e4dc',
+  },
+  radius: 16,
+  bgStrength: 0,
+  css: CLAUDE_CSS,
+}
+
+export const BUILTIN: readonly Theme[] = [DEFAULT_THEME, CLAUDE_THEME, NOTION_THEME, STARRY_THEME]
 
 export function builtinById(id: string): Theme | undefined {
   return BUILTIN.find((t) => t.id === id)

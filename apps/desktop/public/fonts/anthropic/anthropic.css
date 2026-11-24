@@ -1,0 +1,43 @@
+/* Claude 网页现在用的三套可变字体。中文不在这三套里，栈尾交给苹方。 */
+@font-face {
+  font-family: "Anthropic Sans";
+  font-style: normal;
+  font-weight: 300 800;
+  font-display: swap;
+  src: url("./AnthropicSans-Roman.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Anthropic Sans";
+  font-style: italic;
+  font-weight: 300 800;
+  font-display: swap;
+  src: url("./AnthropicSans-Italic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Anthropic Serif";
+  font-style: normal;
+  font-weight: 300 800;
+  font-display: swap;
+  src: url("./AnthropicSerif-Roman.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Anthropic Serif";
+  font-style: italic;
+  font-weight: 300 800;
+  font-display: swap;
+  src: url("./AnthropicSerif-Italic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Anthropic Mono";
+  font-style: normal;
+  font-weight: 300 800;
+  font-display: swap;
+  src: url("./AnthropicMono-Roman.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Anthropic Mono";
+  font-style: italic;
+  font-weight: 300 800;
+  font-display: swap;
+  src: url("./AnthropicMono-Italic.woff2") format("woff2");
+}
