@@ -54,6 +54,10 @@ const PREFETCH_MAX = 200
 const PREFETCH_MAX_BYTES = 15 * 1024 * 1024
 
 let running = false
+/** 这一轮还在飞时又落了库：结束后再跑一轮，把刚落下的带上。 */
+let rerun = false
+/** 推送前先把编辑器 300ms 里还没落库的字写进本地库。 */
+let beforePush: (() => Promise<void>) | null = null
 let pushTimer: ReturnType<typeof setTimeout> | undefined
 let cycleTimer: number | undefined
 let backoff = 0
@@ -75,6 +79,10 @@ let status: SyncStatus = {
 /** 给 `sync:status` 和顶栏小圆点读的快照（D-0199）。 */
 export function syncStatus(): SyncStatus {
   return status
+}
+
+export function setBeforePush(fn: (() => Promise<void>) | null): void {
+  beforePush = fn
 }
 
 function patchStatus(patch: Partial<SyncStatus>): void {
@@ -608,7 +616,17 @@ async function uploadBlobs(): Promise<void> {
 /* ─────────────────────────── 主循环 ─────────────────────────── */
 
 export async function runSyncNow(): Promise<void> {
-  if (running) return
+  if (beforePush) {
+    try {
+      await beforePush()
+    } catch (err) {
+      note(err)
+    }
+  }
+  if (running) {
+    rerun = true
+    return
+  }
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     patchStatus({ online: false })
     scheduleNext(HIDDEN_MS)
@@ -661,6 +679,10 @@ async function syncOnce(): Promise<void> {
     running = false
     void refreshPending()
     scheduleNext()
+    if (rerun) {
+      rerun = false
+      void runSyncNow()
+    }
   }
 }
 

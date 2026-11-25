@@ -197,15 +197,37 @@ function useWindow(items: readonly Item[]) {
   const [scrollTop, setScrollTop] = useState(0)
   const [viewH, setViewH] = useState(0)
   const observer = useRef<ResizeObserver | null>(null)
+  const itemsRef = useRef(items)
+  const topsRef = useRef(tops)
+  const viewHRef = useRef(0)
+  const rangeRef = useRef({ start: -1, end: -1 })
+  itemsRef.current = items
+  topsRef.current = tops
 
   const attach = useCallback((el: HTMLDivElement | null) => {
     observer.current?.disconnect()
     observer.current = null
     if (el === null) return
+    viewHRef.current = el.clientHeight
     setViewH(el.clientHeight)
-    const ro = new ResizeObserver(() => setViewH(el.clientHeight))
+    const ro = new ResizeObserver(() => {
+      if (el.clientHeight === viewHRef.current) return
+      viewHRef.current = el.clientHeight
+      rangeRef.current = { start: -1, end: -1 }
+      setViewH(el.clientHeight)
+    })
     ro.observe(el)
     observer.current = ro
+  }, [])
+
+  const onScroll = useCallback((e: UIEvent<HTMLDivElement>) => {
+    const top = e.currentTarget.scrollTop
+    const next = windowRange(itemsRef.current, topsRef.current, top, viewHRef.current)
+    const prev = rangeRef.current
+    // 窗口没变就别 setState：每帧重画整份首页是手机上刷列表卡的原因。
+    if (prev.start === next.start && prev.end === next.end) return
+    rangeRef.current = next
+    setScrollTop(top)
   }, [])
 
   const { start, end } = windowRange(items, tops, scrollTop, viewH)
@@ -215,7 +237,7 @@ function useWindow(items: readonly Item[]) {
     total,
     start,
     end,
-    onScroll: (e: UIEvent<HTMLDivElement>) => setScrollTop(e.currentTarget.scrollTop),
+    onScroll,
   }
 }
 

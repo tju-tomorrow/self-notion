@@ -162,27 +162,29 @@ function MobileBar({ ctx, view }: { ctx: Context; view: MainView }) {
 export function AppShell({ ctx }: { ctx: Context }) {
   const { view, id } = useDocView(ctx)
   const mobile = useIsMobile()
-  const [keyboardOpen, setKeyboardOpen] = useState(false)
 
   // 移动标记也写到 <html>：CSS 移动规则同时认 @media 和这个属性（D-0199）。
   useEffect(() => {
     document.documentElement.dataset.mobile = mobile ? '1' : '0'
   }, [mobile])
 
-  // 软键盘压住的那段高度写进 --sn-keyboard-inset，弹起时收起底部导航。
+  // 软键盘高度只写 CSS 变量，给底部 sheet 抬高用。
+  // 不拆底部导航：拆掉会把正文撑高，iOS 把 contenteditable 的焦点收掉。
   useEffect(() => {
     const root = document.documentElement
     const vv = window.visualViewport
     if (!mobile || !vv) {
       root.style.removeProperty('--sn-keyboard-inset')
-      setKeyboardOpen(false)
       return
     }
+    let last = ''
     const update = () => {
       const covered = Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
-      const inset = covered < 80 ? 0 : covered
-      root.style.setProperty('--sn-keyboard-inset', `${inset}px`)
-      setKeyboardOpen(inset > 0)
+      const inset = covered < 80 ? 0 : Math.round(covered)
+      const next = `${inset}px`
+      if (next === last) return
+      last = next
+      root.style.setProperty('--sn-keyboard-inset', next)
     }
     vv.addEventListener('resize', update)
     vv.addEventListener('scroll', update)
@@ -399,7 +401,7 @@ export function AppShell({ ctx }: { ctx: Context }) {
           )}
         </main>
       </div>
-      {mobile && !keyboardOpen ? <MobileBar ctx={ctx} view={view} /> : null}
+      {mobile ? <MobileBar ctx={ctx} view={view} /> : null}
     </div>
   )
 }

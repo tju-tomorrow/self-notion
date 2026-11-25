@@ -409,11 +409,25 @@ async fn changes(State(st): State<Arc<Srv>>, Query(q): Query<ChangesQuery>) -> R
 
 async fn push(State(st): State<Arc<Srv>>, Json(body): Json<PushBody>) -> Response {
     let mut results = Vec::with_capacity(body.docs.len());
+    let mut reload_ids: Vec<String> = Vec::new();
+    let mut docs_changed = false;
     for d in body.docs {
         match st.db.with(|c| apply_push(c, &d)) {
-            Ok(r) => results.push(r),
+            Ok(r) => {
+                // 冲突时库里还是桌面这份，窗口不用动。其余写进了库，开着的窗口还停在旧正文上。
+                if r.status == "accepted" || r.status == "merged" {
+                    docs_changed = true;
+                    reload_ids.push(r.id.clone());
+                } else if r.status == "deleted" {
+                    docs_changed = true;
+                }
+                results.push(r);
+            }
             Err(e) => return err(e),
         }
+    }
+    if docs_changed {
+        let _ = st.app.emit("sn:docs", json!({ "ids": reload_ids }));
     }
     for src in body.sources {
         let out = st.db.with(|c| {

@@ -18,6 +18,7 @@ import {
   type CommentState,
   type CommentTarget,
   type DocMeta,
+  type EditorService,
 } from '../../src/kernel/contract'
 import { nextCopyTitle, retitleDocJson } from '../../src/kernel/doc-name'
 import { reportError, reportNote } from '../../src/kernel/errors'
@@ -100,7 +101,12 @@ export function apply(ctx: Context) {
   /** 装载 + 接线。整块只有一次：重复接会互相覆盖。★ 它是**懒的**：第一次调用才真的 import。 */
   let loading: Promise<EditorModule> | undefined
   const load = () =>
-    (loading ??= import('./editor').then((editor) => {
+    (loading ??= import('./editor').then(async (editor) => {
+      if (isWeb) {
+        // 点同步时 300ms 里的字还在内存里，不先落库推上去的就是旧正文。
+        const sync = await import('../../src/platform/web/sync')
+        sync.setBeforePush(() => editor.flushAll())
+      }
       // 字节路径接上 `ctx.docs`：落库成功由编辑器那边回叫，这里转成 `DOC_SAVED`（顶栏显示「已保存」）。
       editor.connectDocs(ctx.docs, {
         saved: (docId) => ctx.emit(DOC_SAVED, { id: docId }),
@@ -422,6 +428,48 @@ export function apply(ctx: Context) {
     return () => {
       dead = true
       unlisten?.()
+    }
+  })
+
+  // 手机推上来的正文已经在库里，桌面窗口不会自己重读。
+  ctx.effect(() => {
+    if (isWeb || typeof window === 'undefined') return () => {}
+    let dead = false
+    let off = (): void => {}
+    void import('../../src/platform/events')
+      .then(({ appListen }) =>
+        appListen('sn:docs', (payload) => {
+          const ids = Array.isArray((payload as { ids?: unknown } | null)?.ids)
+            ? ((payload as { ids: unknown[] }).ids.filter((id) => typeof id === 'string') as string[])
+            : []
+          if (loading === undefined) {
+            ctx.emit(DOCS_CHANGED)
+            return
+          }
+          const editor = ctx.get('editor') as EditorService | undefined
+          void loading.then((mod) => {
+            if (dead) return
+            // 先闸住再广播，否则标题回写会标脏，重读被跳过，落库把手机的正文盖掉。
+            const reloadIds = editor
+              ? ids.filter((id) => {
+                  const live = mod.liveDocs().find((d) => d.id === id)
+                  return live !== undefined && !live.dirty
+                })
+              : []
+            for (const id of reloadIds) mod.muteDoc(id)
+            ctx.emit(DOCS_CHANGED)
+            for (const id of reloadIds) void editor?.reload(id)
+          })
+        }),
+      )
+      .then((un) => {
+        if (dead) un()
+        else off = un
+      })
+      .catch((err: unknown) => reportError('editor-prosemirror', err))
+    return () => {
+      dead = true
+      off()
     }
   })
 }
