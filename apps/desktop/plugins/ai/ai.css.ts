@@ -56,12 +56,6 @@ const flatButton = style({
 
 export const newChat = style([flatButton, { height: 34, padding: '0 10px', fontSize: 13 }])
 
-export const historyLabel = style({
-  padding: '14px 10px 6px',
-  fontSize: 12,
-  color: 'var(--affine-v2-text-tertiary)',
-})
-
 /** 历史那一列。会话多了自己滚，**不动旁边那半**。 */
 export const historyList = style({
   flex: '1 1 auto',
@@ -79,36 +73,67 @@ export const historyList = style({
   },
 })
 
+export const threadGroup = style({
+  paddingTop: 8,
+  selectors: { '&:first-child': { paddingTop: 0 } },
+})
+
+export const threadWhen = style({
+  padding: '4px 8px 2px',
+  fontSize: 11,
+  lineHeight: '16px',
+  color: 'var(--affine-v2-text-tertiary)',
+})
+
 export const thread = style([
   flatButton,
   {
-    padding: '7px 10px',
+    position: 'relative',
+    minHeight: 28,
+    padding: '4px 8px 4px 12px',
     fontSize: 13,
+    lineHeight: '18px',
     color: 'var(--affine-v2-text-secondary)',
     whiteSpace: 'nowrap',
-    overflow: 'hidden',
+    selectors: {
+      '&::before': {
+        content: '""',
+        position: 'absolute',
+        left: 2,
+        top: 7,
+        bottom: 7,
+        width: 2,
+        borderRadius: 1,
+        background: 'transparent',
+      },
+      '&[data-on="1"]': { color: 'var(--affine-v2-text-primary)' },
+      '&[data-on="1"]::before': { background: 'var(--affine-primary-color)' },
+      '&[data-empty="1"]': { color: 'var(--affine-v2-text-tertiary)' },
+      '&[data-on="1"][data-empty="1"]': { color: 'var(--affine-v2-text-secondary)' },
+    },
   },
 ])
 
-/** 当前这条：底色 + 字亮起来。 */
-export const threadOn = style([
-  thread,
-  {
-    background: 'var(--affine-v2-layer-background-hoverOverlay)',
-    color: 'var(--affine-v2-text-primary)',
-  },
-])
+export const threadLabel = style({
+  flex: '1 1 auto',
+  minWidth: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+})
 
-export const threadLabel = style({ overflow: 'hidden', textOverflow: 'ellipsis' })
-
-/** 这条会话的字数估数。贴右边，淡到只占一只眼。 */
+/** 字数平时藏着，悬停或当前这条才露出来，别跟标题抢一行。 */
 export const threadTok = style({
   flex: '0 0 auto',
   marginLeft: 'auto',
-  paddingLeft: 6,
+  paddingLeft: 8,
   fontSize: 11,
   fontVariantNumeric: 'tabular-nums',
   color: 'var(--affine-v2-text-tertiary)',
+  opacity: 0,
+  selectors: {
+    [`${thread}:hover &`]: { opacity: 1 },
+    [`${thread}[data-on="1"] &`]: { opacity: 1 },
+  },
 })
 
 /* ── 右半：对话 ── */
@@ -811,16 +836,33 @@ export const dockTitle = style({
   color: 'var(--affine-v2-text-secondary)',
 })
 
-/** 右边那一列里的历史列：那一列没有整页那个 `.side` 的边距，自己补一层。 */
-export const dockListWrap = style({
+/** 头下面：左边历史窄栏，右边对话。历史关着时只剩对话。 */
+export const dockBody = style({
   flex: '1 1 auto',
   minHeight: 0,
   display: 'flex',
-  flexDirection: 'column',
-  padding: '0 8px 8px',
 })
 
-/** 「历史 / 对话」那颗字按钮（一个沙漏式的图标说不清意思，就直接写字）。 */
+export const rail = style({
+  flex: '0 0 196px',
+  width: 196,
+  minHeight: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  padding: '2px 6px 8px',
+  borderRight: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
+  background: 'var(--affine-v2-layer-background-secondary)',
+})
+
+export const dockMain = style({
+  flex: '1 1 auto',
+  minWidth: 0,
+  minHeight: 0,
+  display: 'flex',
+  flexDirection: 'column',
+})
+
+/** 顶上那颗「历史」。开着时栏还在，字只是亮一下。 */
 export const dockButton = style({
   flex: '0 0 auto',
   padding: '3px 8px',
@@ -832,6 +874,11 @@ export const dockButton = style({
   fontSize: 11,
   cursor: 'pointer',
   selectors: { '&:hover': { background: 'var(--affine-v2-layer-background-hoverOverlay)' } },
+})
+
+export const dockButtonOn = style({
+  color: 'var(--affine-v2-text-primary)',
+  background: 'var(--affine-v2-layer-background-hoverOverlay)',
 })
 
 export const dockIcon = style({

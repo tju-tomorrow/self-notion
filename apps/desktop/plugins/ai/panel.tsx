@@ -88,6 +88,8 @@ const DOCK_W = 380
 const DOCK_MIN_W = 300
 const DOCK_MAX_W = 900
 const DOCK_KEY = 'sn.agent.width'
+/** 历史栏自己的宽度。打开时加在对话列外面，不挤对话。 */
+const RAIL_W = 196
 
 /* ────────────────────────── 整页：左历史 + 右对话 ────────────────────────── */
 
@@ -112,7 +114,6 @@ export function AiPanel({ ctx, ai }: { ctx: Context; ai: AiService }) {
           <PlusIcon width={16} height={16} />
           {ctx.i18n.t('agent.new')}
         </button>
-        <div className={s.historyLabel}>{ctx.i18n.t('agent.history')}</div>
         <ThreadList ctx={ctx} />
       </aside>
       <section className={s.chat}>
@@ -139,7 +140,7 @@ export function AiPanel({ ctx, ai }: { ctx: Context; ai: AiService }) {
 /* ────────────────────────── 右侧那一列 ────────────────────────── */
 
 /** 只装对话，正文留在旁边看得见（用户：「边聊 边看到 笔记」）。
- *  历史不丢：头上一颗按钮把对话换成历史列，点一条就换过去。 */
+ *  历史是对话左边一条窄栏，不把这一列换成整页列表。 */
 export function AgentDock({ ctx, ai }: { ctx: Context; ai: AiService }) {
   const pet = ctx.get('mascot')
   const st = useAiState()
@@ -176,7 +177,7 @@ export function AgentDock({ ctx, ai }: { ctx: Context; ai: AiService }) {
   if (!st.docked) return null
 
   return (
-    <aside className={s.dock} style={{ width }}>
+    <aside className={s.dock} style={{ width: history ? width + RAIL_W : width }}>
       <div
         className={s.dockResizer}
         role="separator"
@@ -188,24 +189,20 @@ export function AgentDock({ ctx, ai }: { ctx: Context; ai: AiService }) {
         <span className={s.dockTitle}>{ctx.i18n.t('agent.title')}</span>
         <button
           type="button"
-          className={s.dockButton}
+          className={history ? `${s.dockButton} ${s.dockButtonOn}` : s.dockButton}
           title={ctx.i18n.t('agent.history')}
           aria-label={ctx.i18n.t('agent.history')}
           aria-pressed={history}
           onClick={() => setHistory((v) => !v)}
         >
-          {/* 一个沙漏式的图标意思不明确，用文字：「历史」/「对话」来回切。 */}
-          {ctx.i18n.t(history ? 'agent.chat' : 'agent.history')}
+          {ctx.i18n.t('agent.history')}
         </button>
         <button
           type="button"
           className={s.dockIcon}
           title={ctx.i18n.t('agent.new')}
           aria-label={ctx.i18n.t('agent.new')}
-          onClick={() => {
-            newSession()
-            setHistory(false)
-          }}
+          onClick={() => newSession()}
         >
           <PlusIcon width={16} height={16} />
         </button>
@@ -219,46 +216,70 @@ export function AgentDock({ ctx, ai }: { ctx: Context; ai: AiService }) {
           <CloseIcon width={16} height={16} />
         </button>
       </div>
-      {history ? (
-        <div className={s.dockListWrap}>
-          <ThreadList ctx={ctx} picked={() => setHistory(false)} />
+      <div className={s.dockBody}>
+        {history ? (
+          <div className={s.rail}>
+            <ThreadList ctx={ctx} />
+          </div>
+        ) : null}
+        <div className={s.dockMain}>
+          <ChatBody ctx={ctx} ai={ai} compact />
         </div>
-      ) : (
-        <ChatBody ctx={ctx} ai={ai} compact />
-      )}
+      </div>
     </aside>
   )
 }
 
 /* ────────────────────────── 两处共用的两块 ────────────────────────── */
 
-/** 左侧历史那一列。`picked` 是右侧那一列用的：点完一条就切回对话。 */
-function ThreadList({ ctx, picked }: { ctx: Context; picked?: () => void }) {
+const WHEN = ['today', 'week', 'older'] as const
+
+function whenOf(at: number, now: number): (typeof WHEN)[number] {
+  const start = new Date(now)
+  start.setHours(0, 0, 0, 0)
+  if (at >= start.getTime()) return 'today'
+  if (now - at < 7 * 86_400_000) return 'week'
+  return 'older'
+}
+
+/** 历史。整页左边一列、右侧栏里那条窄栏，都是这一份。 */
+function ThreadList({ ctx }: { ctx: Context }) {
   const st = useAiState()
+  const now = Date.now()
+  const sessions = sessionsByRecency()
+  const groups = WHEN.map((key) => ({
+    key,
+    items: sessions.filter((sess) => whenOf(sess.at, now) === key),
+  })).filter((group) => group.items.length > 0)
   return (
     <div className={s.historyList}>
-      {sessionsByRecency().map((sess) => {
-        const tokens = sessionTokens(sess)
-        return (
-          <button
-            key={sess.id}
-            type="button"
-            className={sess.id === st.currentId ? s.threadOn : s.thread}
-            title={sess.title || ctx.i18n.t('agent.untitled')}
-            onClick={() => {
-              openSession(sess.id)
-              picked?.()
-            }}
-          >
-            <span className={s.threadLabel}>{sess.title || ctx.i18n.t('agent.untitled')}</span>
-            {tokens > 0 ? (
-              <span className={s.threadTok} title={ctx.i18n.t('agent.tokens', { n: tokens })}>
-                {formatTokens(tokens)}
-              </span>
-            ) : null}
-          </button>
-        )
-      })}
+      {groups.map((group) => (
+        <div key={group.key} className={s.threadGroup}>
+          <div className={s.threadWhen}>{ctx.i18n.t(`agent.when.${group.key}`)}</div>
+          {group.items.map((sess) => {
+            const tokens = sessionTokens(sess)
+            const title = sess.title || ctx.i18n.t('agent.untitled')
+            return (
+              <button
+                key={sess.id}
+                type="button"
+                className={s.thread}
+                data-on={sess.id === st.currentId ? '1' : '0'}
+                data-empty={sess.title ? '0' : '1'}
+                title={title}
+                onClick={() => openSession(sess.id)}
+              >
+                <span className={s.threadLabel}>{title}</span>
+                {tokens > 0 ? (
+                  <span className={s.threadTok} title={ctx.i18n.t('agent.tokens', { n: tokens })}>
+                    {formatTokens(tokens)}
+                  </span>
+                ) : null}
+              </button>
+            )
+          })}
+        </div>
+      ))}
     </div>
   )
 }
