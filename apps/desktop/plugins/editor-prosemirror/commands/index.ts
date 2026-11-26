@@ -45,7 +45,7 @@ export const notionKeymap: Record<string, Command> = {
   'Mod-Shift-ArrowUp': moveBlockUp,
   'Mod-Shift-ArrowDown': moveBlockDown,
   'Mod-d': duplicateBlock,
-  // 代码块 / 标题里先选这一块，再按一次才是全篇（原生菜单那条已摘掉，⌘A 能到 DOM）。
+  // 文字块里先选这一块，再按一次才是全篇（原生菜单那条已摘掉，⌘A 能到 DOM）。
   'Mod-a': selectAllInBlock,
   // 行内格式（Notion 同款键位）。
   'Mod-b': toggleMark(schema.marks.bold),
