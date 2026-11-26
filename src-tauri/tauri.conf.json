@@ -38,6 +38,7 @@
         "script-src": "'self'",
         "style-src": "'self' 'unsafe-inline'",
         "img-src": "'self' data: blob: self-notion:",
+        "media-src": "'self' blob: self-notion:",
         "font-src": "'self' data:",
         "connect-src": "'self' ipc: http://ipc.localhost self-notion:",
         "worker-src": "'self' blob:"

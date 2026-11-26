@@ -5,6 +5,7 @@
 
 mod asr;
 mod audio;
+mod clip;
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -57,7 +58,7 @@ fn download() -> &'static Mutex<Download> {
     D.get_or_init(|| Mutex::new(Download::default()))
 }
 
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+pub(super) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -65,7 +66,7 @@ fn parse<T: serde::de::DeserializeOwned>(args: Value) -> ApiResult<T> {
     serde_json::from_value(args).map_err(|e| ApiError::new("bad_args", e.to_string()))
 }
 
-fn model_path(app: &AppHandle) -> ApiResult<PathBuf> {
+pub(super) fn model_path(app: &AppHandle) -> ApiResult<PathBuf> {
     if let Ok(path) = std::env::var("SELF_NOTION_WHISPER_MODEL") {
         if !path.is_empty() {
             return Ok(PathBuf::from(path));
@@ -78,7 +79,7 @@ fn model_path(app: &AppHandle) -> ApiResult<PathBuf> {
     Ok(dir.join("models").join(MODEL_FILE))
 }
 
-fn model_bytes(path: &PathBuf) -> u64 {
+pub(super) fn model_bytes(path: &PathBuf) -> u64 {
     std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)
 }
 
@@ -288,4 +289,27 @@ fn stop_current(win: &str) {
         old.stop.store(true, Ordering::Relaxed);
         drop(old.stream);
     }
+}
+
+/* ─────────────────────── 语音笔记（D-0215）─────────────────────── */
+
+pub fn clip_start(win: Option<&str>, _args: Value) -> ApiResult<Value> {
+    clip::start(win.unwrap_or("main"))
+}
+
+pub fn clip_stop(win: Option<&str>, conn: &rusqlite::Connection) -> ApiResult<Value> {
+    clip::stop(win.unwrap_or("main"), conn)
+}
+
+pub fn clip_cancel(win: Option<&str>, _args: Value) -> ApiResult<Value> {
+    clip::cancel(win.unwrap_or("main"));
+    Ok(Value::Null)
+}
+
+pub fn transcribe(
+    app: Option<&AppHandle>,
+    conn: &rusqlite::Connection,
+    args: Value,
+) -> ApiResult<Value> {
+    clip::transcribe(app, conn, args)
 }

@@ -27,6 +27,7 @@ import { setLoadBacklinks } from './backlinks'
 import { setPutBlob } from './blob'
 import { allDocs, setCreateDoc, setDocs, setLoadDoc, setOpenDoc } from './doc-meta'
 import { setSyncApi } from './sync'
+import { setVoiceApi } from './voice'
 import { setScheme as setMermaidScheme } from './nodes/mermaid'
 import { FindPanel, type FindApi } from './find-panel'
 import { setLearnRpc } from './learn'
@@ -328,6 +329,24 @@ export function apply(ctx: Context) {
         mime: file.type || 'application/octet-stream',
       })
       return meta.id
+    })
+    // 语音笔记（D-0215）：停止录音时 Rust 已经把 WAV 落 blob，这里只拿 id。
+    setVoiceApi({
+      start: async () => {
+        await ctx.rpc.call('voice:clipStart')
+      },
+      stop: () => ctx.rpc.call<{ id: string; duration: number }>('voice:clipStop'),
+      cancel: async () => {
+        await ctx.rpc.call('voice:clipCancel')
+      },
+      transcribe: async (id) => (await ctx.rpc.call<{ text: string }>('voice:transcribe', { id })).text,
+      status: () =>
+        ctx.rpc.call<{ ready: boolean; downloading: boolean; received: number; total: number; error: string }>(
+          'voice:status',
+        ),
+      download: async () => {
+        await ctx.rpc.call('voice:download')
+      },
     })
     const refresh = () => {
       void ctx.rpc

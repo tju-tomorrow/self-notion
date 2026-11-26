@@ -22,6 +22,7 @@ import { isFileId } from '../../../src/kernel/contract'
 import { reportError } from '../../../src/kernel/errors'
 import { blockAt, firstTextPos } from '../commands/block'
 import { allDocs, createDoc, openDoc } from '../doc-meta'
+import { markAutoRecord } from '../voice'
 import { newSrc } from '../sync'
 import { bodyEnd } from './trailing-block'
 import { insertImageAt } from './image-insert'
@@ -63,6 +64,8 @@ interface SlashItem {
   readonly template?: true
   /** 「图片」：删掉 `/query` 后把当前块换成图片占位，再走 `insertImageAt` 弹文件选择。 */
   readonly image?: true
+  /** 「语音笔记」：插完直接开录，不用再点一次麦克风。 */
+  readonly voice?: true
 }
 
 /** 能插的块就是 schema `blockContent` 那一组里能自己站住的那些（架构 §2.2）。 */
@@ -84,6 +87,15 @@ const ITEMS: readonly SlashItem[] = [
     block: { type: 'image' },
     image: true,
     alias: ['图片', '图像', '照片', '插入图片', 'tupian', 'tuxiang', 'zhaopian', 'image', 'picture', 'photo'],
+  },
+  {
+    name: 'Voice Note',
+    group: 'media',
+    hint: 'Record audio',
+    icon: '🎙',
+    block: { type: 'voiceNote' },
+    voice: true,
+    alias: ['语音', '语音笔记', '录音', '录一段', 'yuyin', 'luyin', 'voice', 'voicenote', 'audio'],
   },
   {
     name: 'Text',
@@ -422,12 +434,32 @@ function runItem(view: EditorView, match: SlashMatch, item: SlashItem): void {
 
   tr.setSelection(TextSelection.near(tr.doc.resolve(cursor), 1))
   tr.scrollIntoView()
+  // 必须在 dispatch 前登记：NodeView 是在 apply 事务时创建并认领的。
+  if (item.voice && hostId) markAutoRecord(hostId)
   view.dispatch(tr)
   view.focus()
 
   if (item.page && hostId) void fillSubpage(view, hostId)
   if (item.sync && hostId) void fillSync(view, hostId)
   if (item.template && hostId) openTemplatePicker(view, hostId)
+}
+
+/** `/voice` + 空格 = 直接进录音（微信式），不经过菜单选中那一步。 */
+const VOICE_WORDS = new Set(['voice', 'voicenote', 'yuyin', 'luyin', '语音', '语音笔记', '录音'])
+
+function voiceSpace(view: EditorView, event: KeyboardEvent): boolean {
+  if (event.key !== ' ' || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false
+  // 输入法里的空格是「确认这个词」，不能抢。
+  if (event.isComposing || view.composing) return false
+  const match = findMatch(view.state)
+  if (!match) return false
+  const q = match.query.trim().toLowerCase().replace(/\s+/g, '')
+  if (!VOICE_WORDS.has(q)) return false
+  const item = ITEMS.find((one) => one.voice)
+  if (!item) return false
+  event.preventDefault()
+  runItem(view, match, item)
+  return true
 }
 
 /** 图片：先删掉 `/query`，再把当前块换成图片占位并弹文件选择。 */
@@ -509,6 +541,7 @@ function insertFreshBlock(view: EditorView, item: SlashItem): void {
   const cursor = inner ?? (tailStart !== null ? tailStart + 2 : at + 1)
   tr.setSelection(TextSelection.near(tr.doc.resolve(cursor), 1))
   tr.scrollIntoView()
+  if (item.voice && hostId) markAutoRecord(hostId)
   view.dispatch(tr)
   view.focus()
   if (item.page && hostId) void fillSubpage(view, hostId)
@@ -986,7 +1019,7 @@ export function slashPlugin(): Plugin {
         ])
       },
       handleKeyDown(view, event) {
-        return menus.get(view)?.key(event) ?? false
+        return voiceSpace(view, event) || (menus.get(view)?.key(event) ?? false)
       },
       handleDOMEvents: {
         // 焦点走了（点别处）就收起来；回到编辑器里下一次事务会再弹。

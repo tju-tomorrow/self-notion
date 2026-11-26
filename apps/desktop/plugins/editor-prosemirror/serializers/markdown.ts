@@ -1037,6 +1037,14 @@ function renderContent(state: MarkdownSerializerState, node: PMNode): void {
       state.write(`![${String(node.attrs.name ?? '')}](${blobUrl(String(node.attrs.blobId ?? ''))})`)
       state.closeBlock(node)
       return
+    case 'voiceNote':
+      state.write(`![语音](${blobUrl(String(node.attrs.blobId ?? ''))})`)
+      state.closeBlock(node)
+      if (String(node.attrs.transcript ?? '').trim()) {
+        state.write(String(node.attrs.transcript))
+        state.closeBlock(node)
+      }
+      return
     case 'file':
       state.write(`[${String(node.attrs.name ?? '') || 'file'}](${blobUrl(String(node.attrs.blobId ?? ''))})`)
       state.closeBlock(node)

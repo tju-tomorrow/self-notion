@@ -346,6 +346,37 @@ const nodes: Record<string, NodeSpec> = {
   video: content(mediaNode('video', 'sn-video')),
   audio: content(mediaNode('audio', 'sn-audio')),
   file: content(mediaNode('a', 'sn-file')),
+  // 语音笔记（D-0215）：WAV 存 blob，transcript 空串 = 还没转写。
+  voiceNote: content({
+    atom: true,
+    attrs: {
+      blobId: { default: '' },
+      duration: { default: 0 },
+      transcript: { default: '' },
+    },
+    parseDOM: [
+      {
+        tag: 'div.sn-voice-note',
+        getAttrs: (el) => {
+          const d = el as HTMLElement
+          return {
+            blobId: d.dataset.blobId ?? '',
+            duration: Number(d.dataset.duration ?? 0) || 0,
+            transcript: d.dataset.transcript ?? '',
+          }
+        },
+      },
+    ],
+    toDOM: (node): DOMOutputSpec => [
+      'div',
+      {
+        class: 'sn-voice-note',
+        'data-blob-id': String(node.attrs.blobId ?? ''),
+        'data-duration': String(node.attrs.duration ?? 0),
+        'data-transcript': String(node.attrs.transcript ?? ''),
+      },
+    ],
+  }),
 
   /* ─────────────────────────── P3 表格（D-0135）─────────────────────────── */
 

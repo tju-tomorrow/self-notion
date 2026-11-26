@@ -21,8 +21,10 @@ import { tableOfContentsView } from './table-of-contents'
 import { templateButtonView } from './template-button'
 import { toggleView } from './toggle'
 import { todoItemView } from './todo-item'
+import { voiceNoteView } from './voice-note'
 // 样式靠副作用注册（vanilla-extract 的 globalStyle）—— 引一次就行。
 import './nodes.css'
+import './voice-note.css'
 // KaTeX 的排版靠它自己的样式表（字体度量那套）——不打进来公式会散架。
 import 'katex/dist/katex.min.css'
 
@@ -35,6 +37,7 @@ export const nodeViews: Record<string, NodeViewConstructor> = {
   inlineEquation: inlineEquationView,
   video: videoView,
   audio: audioView,
+  voiceNote: voiceNoteView,
   file: fileView,
   tableOfContents: tableOfContentsView,
   columnList: columnListView,

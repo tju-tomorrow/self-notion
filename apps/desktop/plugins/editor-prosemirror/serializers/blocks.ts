@@ -11,7 +11,7 @@ type Spec = Record<string, unknown>
 const TYPES =
   'paragraph / heading / quote / callout / codeBlock / equation / divider / ' +
   'bulletedListItem / numberedListItem / todoItem / toggle / table / image / video / audio / file / ' +
-  'subpage / syncedBlock / templateButton / columnList / tableOfContents / breadcrumb'
+  'voiceNote / subpage / syncedBlock / templateButton / columnList / tableOfContents / breadcrumb'
 
 export function docFromBlocks(blocks: unknown): string {
   if (!Array.isArray(blocks)) throw new Error('doc_blocks：blocks 必须是数组')
@@ -97,6 +97,16 @@ function block(raw: unknown, where: string): PMNode {
     case 'file':
       return container(
         schema.nodes[type].create({ blobId: str(spec.blobId), name: str(spec.name) }),
+        [],
+        spec,
+      )
+    case 'voiceNote':
+      return container(
+        schema.nodes.voiceNote.create({
+          blobId: str(spec.blobId),
+          duration: num(spec.duration) ?? 0,
+          transcript: str(spec.transcript),
+        }),
         [],
         spec,
       )

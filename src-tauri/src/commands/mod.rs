@@ -225,6 +225,12 @@ pub fn dispatch(
         "voice:start" => crate::voice::start(app, win, args),
         "voice:stop" => crate::voice::stop(win, args),
         "voice:cancel" => crate::voice::cancel(win, args),
+        // ── 语音笔记（D-0215）───────────────────────────────────────────────
+        // 停止时 Rust 直接把 WAV 落 blob，只回 id + 时长 —— 字节不过 IPC。
+        "voice:clipStart" => crate::voice::clip_start(win, args),
+        "voice:clipStop" => call(db, |c| crate::voice::clip_stop(win, c)),
+        "voice:clipCancel" => crate::voice::clip_cancel(win, args),
+        "voice:transcribe" => call(db, |c| crate::voice::transcribe(app, c, args)),
 
         // ── 卡死监控（实现在 `src/perf.rs`）───────────────────────────────────
         "perf:beat" => crate::perf::beat(win.unwrap_or("unknown"), args)

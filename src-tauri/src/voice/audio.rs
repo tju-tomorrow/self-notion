@@ -353,7 +353,7 @@ fn needs_space(left: &str, right: &str) -> bool {
 }
 
 /// 线性插值就够：语音识别对重采样精度不敏感，缺的是模型本身。
-fn resample_to_16k(input: &[f32], from_rate: u32) -> Vec<f32> {
+pub(super) fn resample_to_16k(input: &[f32], from_rate: u32) -> Vec<f32> {
     if from_rate == 16_000 || input.is_empty() {
         return input.to_vec();
     }
