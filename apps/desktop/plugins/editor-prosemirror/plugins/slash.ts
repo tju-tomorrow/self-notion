@@ -285,16 +285,20 @@ interface SlashState {
 }
 
 /**
- * 从光标往前找触发符。半角 `/` **哪儿都算** —— 中文里打 `/` 前面不带空格，收紧了中文用户就
- * 呼不出来（D-0125 那一轮的教训）。全角 `／` 和顿号 `、` 只在块首算：顿号是中文的普通标点，
- * 句子中间每打一次就弹一次是纯打扰（D-0125）。
+ * 从光标往前找触发符。半角 `/` 只在块首或空白之后算 —— 「快照/克隆」这种正文里的斜杠不是命令
+ * （D-0209）。全角 `／` 和顿号 `、` 只在块首算：顿号是中文的普通标点，句子中间每打一次就弹一次
+ * 是纯打扰（D-0125）。
  */
 function triggerIndex(text: string): number {
   for (let i = text.length - 1; i >= 0; i--) {
     const ch = text[i]
     if (ch !== '/' && ch !== '／' && ch !== '、') continue
     if (ch === '/' && text[i - 1] === '/') return -1 // `https://` 里那第二个
-    if (ch !== '/' && text.slice(0, i).trim() !== '') return -1
+    if (ch === '/') {
+      if (i > 0 && !/\s/.test(text[i - 1])) return -1
+      return i
+    }
+    if (text.slice(0, i).trim() !== '') return -1
     return i
   }
   return -1
