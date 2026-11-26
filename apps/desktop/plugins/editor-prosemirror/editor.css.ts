@@ -280,11 +280,46 @@ globalStyle('.sn-page-meta::after', {
 globalStyle('.sn-page-meta [data-on="0"]', { display: 'none' })
 
 globalStyle('.sn-meta-learn', {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
+  position: 'relative',
   marginLeft: 'auto',
 })
+
+globalStyle('.sn-meta-learn-chip', {
+  border: 'none',
+  background: 'transparent',
+  fontFamily: 'inherit',
+  fontSize: 12,
+  color: 'inherit',
+  cursor: 'pointer',
+  padding: '0 4px',
+  borderRadius: 4,
+  lineHeight: '20px',
+})
+
+globalStyle('.sn-meta-learn-chip[data-on="1"]', {
+  color: 'var(--affine-v2-text-primary)',
+  background: 'var(--affine-v2-button-secondary)',
+})
+
+globalStyle('.sn-meta-learn-pop', {
+  display: 'none',
+  position: 'absolute',
+  zIndex: 5,
+  top: 'calc(100% + 8px)',
+  right: 0,
+  flexDirection: 'column',
+  alignItems: 'flex-end',
+  gap: 8,
+  padding: '8px 10px',
+  border: '1px solid var(--affine-border-color, rgba(0, 0, 0, .1))',
+  borderRadius: 'var(--affine-popover-radius, 8px)',
+  background: 'var(--affine-background-overlay-panel-color, #fff)',
+  boxShadow: 'var(--affine-popover-shadow, 0 4px 16px rgba(0, 0, 0, .16))',
+  color: 'var(--affine-text-primary-color, #333)',
+  whiteSpace: 'nowrap',
+})
+
+globalStyle('.sn-meta-learn[data-open="1"] .sn-meta-learn-pop', { display: 'flex' })
 
 globalStyle('.sn-meta-fam', { display: 'flex', alignItems: 'center', gap: 2 })
 

@@ -259,17 +259,20 @@ function Seg({
           type: 'button',
           onClick: () => onPick(option.value),
           style: {
+            // 不摘掉系统按钮皮的话，WebKit 仍画浅色底，白字就消失，控件还高出这一行压到下一行。
+            appearance: 'none',
+            WebkitAppearance: 'none',
+            margin: 0,
             height: 26,
             padding: '0 10px',
             border: 'none',
             borderRadius: 6,
-            background:
-              value === option.value
-                ? 'var(--affine-primary-color)'
-                : 'var(--affine-v2-button-secondary)',
+            background: value === option.value ? 'var(--sn-accent, #5b7cfa)' : 'transparent',
             color: value === option.value ? '#fff' : 'var(--affine-v2-text-primary)',
             fontFamily: 'inherit',
             fontSize: 13,
+            lineHeight: '26px',
+            whiteSpace: 'nowrap',
             cursor: 'pointer',
           },
         },

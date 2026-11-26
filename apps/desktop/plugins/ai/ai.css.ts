@@ -240,7 +240,7 @@ export const bubbleAi = style({
   color: 'var(--affine-v2-text-primary)',
 })
 
-/** 一条回复下面那排小动作：复制、写入当前笔记。 */
+/** 一条回复下面那排小动作：复制、朗读、写入当前笔记。 */
 export const answerActions = style({
   display: 'flex',
   alignItems: 'center',
@@ -269,6 +269,11 @@ export const answerAction = style({
       background: 'var(--affine-v2-layer-background-hoverOverlay)',
     },
   },
+})
+
+export const answerOn = style({
+  opacity: 1,
+  color: 'var(--affine-primary-color)',
 })
 
 /** 工具那一行 —— Claude Code 那样走等宽：它是「过程」不是「话」。 */

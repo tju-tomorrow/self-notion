@@ -16,6 +16,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ClipboardEvent,
   type PointerEvent,
   type ReactNode,
@@ -31,6 +32,7 @@ import {
   PlusIcon,
   SidebarIcon,
   StopIcon,
+  VoiceIcon,
 } from '@blocksuite/icons/rc'
 
 import { AGENT_TAB_ID, CLOSE_TAB, type AiService } from '../../src/kernel/contract'
@@ -919,6 +921,7 @@ function rows(lines: Line[], ctx: Context): ReactNode[] {
               <div className={s.answerActions}>
                 <CopyAnswer ctx={ctx} text={one.text} />
                 <InsertAnswer ctx={ctx} text={one.text} />
+                <ReadAnswer ctx={ctx} text={one.text} />
               </div>
             </div>
           )
@@ -1135,6 +1138,44 @@ function CopyAnswer({ ctx, text }: { ctx: Context; text: string }) {
       {done ? <DoneIcon width={14} height={14} /> : <CopyIcon width={14} height={14} />}
     </button>
   )
+}
+
+/** 念这条回复。同一条再点一次就停。网页端没有朗读插件，按钮不出现。 */
+function ReadAnswer({ ctx, text }: { ctx: Context; text: string }) {
+  const svc = ctx.get('readaloud')
+  const spoken = useSyncExternalStore(
+    (cb) => (svc ? svc.subscribe(cb) : () => {}),
+    () => svc?.spoken() ?? null,
+    () => null,
+  )
+  if (!svc) return null
+  const plain = speechPlain(text)
+  if (!plain) return null
+  const on = spoken === plain
+  const label = on ? ctx.i18n.t('voice.stop') : ctx.i18n.t('agent.readAnswer')
+  return (
+    <button
+      type="button"
+      className={on ? `${s.answerAction} ${s.answerOn}` : s.answerAction}
+      title={label}
+      aria-label={label}
+      onClick={() => svc.speakText(plain)}
+    >
+      {on ? <StopIcon width={14} height={14} /> : <VoiceIcon width={14} height={14} />}
+    </button>
+  )
+}
+
+/** 念出来的是字，不是 markdown 记号和引用角标。 */
+function speechPlain(raw: string): string {
+  return unfenceTables(raw.replace(/\[(\d+)\](?!\()/g, ''))
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/[*_~]+/g, '')
+    .trim()
 }
 
 /** 把这条回答按 markdown 插进当前打开的笔记。没开着就说一声，不自己去开。 */

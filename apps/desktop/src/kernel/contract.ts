@@ -812,12 +812,17 @@ export interface WebAiService {
   askSelection(text: string): void
 }
 
-/** 软依赖：`ctx.get('readaloud')`。顶栏「朗读这篇」和工具条「读」都走它。 */
+/** 软依赖：`ctx.get('readaloud')`。顶栏「朗读这篇」、工具条「读」、助手回复上那颗都走它。 */
 export interface ReadAloudService {
   /** 选区。文档是插件自己记的当前篇。 */
   speakSelection(range: { from: number; to: number }): void
   /** 没在读就读这一篇，在读就停。 */
   toggle(docId: string | null): void
+  /** 念一段现成的字。正在念同一段就停。不划文档。 */
+  speakText(text: string): void
+  /** 正在念的那段字。念文档、或没在念，都是 null。 */
+  spoken(): string | null
+  subscribe(cb: () => void): () => void
 }
 
 /** 软依赖：`ctx.get('mascot')`。**只有一个消费者**：内置助手那一页（D-0095）拿它当标志和头像

@@ -57,6 +57,8 @@ type Phase = 'idle' | 'running'
 let phase: Phase = 'idle'
 let docId: string | null = null
 let painted: string | null = null
+/** 正在念的那段现成的字。念文档时是 null，按钮靠它认出「是不是这一条」。 */
+let spoken: string | null = null
 let gen = 0
 let primed = 0
 let audioCtx: AudioContext | null = null
@@ -86,12 +88,28 @@ function arm(): void {
 }
 
 const phaseSubs = new Set<() => void>()
+const spokenSubs = new Set<() => void>()
 const docSubs = new Set<() => void>()
 
 function setPhase(next: Phase): void {
   if (phase === next) return
   phase = next
   for (const cb of phaseSubs) cb()
+}
+
+function setSpoken(next: string | null): void {
+  if (spoken === next) return
+  spoken = next
+  for (const cb of spokenSubs) cb()
+}
+
+export function spokenNow(): string | null {
+  return spoken
+}
+
+export function onSpoken(cb: () => void): () => void {
+  spokenSubs.add(cb)
+  return () => void spokenSubs.delete(cb)
 }
 
 export function useReading(): boolean {
@@ -189,6 +207,7 @@ export function stop(ctx: Context): void {
   const id = painted
   painted = null
   if (id) ctx.editor.paintRead(id, null)
+  setSpoken(null)
   setPhase('idle')
 }
 
@@ -206,6 +225,39 @@ export function speakSelection(ctx: Context, range: { from: number; to: number }
   void run(ctx, docId, range)
 }
 
+const BREAK = /[。！？!?；;\n]/
+const WORD = /[\p{L}\p{N}]/u
+/** 一句的上限，和编辑器划线同一档。再长 Edge 收，但合成要等整句回来才出声。 */
+const MAX = 180
+
+function sentences(text: string): string[] {
+  const out: string[] = []
+  let acc = ''
+  const flush = () => {
+    const raw = acc
+    acc = ''
+    const line = raw.trim()
+    if (line && WORD.test(line)) out.push(line)
+  }
+  for (const ch of text) {
+    acc += ch
+    if (BREAK.test(ch) || acc.length >= MAX) flush()
+  }
+  flush()
+  return out
+}
+
+/** 念助手回复这种现成的字。同一段再点一次就停，不在文档上划线。 */
+export function speakText(ctx: Context, text: string): void {
+  if (phase === 'running' && spoken === text) {
+    stop(ctx)
+    return
+  }
+  const lines = sentences(text)
+  if (lines.length === 0) return
+  void runText(ctx, text, lines)
+}
+
 async function run(
   ctx: Context,
   id: string,
@@ -214,6 +266,7 @@ async function run(
   primed++
   const mine = interrupt()
   arm()
+  setSpoken(null)
   setPhase('running')
   painted = id
   try {
@@ -224,36 +277,72 @@ async function run(
       toast({ text: ctx.i18n.t('voice.empty') })
       return
     }
-    const ready: Array<Promise<AudioBuffer | null>> = []
-    const queued = new Set<number>()
-    const pull = (index: number) => {
-      const span = spans[index]
-      if (!span || queued.has(index)) return
-      queued.add(index)
-      const { voice, rate } = prefs(ctx)
-      const task = prepare(ctx, span.text, voice, rate, mine)
-      void task.catch(() => {})
-      ready[index] = task
-    }
-    // 这一句出声时，后面两句已经在合成。
-    pull(0)
-    pull(1)
-    for (let i = 0; i < spans.length; i++) {
-      if (gen !== mine) return
-      const buf = await ready[i]
-      if (!buf || gen !== mine) return
-      pull(i + 2)
-      ctx.editor.paintRead(id, spans[i])
-      await playBuffer(buf, mine)
-    }
+    await play(
+      ctx,
+      spans.map((span) => span.text),
+      mine,
+      (i) => ctx.editor.paintRead(id, spans[i] ?? null),
+    )
   } catch (err) {
     if (gen === mine) reportError('read', err)
   } finally {
     if (gen === mine) {
       ctx.editor.paintRead(id, null)
       painted = null
+      setSpoken(null)
       setPhase('idle')
     }
+  }
+}
+
+async function runText(ctx: Context, text: string, lines: string[]): Promise<void> {
+  primed++
+  const mine = interrupt()
+  arm()
+  const id = painted
+  painted = null
+  if (id) ctx.editor.paintRead(id, null)
+  setSpoken(text)
+  setPhase('running')
+  try {
+    await play(ctx, lines, mine)
+  } catch (err) {
+    if (gen === mine) reportError('read', err)
+  } finally {
+    if (gen === mine) {
+      setSpoken(null)
+      setPhase('idle')
+    }
+  }
+}
+
+/** 这一句出声时，后面两句已经在合成。 */
+async function play(
+  ctx: Context,
+  lines: string[],
+  mine: number,
+  onSpan?: (index: number) => void,
+): Promise<void> {
+  const ready: Array<Promise<AudioBuffer | null>> = []
+  const queued = new Set<number>()
+  const pull = (index: number) => {
+    const line = lines[index]
+    if (!line || queued.has(index)) return
+    queued.add(index)
+    const { voice, rate } = prefs(ctx)
+    const task = prepare(ctx, line, voice, rate, mine)
+    void task.catch(() => {})
+    ready[index] = task
+  }
+  pull(0)
+  pull(1)
+  for (let i = 0; i < lines.length; i++) {
+    if (gen !== mine) return
+    const buf = await ready[i]
+    if (!buf || gen !== mine) return
+    pull(i + 2)
+    onSpan?.(i)
+    await playBuffer(buf, mine)
   }
 }
 

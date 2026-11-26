@@ -5,7 +5,18 @@ import { listen } from '@tauri-apps/api/event'
 import { AGENT_TAB_ID, CLOSE_ALL, OPEN_DOC, SHOW_LIST } from '../../src/kernel/contract'
 import { reportError } from '../../src/kernel/errors'
 import { ReadHeader } from './header'
-import { currentDoc, deliverAudio, prime, setDoc, speakSelection, stop, toggle } from './player'
+import {
+  currentDoc,
+  deliverAudio,
+  onSpoken,
+  prime,
+  setDoc,
+  speakSelection,
+  speakText,
+  spokenNow,
+  stop,
+  toggle,
+} from './player'
 
 export const name = 'read-aloud'
 
@@ -47,6 +58,9 @@ export function apply(ctx: Context): void {
     ctx.provide('readaloud', {
       speakSelection: (range: { from: number; to: number }) => speakSelection(ctx, range),
       toggle: (id: string | null) => toggle(ctx, id),
+      speakText: (text: string) => speakText(ctx, text),
+      spoken: () => spokenNow(),
+      subscribe: (cb: () => void) => onSpoken(cb),
     }),
   )
 

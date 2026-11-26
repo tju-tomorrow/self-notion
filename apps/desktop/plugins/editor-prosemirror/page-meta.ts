@@ -59,6 +59,13 @@ export function metaPlugin(el: HTMLElement, docId: string, strings: MetaStrings)
 
       const learn = document.createElement('span')
       learn.className = 'sn-meta-learn'
+      learn.dataset.open = '0'
+      const chip = document.createElement('button')
+      chip.type = 'button'
+      chip.className = 'sn-meta-learn-chip'
+      chip.textContent = '学习'
+      const pop = document.createElement('span')
+      pop.className = 'sn-meta-learn-pop'
       const stats = document.createElement('span')
       stats.className = 'sn-meta-stats'
       const fam = document.createElement('span')
@@ -78,7 +85,8 @@ export function metaPlugin(el: HTMLElement, docId: string, strings: MetaStrings)
         return b
       })
       fam.append(...buttons)
-      learn.append(stats, fam)
+      pop.append(stats, fam)
+      learn.append(chip, pop)
 
       const applyRow = (row: LearnRow): void => {
         current = row
@@ -86,12 +94,33 @@ export function metaPlugin(el: HTMLElement, docId: string, strings: MetaStrings)
         const timeLabel =
           mins < 1 ? '不到 1 分' : mins < 60 ? `${mins} 分` : `${Math.floor(mins / 60)} 时 ${mins % 60} 分`
         stats.textContent = `打开 ${row.opens} · ${timeLabel} · 读到 ${row.depth}% · 效果 ${row.score}`
+        const picked = row.familiarity != null ? FAMILIARITY[row.familiarity - 1] : undefined
+        chip.textContent = picked ?? '学习'
+        if (picked) chip.dataset.on = '1'
+        else delete chip.dataset.on
         buttons.forEach((b, i) => {
           // 别写成 data-on="0"：这一行的 `[data-on="0"]` 是「整格收掉」，会把没选中的档藏没。
           if (row.familiarity === i + 1) b.dataset.on = '1'
           else delete b.dataset.on
         })
       }
+
+      chip.addEventListener('click', (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        learn.dataset.open = learn.dataset.open === '1' ? '0' : '1'
+      })
+      const closeLearn = () => {
+        learn.dataset.open = '0'
+      }
+      const onPointer = (e: PointerEvent) => {
+        if (!learn.contains(e.target as Node)) closeLearn()
+      }
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') closeLearn()
+      }
+      document.addEventListener('pointerdown', onPointer)
+      document.addEventListener('keydown', onKey)
 
       // 反链可能已经在这一行末尾，时间/字数要留在它前面。
       el.prepend(time, sep, words, learn)
@@ -124,6 +153,8 @@ export function metaPlugin(el: HTMLElement, docId: string, strings: MetaStrings)
         destroy: () => {
           off()
           offLearn()
+          document.removeEventListener('pointerdown', onPointer)
+          document.removeEventListener('keydown', onKey)
           time.remove()
           sep.remove()
           words.remove()
