@@ -54,6 +54,19 @@ function mergeUp(
   return true
 }
 
+/** 光标在**第一个顶层块**的最开头 —— 再退就该进页面标题了。 */
+export function atDocStart(state: EditorState): boolean {
+  const sel = state.selection
+  if (!(sel instanceof TextSelection) || !sel.empty) return false
+  const $pos = sel.$from
+  if ($pos.parentOffset !== 0) return false
+  const block = blockAt($pos)
+  if (!block || block.depth < 2) return false
+  // 只有「doc > blockGroup > blockContainer」那一层算顶层；嵌套里的行首由 liftOut 管。
+  if (block.depth !== 2) return false
+  return prevSibling($pos, block) === null
+}
+
 export const backspace: Command = (state, dispatch) => {
   if (!(state.selection instanceof TextSelection) || !state.selection.empty) return false
   const $pos = state.selection.$from

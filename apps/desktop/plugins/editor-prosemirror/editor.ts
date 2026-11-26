@@ -25,6 +25,7 @@ import { reportError } from '../../src/kernel/errors'
 import { renderBacklinks, type BacklinksView } from './backlinks'
 import { anchorTop, anchorsOf, commentApi, stripAnchors, type CommentHooks } from './comment'
 import { newBlockId, notionKeymap } from './commands'
+import { atDocStart } from './commands/backspace'
 import { firstTextPos } from './commands/block'
 import { allDocs, metaOf, subscribe } from './doc-meta'
 import { docsBacking, type DocPayload, type DocsBacking } from './doc-source'
@@ -38,6 +39,7 @@ import { renderPageHead, type PageHead } from './page-head'
 import { metaPlugin } from './page-meta'
 import { blockHandlePlugin } from './plugins/block-handle'
 import { blockHintPlugin } from './plugins/block-hint'
+import { caretPlugin } from './plugins/caret'
 import { blankDragPlugin } from './plugins/block-selection'
 import { codeHighlightPlugin } from './plugins/code-highlight'
 import { inlineToolbarPlugin } from './plugins/inline-toolbar'
@@ -279,6 +281,7 @@ function buildPlugins(parts: {
   docId: string
   file: boolean
   readOnly: boolean
+  titleEl: HTMLInputElement
 }): Plugin[] {
   const plugins: Plugin[] = [
     // 自动格式刚触发时 ⌘Z 先只退那一下（不然 history 会把前面打的字一起撤掉）。
@@ -295,12 +298,25 @@ function buildPlugins(parts: {
     //   Backspace（删单元格选区），排在后面会被 notionKeymap 的 backspace 先吃掉。
     ...tablePlugin(),
     keymap(notionKeymap),
+    // 第一块行首再退 → 光标进页面标题（用户 2026-11-26）。排在 notionKeymap 后面：
+    // 嵌套 / 退化 / 合并都由那条 backspace 先处理，轮到这里的只剩「前面真的没东西」。
+    keymap({
+      Backspace: (state) => {
+        if (parts.readOnly || !atDocStart(state)) return false
+        parts.titleEl.focus()
+        const at = parts.titleEl.value.length
+        parts.titleEl.setSelectionRange(at, at)
+        return true
+      },
+    }),
     inputRulesPlugin(),
     listNumberPlugin(),
     // 空段落上那句「输入 / 唤起菜单」。
     blockHintPlugin(),
     // 文末常驻一个空段落：点正文下面的空白总能落光标。
     trailingBlockPlugin(),
+    // 原生光标按行盒画（1.7 行高就显得很长）—— 藏掉，画一条贴着字高的。
+    caretPlugin(),
     // 工具条那颗「评论」→ 把量好的选区交给评论插件（D-0079）。软依赖，没接上就不建那颗按钮。
     // ★ 文件模式**也不建**：锚点按 docId 写进 `comment` 表，而外部文件不进库（D-0140）。
     inlineToolbarPlugin(
@@ -430,7 +446,10 @@ export async function mountEditor(
     // 拼写红线，全是破坏（用户 2026-10-09）。
     attributes: { spellcheck: 'false', autocorrect: 'off', autocapitalize: 'off' },
     editable: () => !readOnly,
-    state: EditorState.create({ doc, plugins: buildPlugins({ body: el, meta: metaEl, side, docId, file, readOnly }) }),
+    state: EditorState.create({
+      doc,
+      plugins: buildPlugins({ body: el, meta: metaEl, side, docId, file, readOnly, titleEl }),
+    }),
     nodeViews,
     dispatchTransaction(tr) {
       view!.updateState(view!.state.apply(tr))
