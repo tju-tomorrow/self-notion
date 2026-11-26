@@ -10,9 +10,7 @@
  *   · 工具声明的增量（`toToolDeclaration` / `getToolStateChanges`）—— 一次问答里工具面固定；
  *   · typebox 参数校验 —— 六个工具自己兜（`str` / `num` / 一句「参数不是合法 JSON」）；
  *   · `EventStream`、附件、`Agent` 类、会话 / 扩展 / 技能 —— 那是 pi 的壳，不是循环；
- *   · steering / follow-up 队列 —— 界面忙着的时候输入框那颗就是「中断」，没有插话的入口。
- *
- * 留下来的三条，就是移植它的理由：
+ * 留下来的，就是移植它的理由：
  *   1. **读并发**：同一批里的读工具一起跑（写工具标 `executionMode: 'sequential'` 会把整批
  *      拉成串行）—— 之前五个 `vfs_list` / `vfs_read` 是一个一个来的；
  *   2. **中断**：`AbortSignal` 串到每一个 await 边界，不再靠一个旗子被轮询；
@@ -64,11 +62,15 @@ export interface HarnessHooks {
   /** 一次工具开始 / 结束。**并发时整批的 `onToolStart` 先一次发完**，界面才画得出一排转圈。 */
   onToolStart?(call: AiToolCall): void
   onToolEnd?(call: AiToolCall, isError: boolean): void
+  /**
+   * 这一轮工具跑完之后用户插进来的话（pi 的 steering / follow-up 是同一条队列）。
+   * 有就再问一轮，不把这一回合先结束。
+   */
+  takeSteering?: () => AiMessage[]
 }
 
 /**
- * 跑一个回合。`messages` 是**会被就地追加**的：system + 用户这句 + 中间几轮工具。
- * 循环不攒跨回合的历史（`docs/ai.md` 第十一节）。
+ * 跑一个回合。`messages` 会被就地追加。跨回合的历史由调用方放进来（会话的 transcript）。
  */
 export async function runLoop(
   messages: AiMessage[],
@@ -76,17 +78,14 @@ export async function runLoop(
   signal: AbortSignal,
   streamTurn: StreamTurn,
 ): Promise<void> {
+  // 插话把「该开口了」的计数清掉：人刚说话，工具还得能用。
+  let steered = false
   for (let round = 1; ; round++) {
     if (signal.aborted) return
     hooks.onRound?.(round)
 
-    const toolsOn = round <= SPEAK_AFTER
-    if (!toolsOn) {
-      messages.push({
-        role: 'user',
-        content: '停止调用工具。用已经拿到的资料直接回答；资料不够就说明缺什么。',
-      })
-    }
+    const toolsOn = round <= SPEAK_AFTER || steered
+    steered = false
 
     const turn = await streamTurn(messages, signal, toolsOn)
     messages.push(turn)
@@ -94,23 +93,67 @@ export async function runLoop(
 
     // 出错 / 被中断 = **硬退出**：这一轮没有工具要跑，也不该再问一次（同 pi）。
     if (turn.stop === 'error' || turn.stop === 'aborted') return
-    if (!toolsOn) return
 
-    const calls = turn.toolCalls ?? []
-    if (!calls.length) return
-
-    for (const call of calls) hooks.onToolStart?.(call)
-    const results =
-      turn.stop === 'length'
-        ? calls.map((call) => truncated(call, hooks))
-        : await runTools(calls, hooks, signal)
-    messages.push(...results.map((result) => result.message))
-    // 图片不能塞进 tool 回执（多数网关不收），所以一批跑完后补一条 user。
-    const images = results.flatMap((result) => result.images)
-    if (images.length) {
-      messages.push({ role: 'user', content: '（下面是工具读到的图片）', images })
+    const calls = toolsOn ? (turn.toolCalls ?? []) : []
+    if (calls.length) {
+      for (const call of calls) hooks.onToolStart?.(call)
+      const results =
+        turn.stop === 'length'
+          ? calls.map((call) => truncated(call, hooks))
+          : await runTools(calls, hooks, signal)
+      messages.push(...results.map((result) => result.message))
+      // 图片不能塞进 tool 回执（多数网关不收），所以一批跑完后补一条 user。
+      const images = results.flatMap((result) => result.images)
+      if (images.length) {
+        messages.push({ role: 'user', content: '（下面是工具读到的图片）', images })
+      }
     }
+
+    const extra = hooks.takeSteering?.() ?? []
+    if (extra.length) {
+      messages.push(...extra)
+      steered = true
+      continue
+    }
+    if (!calls.length || !toolsOn) return
   }
+}
+
+const TAIL = 12
+const BUDGET = 28_000
+
+/** 发给模型之前收一收：旧工具回执截短、旧图丢掉、超了就从前面丢。不改原来那份。 */
+export function packContext(messages: readonly AiMessage[]): AiMessage[] {
+  const systems = messages.filter((m) => m.role === 'system')
+  let body = messages.filter((m) => m.role !== 'system').map((m) => ({ ...m }))
+  const tailFrom = Math.max(0, body.length - TAIL)
+  const imageFrom = Math.max(0, body.length - 4)
+  let keptReason = false
+  for (let i = body.length - 1; i >= 0; i--) {
+    if (!body[i]?.reasoning) continue
+    if (keptReason) body[i] = { ...body[i], reasoning: undefined }
+    else keptReason = true
+  }
+  body = body.map((m, i) => {
+    let next = m
+    if (i < imageFrom && next.images?.length) next = { ...next, images: undefined }
+    if (next.role === 'tool') {
+      const cap = i >= tailFrom ? 6_000 : 400
+      if (next.content.length > cap) next = { ...next, content: `${next.content.slice(0, cap)}…` }
+    }
+    return next
+  })
+  while (weight(body) > BUDGET && body.length > 2) body.shift()
+  return [...systems, ...body]
+}
+
+function weight(messages: readonly AiMessage[]): number {
+  let n = 0
+  for (const m of messages) {
+    n += m.content.length
+    for (const call of m.toolCalls ?? []) n += call.args.length
+  }
+  return n
 }
 
 /** 一次工具回执 + 它顺带捞到的图。 */

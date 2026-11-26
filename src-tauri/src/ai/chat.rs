@@ -46,6 +46,9 @@ struct Args {
     /// 函数过不了线，前端自己剥掉。
     #[serde(default)]
     tools: Vec<Value>,
+    /// 思考强度：`off` / `low` / `medium` / `high` / `xhigh`。空 = 不改请求。
+    #[serde(default)]
+    effort: String,
 }
 
 /// `ai:chat`。校验同步做完（调用方写错了不该变成一个异步事件），真活儿扔给线程。
@@ -149,6 +152,8 @@ fn stream(app: &tauri::AppHandle, cfg: &Config, a: &Args, win: &str) -> Result<(
     // 工具调用的参数是**一段段拼出来的** —— 攒着，拼完了才发（`contract.ts` 的 `AiToolCall`）。
     let mut calls: Vec<Call> = Vec::new();
     let mut reason: Option<String> = None;
+    // `<think>` 可能被切在两片 delta 中间。
+    let mut think = ThinkSplit::default();
 
     for line in BufReader::new(resp).lines() {
         let line = line.map_err(|e| e.to_string())?;
@@ -168,11 +173,23 @@ fn stream(app: &tauri::AppHandle, cfg: &Config, a: &Args, win: &str) -> Result<(
         }
 
         let choice = &v["choices"][0];
-        let text = choice["delta"]["content"].as_str().unwrap_or_default();
-        if !text.is_empty() {
-            emit(app, win, EV_DELTA, delta(a, json!({ "type": "text", "text": text })))?;
+        let delta_v = &choice["delta"];
+        // 推理不在 content 里：DeepSeek / Qwen 用 reasoning_content，有的网关用 reasoning。
+        let thought = think_field(delta_v);
+        if !thought.is_empty() {
+            emit(app, win, EV_DELTA, delta(a, json!({ "type": "think", "text": thought })))?;
         }
-        if let Some(list) = choice["delta"]["tool_calls"].as_array() {
+        let text = delta_v["content"].as_str().unwrap_or_default();
+        if !text.is_empty() {
+            let (visible, inline) = think.push(text);
+            if !inline.is_empty() {
+                emit(app, win, EV_DELTA, delta(a, json!({ "type": "think", "text": inline })))?;
+            }
+            if !visible.is_empty() {
+                emit(app, win, EV_DELTA, delta(a, json!({ "type": "text", "text": visible })))?;
+            }
+        }
+        if let Some(list) = delta_v["tool_calls"].as_array() {
             for c in list {
                 absorb(&mut calls, c);
             }
@@ -181,6 +198,14 @@ fn stream(app: &tauri::AppHandle, cfg: &Config, a: &Args, win: &str) -> Result<(
         if !done.is_empty() {
             reason = Some(done.to_string());
         }
+    }
+
+    let (visible, inline) = think.finish();
+    if !inline.is_empty() {
+        emit(app, win, EV_DELTA, delta(a, json!({ "type": "think", "text": inline })))?;
+    }
+    if !visible.is_empty() {
+        emit(app, win, EV_DELTA, delta(a, json!({ "type": "text", "text": visible })))?;
     }
 
     for (i, c) in calls.iter_mut().enumerate() {
@@ -241,6 +266,9 @@ struct Msg {
     tool_calls: Vec<MsgCall>,
     #[serde(default)]
     tool_call_id: Option<String>,
+    /// 思维链。同一轮接着调工具时要原样带回去，有的网关少了它直接 400。
+    #[serde(default)]
+    reasoning: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -289,11 +317,17 @@ fn wire(m: &Msg) -> Value {
             } else {
                 Value::String(m.content.clone())
             };
-            json!({ "role": "assistant", "content": content, "tool_calls": calls })
+            let mut msg = json!({ "role": "assistant", "content": content, "tool_calls": calls });
+            attach_reasoning(&mut msg, m);
+            msg
         }
         _ => {
             if m.images.is_empty() {
-                return json!({ "role": m.role, "content": m.content });
+                let mut msg = json!({ "role": m.role, "content": m.content });
+                if m.role == "assistant" {
+                    attach_reasoning(&mut msg, m);
+                }
+                return msg;
             }
             // 带图的 user 消息：OpenAI 兼容的 content parts。tool 回执仍然只发文字
             // （多数网关不收图片），图由前端补一条 user 消息带过来。
@@ -310,6 +344,95 @@ fn wire(m: &Msg) -> Value {
             json!({ "role": m.role, "content": Value::Array(parts) })
         }
     }
+}
+
+fn attach_reasoning(msg: &mut Value, m: &Msg) {
+    if let Some(text) = m.reasoning.as_deref().filter(|s| !s.is_empty()) {
+        msg["reasoning_content"] = json!(text);
+    }
+}
+
+/// 各家把思维链放在不同的字段里。只认字符串，不认嵌套对象以外的形状。
+fn think_field(delta: &Value) -> String {
+    for key in ["reasoning_content", "reasoning", "thinking"] {
+        let v = &delta[key];
+        if let Some(s) = v.as_str() {
+            if !s.is_empty() {
+                return s.to_string();
+            }
+        }
+        for inner in ["text", "content"] {
+            if let Some(s) = v.get(inner).and_then(Value::as_str) {
+                if !s.is_empty() {
+                    return s.to_string();
+                }
+            }
+        }
+    }
+    String::new()
+}
+
+/// 正文里夹的 `<think>…</think>`。标签可能被切在两片 delta 上，所以尾巴先留着。
+#[derive(Default)]
+struct ThinkSplit {
+    inside: bool,
+    hold: String,
+}
+
+impl ThinkSplit {
+    fn push(&mut self, incoming: &str) -> (String, String) {
+        self.hold.push_str(incoming);
+        self.drain(false)
+    }
+
+    fn finish(&mut self) -> (String, String) {
+        self.drain(true)
+    }
+
+    fn drain(&mut self, flush: bool) -> (String, String) {
+        let mut visible = String::new();
+        let mut thought = String::new();
+        loop {
+            if self.inside {
+                if let Some(at) = self.hold.find("</think>") {
+                    thought.push_str(&self.hold[..at]);
+                    self.hold = self.hold[at + 8..].to_string();
+                    self.inside = false;
+                    continue;
+                }
+                let keep = if flush { 0 } else { tag_tail(&self.hold, "</think>") };
+                let cut = self.hold.len() - keep;
+                thought.push_str(&self.hold[..cut]);
+                self.hold = self.hold[cut..].to_string();
+                break;
+            }
+            if let Some(at) = self.hold.find("<think>") {
+                visible.push_str(&self.hold[..at]);
+                self.hold = self.hold[at + 7..].to_string();
+                self.inside = true;
+                continue;
+            }
+            let keep = if flush { 0 } else { tag_tail(&self.hold, "<think>") };
+            let cut = self.hold.len() - keep;
+            visible.push_str(&self.hold[..cut]);
+            self.hold = self.hold[cut..].to_string();
+            break;
+        }
+        (visible, thought)
+    }
+}
+
+/// `buf` 末尾有多少字节是 `tag` 的真前缀。标签是 ASCII，切在字符边界上。
+fn tag_tail(buf: &str, tag: &str) -> usize {
+    let bytes = buf.as_bytes();
+    let tag_b = tag.as_bytes();
+    let max = (tag_b.len() - 1).min(bytes.len());
+    for k in (1..=max).rev() {
+        if tag_b.starts_with(&bytes[bytes.len() - k..]) {
+            return k;
+        }
+    }
+    0
 }
 
 fn absorb(acc: &mut Vec<Call>, c: &Value) {
@@ -359,7 +482,45 @@ fn build_payload(cfg: &Config, a: &Args) -> Value {
             .collect();
         p["tools"] = Value::Array(list);
     }
+    apply_effort(&mut p, &cfg.base_url, &a.effort);
     p
+}
+
+/// 思考开关和强度。只塞这家网关认识的字段 —— 多塞一个不认识的，严格的接口会 400。
+fn apply_effort(p: &mut Value, base_url: &str, effort: &str) {
+    let effort = match effort {
+        "off" | "low" | "medium" | "high" | "xhigh" => effort,
+        _ => return,
+    };
+    let host = base_url.to_ascii_lowercase();
+    let on = effort != "off";
+    if host.contains("deepseek") {
+        p["thinking"] = json!({ "type": if on { "enabled" } else { "disabled" } });
+        if on {
+            // 这家的强度没有 xhigh，极高并到 high。
+            let level = if effort == "xhigh" { "high" } else { effort };
+            p["reasoning_effort"] = json!(level);
+        }
+        return;
+    }
+    if host.contains("dashscope") || host.contains("aliyuncs") {
+        p["enable_thinking"] = json!(on);
+        if on {
+            let budget = match effort {
+                "low" => 1024,
+                "high" => 8192,
+                "xhigh" => 16384,
+                _ => 4096,
+            };
+            p["thinking_budget"] = json!(budget);
+        }
+        return;
+    }
+    if host.contains("openrouter") {
+        p["reasoning"] = json!({ "effort": if on { effort } else { "none" } });
+        return;
+    }
+    p["reasoning_effort"] = json!(if on { effort } else { "none" });
 }
 
 fn emit(app: &tauri::AppHandle, win: &str, event: &str, payload: Value) -> Result<(), String> {

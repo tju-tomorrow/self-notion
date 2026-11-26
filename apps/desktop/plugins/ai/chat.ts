@@ -13,6 +13,7 @@ import { listen } from '@tauri-apps/api/event'
 import type { Context } from 'cordis'
 
 import type { AiChunk, AiMessage, AiService, ToolSpec } from '../../src/kernel/contract'
+import { getAiState } from './state'
 
 interface DeltaEvent {
   requestId: string
@@ -99,6 +100,7 @@ async function* chat(
         description: t.description,
         parameters: t.parameters,
       })),
+      effort: getAiState().think,
     })
 
     while (!flow.ended || queue.length > 0) {

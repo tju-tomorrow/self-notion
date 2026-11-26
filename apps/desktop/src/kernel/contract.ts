@@ -95,6 +95,8 @@ export interface EditorService {
    * ★ 判断「有没有落过光标」归编辑器：它才知道这篇是不是刚打开、选区还在文首。
    */
   insertText(id: string, text: string, at?: 'caret' | 'end'): boolean
+  /** 把一段 markdown 插进活文档的光标处。没开着这篇 → false。回答写回笔记用它，insertText 会把换行拍扁。 */
+  insertMarkdown(id: string, markdown: string): boolean
   /** 打开这篇后，滚到含 `anchor` 的第一个块并闪一下（D-0200）。视图还没挂就等一会儿。 */
   revealText(id: string, anchor: string): void
   /** 编辑器的 schema（ProseMirror `Schema` 对象，只读）。
@@ -993,6 +995,11 @@ export interface AiMessage {
   /** 这条工具结果对应**哪一次**调用（`role: 'tool'` 时必填）。
    *  一次回答可能同时提好几个调用，模型靠它对上号。 */
   toolCallId?: string
+  /**
+   * 这条 assistant 的思维链。只在同一回合里跟工具回执一起再发回去
+   * （有的网关少了 `reasoning_content` 会 400）。不进下一回合的存档。
+   */
+  reasoning?: string
 }
 
 /** 模型要求调一次工具（D-0087）。`args` 是模型给的 JSON **字符串** ——
@@ -1007,6 +1014,8 @@ export interface AiToolCall {
  *  前端不解析 OpenAI 的原始形状（换 provider 不该动前端）。 */
 export type AiChunk =
   | { type: 'text'; text: string }
+  /** 思维链的一片。不进回答正文。 */
+  | { type: 'think'; text: string }
   | { type: 'tool'; call: AiToolCall }
   /** `reason` = provider 给的结束原因（`stop` / `tool_calls` / `length`…）——
    *  循环据此决定还转不转下一轮，不自己猜。 */

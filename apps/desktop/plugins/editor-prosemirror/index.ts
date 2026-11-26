@@ -256,6 +256,8 @@ export function apply(ctx: Context) {
       insertText: (id: string, text: string, at?: 'caret' | 'end') =>
         mod?.insertTextAt(id, text, at) ?? false,
 
+      insertMarkdown: (id: string, markdown: string) => mod?.insertMarkdownAt(id, markdown) ?? false,
+
       /** 引用回原文（D-0200）：滚到含 anchor 的块并闪一下。 */
       revealText: (id: string, anchor: string) => mod?.revealText(id, anchor),
 

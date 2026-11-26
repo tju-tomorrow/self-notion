@@ -224,6 +224,11 @@ export const bubbleUser = style({
   color: 'var(--affine-v2-text-primary)',
 })
 
+/** 还没轮到模型听的那句，先淡着挂在流下面。 */
+export const bubbleQueued = style({
+  opacity: 0.55,
+})
+
 /** 助手说的：不套底，就是正文。markdown 那些块自己带边距 —— 所以这里只管字体和颜色。 */
 export const bubbleAi = style({
   alignSelf: 'flex-start',
@@ -235,7 +240,7 @@ export const bubbleAi = style({
   color: 'var(--affine-v2-text-primary)',
 })
 
-/** 一条回复下面那排小动作（左下角），现在只有「复制」。 */
+/** 一条回复下面那排小动作：复制、写入当前笔记。 */
 export const answerActions = style({
   display: 'flex',
   alignItems: 'center',
@@ -342,6 +347,69 @@ export const thoughtBody = style({
   flexDirection: 'column',
   gap: 2,
   margin: '2px 0 4px 16px',
+})
+
+/** 思维链正文。限高，长了在自己里面滚，不把回答顶出屏幕。 */
+export const thinkText = style({
+  maxHeight: 180,
+  overflow: 'auto',
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+  fontSize: 13,
+  lineHeight: '20px',
+  color: 'var(--affine-v2-text-secondary)',
+})
+
+/** 折起来时仍留一行，让人知道里面有推理。 */
+export const thinkPreview = style({
+  margin: '0 0 4px 16px',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  fontSize: 12,
+  lineHeight: '18px',
+  color: 'var(--affine-v2-text-tertiary)',
+})
+
+export const answerText = style({
+  height: 22,
+  padding: '0 6px',
+  border: 'none',
+  borderRadius: 6,
+  background: 'transparent',
+  color: 'var(--affine-v2-text-tertiary)',
+  fontSize: 12,
+  lineHeight: '22px',
+  cursor: 'pointer',
+  selectors: {
+    '&:hover': {
+      color: 'var(--affine-v2-text-primary)',
+      background: 'var(--affine-v2-layer-background-hoverOverlay)',
+    },
+  },
+})
+
+export const actRow = style({
+  display: 'flex',
+  gap: 6,
+  marginBottom: 4,
+})
+
+export const act = style({
+  height: 26,
+  padding: '0 10px',
+  border: 'none',
+  borderRadius: 999,
+  background: 'var(--affine-v2-layer-background-secondary)',
+  color: 'var(--affine-v2-text-secondary)',
+  fontSize: 12,
+  cursor: 'pointer',
+  selectors: {
+    '&:hover': {
+      color: 'var(--affine-v2-text-primary)',
+      background: 'var(--affine-v2-layer-background-hoverOverlay)',
+    },
+  },
 })
 
 /** 输入框上面那条「正文里划着的选区」—— 可撤，不抢输入框的戏。 */
@@ -587,10 +655,18 @@ export const stopButton = style([
 
 /** 快捷键只在这一行小字里说一次，不再塞进占位符。 */
 export const hint = style({
+  flex: '1 1 auto',
+  minWidth: 0,
   alignSelf: 'center',
+  textAlign: 'center',
   fontSize: 11,
   lineHeight: '14px',
   color: 'var(--affine-v2-text-tertiary)',
+})
+
+export const thinkAnchor = style({
+  position: 'relative',
+  flex: '0 0 auto',
 })
 
 /* ── 助手那半边的 markdown（`md.tsx` 画出来的那些标签） ── */
@@ -1021,7 +1097,7 @@ export const approveAlways = style([
 export const footRow = style({
   display: 'flex',
   alignItems: 'center',
-  justifyContent: 'center',
+  justifyContent: 'space-between',
   flexWrap: 'wrap',
   gap: 8,
 })
@@ -1079,6 +1155,15 @@ export const picker = style({
   border: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
   boxShadow: 'var(--affine-shadow-2)',
 })
+
+/** 思考强度菜单：比 `@` 选择器窄，贴着那颗胶囊的左边。 */
+export const thinkMenu = style([
+  picker,
+  {
+    right: 'auto',
+    width: 220,
+  },
+])
 
 export const pickHead = style({
   padding: '6px 8px',

@@ -8,7 +8,10 @@
  */
 import type { Context } from 'cordis'
 
-import { SESSIONS_KEY, getAiState, restoreSessions, subscribeState, type Line, type Session, type ToolMark } from './state'
+import type { AiMessage, AiToolCall } from '../../src/kernel/contract'
+import { SESSIONS_KEY, getAiState, isThinkLevel, restoreSessions, setThinkLevel, subscribeState, type Line, type Session, type ToolMark } from './state'
+
+const THINK_KEY = 'agent.think'
 import type { RagChunk, RagScope, RagTrace } from './rag'
 
 const ROLES: readonly Line['role'][] = ['user', 'ai', 'note']
@@ -17,8 +20,14 @@ export function installHistory(ctx: Context): () => void {
   /** 上一次读/写过的原文。它的全部作用：打断「自己写回 → onChange 通知 → 又拿回来写一次」那个圈。 */
   let lastRaw = ''
 
+  // 流式草稿不在 sessions 里。引用没变就别整包 stringify —— 每个 token 都写一遍会卡。
+  let seenSessions = getAiState().sessions
+  let seenId = getAiState().currentId
   const save = (): void => {
     const st = getAiState()
+    if (st.sessions === seenSessions && st.currentId === seenId) return
+    seenSessions = st.sessions
+    seenId = st.currentId
     const raw = JSON.stringify({ currentId: st.currentId, sessions: st.sessions })
     if (raw === lastRaw) return
     lastRaw = raw
@@ -37,7 +46,33 @@ export function installHistory(ctx: Context): () => void {
   pull()
   const offChange = ctx.settings.onChange(SESSIONS_KEY, pull)
   const offSub = subscribeState(save)
+  const offThink = installThink(ctx)
 
+  return () => {
+    offThink()
+    offSub()
+    offChange()
+  }
+}
+
+/** 思考强度跟会话分开存。会话一多，不该为了拨一下档把整包历史重写一遍。 */
+function installThink(ctx: Context): () => void {
+  let last = getAiState().think
+  const pull = (): void => {
+    const raw = ctx.settings.get<string>(THINK_KEY)
+    if (!isThinkLevel(raw) || raw === last) return
+    last = raw
+    setThinkLevel(raw)
+  }
+  const save = (): void => {
+    const level = getAiState().think
+    if (level === last) return
+    last = level
+    ctx.settings.set(THINK_KEY, level)
+  }
+  pull()
+  const offChange = ctx.settings.onChange(THINK_KEY, pull)
+  const offSub = subscribeState(save)
   return () => {
     offSub()
     offChange()
@@ -66,6 +101,7 @@ function parse(raw: string): { sessions: Session[]; currentId: string } | null {
       at: typeof one.at === 'number' ? one.at : Date.now(),
       // 老会话（D-0096 之前存的）没有这个字段 —— 当 0，不丢那整条。
       spent: typeof one.spent === 'number' && one.spent >= 0 ? one.spent : 0,
+      transcript: messagesOf(one.transcript),
       lines: one.lines.flatMap((line) => {
         if (typeof line !== 'object' || line === null) return []
         const l = line as Partial<Line>
@@ -79,6 +115,7 @@ function parse(raw: string): { sessions: Session[]; currentId: string } | null {
           scopes: scopesOf(l.scopes) ?? (scopeOf(l.scope) ? [scopeOf(l.scope)!] : undefined),
           quote: typeof l.quote === 'string' && l.quote !== '' ? l.quote : undefined,
           images: imagesOf(l.images),
+          think: typeof l.think === 'string' && l.think !== '' ? l.think.slice(0, 8_000) : undefined,
           rag: traceOf(l.rag),
         }]
       }),
@@ -91,6 +128,48 @@ function parse(raw: string): { sessions: Session[]; currentId: string } | null {
       ? box.currentId
       : sessions[0].id
   return { sessions, currentId }
+}
+
+function messagesOf(raw: unknown): AiMessage[] {
+  if (!Array.isArray(raw)) return []
+  const out: AiMessage[] = []
+  const ids = new Set<string>()
+  for (const item of raw) {
+    if (typeof item !== 'object' || item === null) continue
+    const m = item as Partial<AiMessage>
+    if ((m.role !== 'user' && m.role !== 'assistant' && m.role !== 'tool') || typeof m.content !== 'string') {
+      continue
+    }
+    const msg: AiMessage = { role: m.role, content: m.content.slice(0, 8_000) }
+    const images = imagesOf(m.images)
+    if (images) msg.images = images
+    if (m.role === 'assistant') {
+      const calls = callsOf(m.toolCalls)
+      if (calls) {
+        msg.toolCalls = calls
+        for (const call of calls) ids.add(call.id)
+      }
+    }
+    if (m.role === 'tool') {
+      if (typeof m.toolCallId !== 'string' || !ids.has(m.toolCallId)) continue
+      msg.toolCallId = m.toolCallId
+    }
+    out.push(msg)
+    if (out.length >= 40) break
+  }
+  return out
+}
+
+function callsOf(raw: unknown): AiToolCall[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const out: AiToolCall[] = []
+  for (const item of raw) {
+    if (typeof item !== 'object' || item === null) continue
+    const c = item as Partial<AiToolCall>
+    if (typeof c.id !== 'string' || typeof c.name !== 'string' || typeof c.args !== 'string') continue
+    out.push({ id: c.id, name: c.name, args: c.args.slice(0, 8_000) })
+  }
+  return out.length ? out : undefined
 }
 
 function scopesOf(raw: unknown): RagScope[] | undefined {

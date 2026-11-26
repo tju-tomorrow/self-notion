@@ -12,6 +12,8 @@
  *
  * ★ **一次问答一个回合**（`groupId` 一个回合生成一个）：模型改了三篇 = 三篇各一个版本点、
  *   同一个 group —— 撤销一下全退回去（`docs/ai.md` 第六节）。
+ *
+ * 跨回合的上下文是会话上的 transcript，不是从气泡重拼的。系统提示每回合现写，不进那份记录。
  */
 import type { Context } from 'cordis'
 
@@ -26,6 +28,7 @@ import type {
 import { DOCS_CHANGED } from '../../src/kernel/contract'
 import { reportError, reportNote } from '../../src/kernel/errors'
 import {
+  packContext,
   runLoop,
   type AssistantTurn,
   type HarnessTool,
@@ -52,8 +55,13 @@ import {
   getAiState,
   onStopRequest,
   pushLine,
+  queueSteer,
   setAiState,
-  type Line,
+  setDraft,
+  setThink,
+  setTranscript,
+  takeSteers,
+  type Session,
   type Undo,
 } from './state'
 import { estimateTokens, requestTokens } from './tokens'
@@ -72,6 +80,7 @@ const WRITES = new Set([
 
 const BASE_PROMPT = [
   '你是这个笔记应用里的助手。先给结论，再按需要展开；用户要求短就短。用用户提问的语言。',
+  '思考放在思维链里。回答正文不要复述检索步骤，也不要写「我先看看」。',
   '定位用 notes_find。读正文用 vfs_read（默认一段，长文用 offset 续读）。列目录用 vfs_list。主题分布用 notes_map。关联用 notes_related。',
   '学习数据（打开次数、阅读时长、深度、行为分、熟悉度）用 notes_learn。打熟悉度用 notes_familiarity（1 不熟 / 2 略懂 / 3 熟悉 / 4 很熟，0 清除）。',
   '颜色和评论：当前这篇用 doc_annotations；在多篇里找用 doc_marks。vfs_read 只有纯文字。',
@@ -84,7 +93,7 @@ const BASE_PROMPT = [
   '改标题 doc_rename，移动 doc_move，改标签 doc_tag（整组替换）。',
   '用户贴了图片就看图，结合他的问题和圈定的笔记一起答。',
   '圈了一个或多个范围时，只根据那些笔记和资料里的【相关笔记】回答，并标明哪句来自相关笔记。没圈范围、也不是在问当前这篇时，就正常聊天，不要主动翻库。',
-  '用户消息里 """ 圈起来的是他划出的原文。追问时以上一回合附带的依据摘要为准，不要换一批笔记重答。',
+  '用户消息里 """ 圈起来的是他划出的原文。追问接着上面的对话和工具结果，不要换一批笔记重答。',
   '工具够用就停并回答。用户要总结成笔记时，资料齐了就写。不要删除文档。不要用 vfs_grep 扫整库，除非 notes_find 明确不够。',
 ].join('\n')
 
@@ -101,11 +110,28 @@ function newGroupId(): string {
   return `ai-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
+/** 这一轮还在跑的时候插一句。气泡先挂着，工具跑完才进模型（`harness.ts` 的 `takeSteering`）。 */
+export function steer(
+  prompt: string,
+  quote?: Quote,
+  images?: AiImage[],
+  scopes?: readonly RagScope[],
+): void {
+  const sessionId = getAiState().runningId
+  if (!sessionId) return
+  const where = scopes?.length ? `\n（这一句圈了：${scopes.map((s) => `《${scopeLabel(s)}》`).join('、')}）` : ''
+  queueSteer({
+    text: prompt,
+    content: withQuote(prompt, quote) + where,
+    quote: quote?.text,
+    images: images?.length ? images : undefined,
+  })
+}
+
 /**
  * 跑一个回合。
  *
- * 历史带**上一回合的问和答**（只文字、限量）+ 这一回合的工具往返；不跨会话攒 ——
- * 攒历史只会把上下文喂爆。
+ * 模型看到的是这条会话的 transcript（之前的问、答、工具回执），不是从气泡里重拼的几句。
  */
 export async function runTurn(
   ctx: Context,
@@ -117,139 +143,143 @@ export async function runTurn(
 ): Promise<void> {
   const state = getAiState()
   if (state.busy) return
+  // 开头就钉死：跑的过程中人可以切到别的会话，字不能写错地方。
+  const sessionId = state.currentId
+  const session = state.sessions.find((s) => s.id === sessionId)
   const groupId = newGroupId()
   const written = new Set<string>()
   const specs: ToolSpec[] = ctx.get('tools')?.list() ?? []
-  // 中断：界面那颗按钮按下去 → `state.stop()` 走到这儿 abort（`onStopRequest` 是那条线）。
   const controller = new AbortController()
   onStopRequest(() => controller.abort())
 
+  setDraft('')
+  setThink('')
   setAiState({
     busy: true,
     busySince: Date.now(),
+    runningId: sessionId,
     error: '',
-    draft: '',
+    errorFor: null,
     stopRequested: false,
   })
-  const prior = recentContext()
   const picked = await focusScopes(ctx, prompt, quote, scopes ?? [])
-  pushLine({
-    role: 'user',
-    text: prompt,
-    scope: picked[0],
-    scopes: picked.length ? picked : undefined,
-    quote: quote?.text,
-    images: images?.length ? images : undefined,
-  })
+  pushLine(
+    {
+      role: 'user',
+      text: prompt,
+      scope: picked[0],
+      scopes: picked.length ? picked : undefined,
+      quote: quote?.text,
+      images: images?.length ? images : undefined,
+    },
+    sessionId,
+  )
 
-  // 只有圈了范围、划了字、或这句话是在问当前这篇时才检索。普通闲聊不翻库。
-  const found = picked.length ? await retrieve(ctx, picked, prompt, quote, groupId) : null
-  const trace = found?.trace ?? null
-  const rules = scopeRules(ctx, picked, trace, found?.related ?? '')
-  const system = await systemPrompt(ctx, picked.length > 0)
-  const user: AiMessage = {
-    role: 'user',
-    content: userContent(prompt, quote, trace, found?.related ?? ''),
-  }
-  if (images?.length) user.images = images
-  const messages: AiMessage[] = [
-    { role: 'system', content: rules === '' ? system : `${system}\n\n${rules}` },
-    ...prior,
-    user,
-  ]
-
+  let messages: AiMessage[] | null = null
   let answered = false
   try {
+    // 只有圈了范围、划了字、或这句话是在问当前这篇时才检索。普通闲聊不翻库。
+    const found = picked.length ? await retrieve(ctx, picked, prompt, quote, groupId, sessionId) : null
+    const trace = found?.trace ?? null
+    const rules = scopeRules(ctx, picked, trace, found?.related ?? '')
+    const system = await systemPrompt(ctx, picked.length > 0)
+    const user: AiMessage = {
+      role: 'user',
+      content: userContent(prompt, quote, trace, found?.related ?? ''),
+    }
+    if (images?.length) user.images = images
+    messages = [
+      { role: 'system', content: rules === '' ? system : `${system}\n\n${rules}` },
+      ...seed(session),
+      user,
+    ]
+
     await runLoop(
       messages,
       {
         tools: toolsFor(ctx, specs, groupId, written, picked, found?.extra ?? []),
+        takeSteering: () => takeSteers(sessionId),
         onAssistant: (turn) => {
-          if (!turn.content.trim()) return
-          answered = true
-          pushLine({ role: 'ai', text: turn.content.trim() })
+          const text = turn.content.trim()
+          const think = turn.reasoning?.trim()
+          if (!text && !think) return
+          if (text) answered = true
+          pushLine({ role: 'ai', text, think: think || undefined }, sessionId)
         },
         onToolStart: (call) =>
-          pushLine({
-            role: 'note',
-            text: call.name,
-            tool: { id: call.id, name: call.name, detail: detailOf(argsOf(call)), start: Date.now(), ms: null },
-          }),
-        onToolEnd: (call, isError) => finishTool(call.id, isError),
+          pushLine(
+            {
+              role: 'note',
+              text: call.name,
+              tool: { id: call.id, name: call.name, detail: detailOf(argsOf(call)), start: Date.now(), ms: null },
+            },
+            sessionId,
+          ),
+        onToolEnd: (call, isError) => finishTool(call.id, isError, sessionId),
       },
       controller.signal,
-      makeStreamTurn(ctx, ai, specs),
+      makeStreamTurn(ctx, ai, specs, sessionId),
     )
-    // 一整轮下来一个字都没吐：别让界面看着像「说完了」。
     if (!answered && !controller.signal.aborted) {
-      pushLine({ role: 'note', text: ctx.i18n.t('agent.noAnswer') })
+      pushLine({ role: 'note', text: ctx.i18n.t('agent.noAnswer') }, sessionId)
     }
   } finally {
+    if (messages) {
+      const rest = takeSteers(sessionId)
+      if (rest.length) messages.push(...rest)
+      remember(sessionId, messages)
+    }
     onStopRequest(null)
-    // 中断留一行字：不然对话里看着跟「说完了」一样（已流出的那半句还在上面）。
-    if (controller.signal.aborted) pushLine({ role: 'note', text: ctx.i18n.t('agent.stopped') })
-    setAiState({ busy: false, draft: '', stopRequested: false })
-    // 一回合一条撤销条。没写过东西就不给（`doc_create` 也进 —— 新建的那篇同样要能退）。
+    if (controller.signal.aborted) pushLine({ role: 'note', text: ctx.i18n.t('agent.stopped') }, sessionId)
+    setDraft('')
+    setThink('')
+    setAiState({ busy: false, runningId: null, stopRequested: false })
     if (written.size) {
       setAiState({ undo: [...getAiState().undo, { groupId, docs: [...written] }] })
     }
   }
 }
 
-/** 上一回合的问和答只带文字、不带工具回执 —— 让「继续」接得上，又不把上下文喂爆。 */
-function recentContext(): AiMessage[] {
-  const st = getAiState()
-  const cur = st.sessions.find((s) => s.id === st.currentId)
-  if (!cur) return []
-  const kept = cur.lines.filter((l) => l.role === 'user' || l.role === 'ai').slice(-4)
-  while (kept.length > 0 && kept[0].role === 'ai') kept.shift()
+/** 老会话没有 transcript 时，用气泡里的问和答垫一句，好让「继续」接得上。 */
+function seed(session: Session | undefined): AiMessage[] {
+  if (!session) return []
+  if (session.transcript.length) {
+    return session.transcript.map((m) => ({
+      ...m,
+      images: m.images?.slice(),
+      toolCalls: m.toolCalls?.map((c) => ({ ...c })),
+    }))
+  }
   const out: AiMessage[] = []
-  let budget = 4_000
-  const lastUser = [...kept].reverse().find((line) => line.role === 'user')
-  for (const line of kept) {
-    if (budget <= 0) break
-    const text = clip(line.text, 1_200)
-    if (text === '') continue
-    budget -= text.length
-    const msg: AiMessage = { role: line.role === 'user' ? 'user' : 'assistant', content: text }
-    // 只把最近一条用户消息上的图带回去，追问还看得到那张图。
-    if (line === lastUser && line.images?.length) msg.images = line.images
-    out.push(msg)
-  }
-  const evidence = clip(evidenceOf(cur.lines), 1_200)
-  const last = out[out.length - 1]
-  if (evidence && last?.role === 'assistant') {
-    last.content = `${last.content}\n\n（上一回合依据，追问以此为准）\n${evidence}`
-  }
-  return out
-}
-
-/** 追问要认得上一次读过什么。带路径和短摘，不把工具原文再灌一遍。 */
-function evidenceOf(lines: readonly Line[]): string {
-  const bits: string[] = []
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i]
-    if (line?.role === 'user' && line.quote) {
-      bits.push(`划线：${clip(line.quote, 240)}`)
-      break
+  for (const line of session.lines) {
+    if (line.role === 'user' && line.text) {
+      out.push({
+        role: 'user',
+        content: line.quote
+          ? withQuote(line.text, { text: line.quote, path: null, id: null })
+          : line.text,
+        images: line.images,
+      })
+    } else if (line.role === 'ai' && line.text) {
+      out.push({ role: 'assistant', content: line.text })
     }
   }
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const rag = lines[i]?.rag
-    if (!rag?.chunks.length) continue
-    bits.push(
-      rag.chunks
-        .slice(0, 6)
-        .map((c) => `[${c.n}] ${c.title} ${clip(c.text, 80)}`)
-        .join('\n'),
-    )
-    break
+  return out.slice(-8)
+}
+
+function remember(sessionId: string, messages: readonly AiMessage[]): void {
+  const body = packContext(messages.filter((m) => m.role !== 'system')).map(bare)
+  setTranscript(sessionId, body)
+}
+
+function bare(m: AiMessage): AiMessage {
+  const msg: AiMessage = { role: m.role, content: m.content }
+  if (m.images?.length) msg.images = m.images
+  if (m.toolCalls?.length) {
+    msg.toolCalls = m.toolCalls.map(({ id, name, args }) => ({ id, name, args }))
   }
-  const tools = lines.filter((l) => l.tool && l.tool.ms !== null).slice(-6)
-  if (tools.length) {
-    bits.push(tools.map((t) => `${t.tool?.name ?? ''} ${t.tool?.detail ?? ''}`.trim()).join('；'))
-  }
-  return bits.join('\n')
+  if (m.toolCallId) msg.toolCallId = m.toolCallId
+  return msg
 }
 
 /** 这句话是在问笔记，而不是闲聊或让它新写一篇。 */
@@ -299,26 +329,30 @@ async function retrieve(
   prompt: string,
   quote: Quote | undefined,
   groupId: string,
+  sessionId: string,
 ): Promise<Found> {
   const id = `rag-${groupId}`
   const detail = scopes.map(scopeLabel).join(' · ')
-  pushLine({
-    role: 'note',
-    text: 'rag_search',
-    tool: { id, name: 'rag_search', detail, start: Date.now(), ms: null },
-  })
+  pushLine(
+    {
+      role: 'note',
+      text: 'rag_search',
+      tool: { id, name: 'rag_search', detail, start: Date.now(), ms: null },
+    },
+    sessionId,
+  )
   try {
     const traces = await Promise.all(
       scopes.map((scope) => searchScope(ctx, scope, prompt, quote?.id)),
     )
     const trace = mergeTraces(traces)
     const related = await relatedBlock(ctx, scopes, trace, quote?.id)
-    if (trace) finishRag(id, trace)
-    else finishTool(id, true)
+    if (trace) finishRag(id, trace, sessionId)
+    else finishTool(id, true, sessionId)
     return { trace, related: related.text, extra: related.paths }
   } catch (err) {
     reportError('ai.rag', err)
-    finishTool(id, true)
+    finishTool(id, true, sessionId)
     return { trace: null, related: '', extra: [] }
   }
 }
@@ -422,20 +456,38 @@ async function systemPrompt(ctx: Context, scoped = false): Promise<string> {
  * ★ 中断的落点就在这儿：`for await` 一 `break`，`chat.ts` 的 `finally` 就把三个监听退掉，
  *   后面到的 `ai:delta` 没人收（Rust 那条线程自己会跑到干，它不占 IPC）。
  */
-function makeStreamTurn(ctx: Context, ai: AiService, specs: readonly ToolSpec[]): StreamTurn {
+function makeStreamTurn(
+  ctx: Context,
+  ai: AiService,
+  specs: readonly ToolSpec[],
+  sessionId: string,
+): StreamTurn {
   return async (messages, signal, toolsOn) => {
     const tools = toolsOn ? specs : []
-    // ★ 这一轮真发出去的那一包（含系统提示）。每转一轮就要重发一遍，所以**每轮各计一次**
-    //   —— 那正是账单上的样子。
-    const spent = requestTokens(messages, tools)
+    // 逼它开口的那句只存在这一次请求里，不进 transcript —— 不然下一轮会把它当成用户说的。
+    const sent = toolsOn
+      ? messages
+      : [
+          ...messages,
+          {
+            role: 'user' as const,
+            content: '停止调用工具。用已经拿到的资料直接回答；资料不够就说明缺什么。',
+          },
+        ]
+    const packed = packContext(sent)
+    const spent = requestTokens(packed, tools)
     let text = ''
+    let reasoning = ''
     const calls: AiToolCall[] = []
     let stop = 'stop'
     try {
-      for await (const chunk of ai.chat([...messages], [...tools], signal)) {
+      for await (const chunk of ai.chat(packed, [...tools], signal)) {
         if (chunk.type === 'text') {
           text += chunk.text
-          setAiState({ draft: text })
+          setDraft(text)
+        } else if (chunk.type === 'think') {
+          reasoning += chunk.text
+          setThink(reasoning)
         } else if (chunk.type === 'tool') {
           calls.push(chunk.call)
         } else {
@@ -445,14 +497,23 @@ function makeStreamTurn(ctx: Context, ai: AiService, specs: readonly ToolSpec[])
       }
     } catch (err) {
       reportError('ai', err)
-      setAiState({ error: `${ctx.i18n.t('agent.failed')}：${message(err)}` })
+      setAiState({ error: `${ctx.i18n.t('agent.failed')}：${message(err)}`, errorFor: sessionId })
       stop = 'error'
     }
-    setAiState({ draft: '' })
-    // 这轮产出的字和工具参数也算（它们下一轮就是输入，最后一轮则是纯输出）。
-    addSpend(spent + estimateTokens(text) + estimateTokens(JSON.stringify(calls)))
+    setDraft('')
+    setThink('')
+    addSpend(
+      spent + estimateTokens(text) + estimateTokens(reasoning) + estimateTokens(JSON.stringify(calls)),
+      sessionId,
+    )
     if (signal.aborted) stop = 'aborted'
-    return { role: 'assistant', content: text, toolCalls: calls, stop } satisfies AssistantTurn
+    return {
+      role: 'assistant',
+      content: text,
+      reasoning: reasoning || undefined,
+      toolCalls: toolsOn ? calls : [],
+      stop,
+    } satisfies AssistantTurn
   }
 }
 
@@ -680,7 +741,10 @@ export async function undo(ctx: Context, entry: Undo): Promise<void> {
     ctx.emit(DOCS_CHANGED)
   } catch (err) {
     reportError('ai', err)
-    setAiState({ error: `${ctx.i18n.t('agent.undoFailed')}：${message(err)}` })
+    setAiState({
+      error: `${ctx.i18n.t('agent.undoFailed')}：${message(err)}`,
+      errorFor: getAiState().currentId,
+    })
   }
 }
 

@@ -39,7 +39,7 @@ import { readLocal, writeLocal } from '../../src/kernel/local'
 import { copyText } from '../../src/ui/clipboard'
 import { useImeGuard } from '../../src/ui/ime'
 import * as s from './ai.css'
-import { runTurn, type Quote } from './loop'
+import { runTurn, steer, type Quote } from './loop'
 import { Markdown, unfenceTables, type CiteCtx } from './md'
 import { placeOf, type Place } from './place'
 import {
@@ -54,18 +54,23 @@ import {
 } from './rag'
 import {
   closeDock,
-  currentSession,
+  getAiState,
   openDock,
   newSession,
   openSession,
   resolveApproval,
   sessionsByRecency,
   setAiState,
+  setThinkLevel,
   stop,
   toggleAutoRun,
   useAiState,
+  useDraft,
+  useThink,
+  THINK_LEVELS,
   type Approval,
   type Line,
+  type ThinkLevel,
   type ToolMark,
 } from './state'
 import { formatTokens, sessionTokens } from './tokens'
@@ -279,9 +284,16 @@ function usePlace(ctx: Context, id: string | null): Place | null {
 
 function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?: boolean }) {
   const st = useAiState()
+  const draft = useDraft()
+  const think = useThink()
   const [text, setText] = useState('')
   const list = useRef<HTMLDivElement>(null)
-  const lines = currentSession().lines
+  const session = st.sessions.find((one) => one.id === st.currentId) ?? st.sessions[0]
+  const here = session?.id ?? ''
+  const lines = session?.lines ?? []
+  const live = st.runningId === here
+  const shownDraft = live ? draft : ''
+  const shownThink = live ? think : ''
   const pet = ctx.get('mascot')
   const place = usePlace(ctx, st.viewingDoc)
   // 正文里划着的文字 = 这一轮要一起送过去的原文（仿 Notion：不按钮，只看有没有选中）。
@@ -334,7 +346,7 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
   useEffect(() => {
     const el = list.current
     if (el && stick.current) el.scrollTop = el.scrollHeight
-  }, [lines.length, st.draft])
+  }, [lines.length, shownDraft, shownThink, live ? st.steers.length : 0])
 
   // 换会话 = 从头看：回到最底下并重新跟上。
   useEffect(() => {
@@ -415,7 +427,7 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
       if (!file) continue
       void shrinkShot(file).then((shot) => {
         if (!shot) {
-          setAiState({ error: ctx.i18n.t('agent.imageBig') })
+          setAiState({ error: ctx.i18n.t('agent.imageBig'), errorFor: here })
           return
         }
         setShots((prev) => (prev.length >= 4 ? prev : [...prev, shot]))
@@ -423,11 +435,12 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
     }
   }
 
-  const ask = (prompt: string) => {
+  const ask = (prompt: string, forcedQuote?: string) => {
     const q = prompt.trim() || (shots.length ? '看这张图' : '')
-    if (!q || st.busy) return
-    // 发的那一刻现读一次 —— 「选完立刻回车」不会错过还没跑到的 rAF。
-    const now = ctx.editor.selectedText()
+    if (!q) return
+    // 别的会话还在跑：这句话不是说给它的。
+    if (st.busy && !live) return
+    const now = forcedQuote ?? ctx.editor.selectedText()
     const quote: Quote | undefined =
       now && now !== dropped.current
         ? { text: now, path: place?.path ?? null, id: st.viewingDoc }
@@ -437,9 +450,14 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
     setPicker(null)
     setShots([])
     stick.current = true
-    void runTurn(ctx, ai, q, quote, scopes, images)
+    if (st.busy) steer(q, quote, images, scopes)
+    else void runTurn(ctx, ai, q, quote, scopes, images)
     setScopes([])
   }
+
+  const typing = text.trim() !== '' || shots.length > 0
+  // 这条不是正在跑的那条，或者框是空的：按钮是中断，不把字送进别人的回合。
+  const showStop = st.busy && (!live || !typing)
 
   return (
     <>
@@ -465,16 +483,24 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
           <>
             {rendered}
             {/* 生成中：光标跟着字长，一段还没定稿的文本就是这个样子。 */}
-            {st.draft ? (
+            {shownThink ? <ThinkLive text={shownThink} label={ctx.i18n.t('agent.thinking')} /> : null}
+            {shownDraft ? (
               <div className={s.bubbleAi}>
-                <Markdown text={st.draft} cite={liveCite} />
+                <Markdown text={shownDraft} cite={liveCite} />
                 <span className={s.cursor} />
               </div>
             ) : null}
-            {st.busy && !st.draft ? (
+            {live
+              ? st.steers.map((item, at) => (
+                  <div key={at} className={`${s.bubbleUser} ${s.bubbleQueued}`}>
+                    {item.text}
+                  </div>
+                ))
+              : null}
+            {live && st.busy && !shownDraft && !shownThink ? (
               <ThinkingRow since={st.busySince} label={ctx.i18n.t('agent.thinking')} />
             ) : null}
-            {st.error ? <p className={s.error}>{st.error}</p> : null}
+            {st.error && st.errorFor === here ? <p className={s.error}>{st.error}</p> : null}
           </>
         )}
       </div>
@@ -508,6 +534,27 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
             >
               <CloseIcon width={12} height={12} />
             </button>
+          </div>
+        ) : null}
+        {quoted ? (
+          <div className={s.actRow}>
+            {(
+              [
+                ['agent.actExplain', 'agent.actExplainPrompt'],
+                ['agent.actRewrite', 'agent.actRewritePrompt'],
+                ['agent.actContinue', 'agent.actContinuePrompt'],
+              ] as const
+            ).map(([label, prompt]) => (
+              <button
+                key={label}
+                type="button"
+                className={s.act}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => ask(ctx.i18n.t(prompt), quoted)}
+              >
+                {ctx.i18n.t(label)}
+              </button>
+            ))}
           </div>
         ) : null}
         <div className={s.composer}>
@@ -597,7 +644,7 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
               className={s.input}
               value={text}
               rows={1}
-              placeholder={ctx.i18n.t('agent.placeholder')}
+              placeholder={ctx.i18n.t(live ? 'agent.placeholderBusy' : 'agent.placeholder')}
               onPaste={onPaste}
               onChange={(e) => {
                 setText(e.target.value)
@@ -635,7 +682,12 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
                     return
                   }
                 }
-                // Enter 送、Shift+Enter 换行。
+                if (e.key === 'Escape' && st.busy) {
+                  e.preventDefault()
+                  stop()
+                  return
+                }
+                // Enter 送、Shift+Enter 换行。忙着也送：那是插话，不是新开一轮。
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
                   ask(text)
@@ -643,16 +695,16 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
               }}
             />
             </div>
-          {/* 忙着的时候同一颗位置换成中断（Claude Code 那样）—— 它一直在转圈不动，得有个出口。 */}
+          {/* 框里有字就发送（忙着 = 插话）。空着且这一条正在跑，才是中断。 */}
           <button
             type="button"
-            className={st.busy ? s.stopButton : s.send}
-            title={ctx.i18n.t(st.busy ? 'agent.stop' : 'agent.send')}
-            aria-label={ctx.i18n.t(st.busy ? 'agent.stop' : 'agent.send')}
-            disabled={!st.busy && text.trim() === '' && shots.length === 0}
-            onClick={() => (st.busy ? stop() : ask(text))}
+            className={showStop ? s.stopButton : s.send}
+            title={ctx.i18n.t(showStop ? 'agent.stop' : live ? 'agent.steer' : 'agent.send')}
+            aria-label={ctx.i18n.t(showStop ? 'agent.stop' : live ? 'agent.steer' : 'agent.send')}
+            disabled={!st.busy && !typing}
+            onClick={() => (showStop ? stop() : ask(text))}
           >
-            {st.busy ? (
+            {showStop ? (
               <StopIcon width={16} height={16} />
             ) : (
               <ArrowUpBigIcon width={18} height={18} />
@@ -661,7 +713,8 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
           </div>
         </div>
         <div className={s.footRow}>
-          <span className={s.hint}>{ctx.i18n.t('agent.hint')}</span>
+          <ThinkPicker ctx={ctx} />
+          <span className={s.hint}>{ctx.i18n.t(live ? 'agent.hintBusy' : 'agent.hint')}</span>
           <button
             type="button"
             className={st.autoRun ? s.modeOn : s.mode}
@@ -676,6 +729,87 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
         </div>
       </div>
     </>
+  )
+}
+
+const THINK_KEYS: Record<ThinkLevel, { label: string; hint: string }> = {
+  off: { label: 'agent.think.off', hint: 'agent.think.offHint' },
+  low: { label: 'agent.think.low', hint: 'agent.think.lowHint' },
+  medium: { label: 'agent.think.medium', hint: 'agent.think.mediumHint' },
+  high: { label: 'agent.think.high', hint: 'agent.think.highHint' },
+  xhigh: { label: 'agent.think.xhigh', hint: 'agent.think.xhighHint' },
+}
+
+/** 输入条下面那颗：思考开不开、开到多深。菜单朝上长，免得被窗口底边切掉。 */
+function ThinkPicker({ ctx }: { ctx: Context }) {
+  const st = useAiState()
+  const [open, setOpen] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const down = (e: Event) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const key = (e: Event) => {
+      if (!(e instanceof globalThis.KeyboardEvent) || e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopPropagation()
+      setOpen(false)
+    }
+    window.addEventListener('pointerdown', down)
+    window.addEventListener('keydown', key, true)
+    return () => {
+      window.removeEventListener('pointerdown', down)
+      window.removeEventListener('keydown', key, true)
+    }
+  }, [open])
+
+  const current = THINK_KEYS[st.think]
+
+  return (
+    <div className={s.thinkAnchor} ref={box}>
+      {open ? (
+        <div className={s.thinkMenu} role="listbox" aria-label={ctx.i18n.t('agent.thinkTitle')}>
+          <div className={s.pickHead}>{ctx.i18n.t('agent.thinkTitle')}</div>
+          {THINK_LEVELS.map((level) => {
+            const item = THINK_KEYS[level]
+            const on = st.think === level
+            return (
+              <button
+                key={level}
+                type="button"
+                role="option"
+                aria-selected={on}
+                className={on ? s.pickOn : s.pick}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setThinkLevel(level)
+                  setOpen(false)
+                }}
+              >
+                <span className={s.pickMain}>
+                  <span className={s.pickTitle}>{ctx.i18n.t(item.label)}</span>
+                  <span className={s.pickPath}>{ctx.i18n.t(item.hint)}</span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
+      <button
+        type="button"
+        className={st.think === 'off' ? s.mode : s.modeOn}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        title={ctx.i18n.t(current.hint)}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {ctx.i18n.t('agent.thinkLabel', { level: ctx.i18n.t(current.label) })}
+        <span className={s.modeKey}>▾</span>
+      </button>
+    </div>
   )
 }
 
@@ -759,6 +893,7 @@ function rows(lines: Line[], ctx: Context): ReactNode[] {
     // 它前面 / 后面的字各归各位。检索块也在这条线上，答案的 `[n]` 从它取来源。
     const start = i
     const marks: ToolMark[] = []
+    const thinks: string[] = []
     const before: ReactNode[] = []
     const after: ReactNode[] = []
     let rag: RagTrace | null = null
@@ -775,29 +910,42 @@ function rows(lines: Line[], ctx: Context): ReactNode[] {
       } else if (one.tool) {
         marks.push(one.tool)
         seen = true
-      } else {
-        const node =
-          one.role === 'ai' ? (
+      } else if (one.role === 'ai') {
+        if (one.think) thinks.push(one.think)
+        if (one.text) {
+          const node = (
             <div key={i} className={s.bubbleAi}>
               <Markdown text={one.text} cite={cite} />
               <div className={s.answerActions}>
                 <CopyAnswer ctx={ctx} text={one.text} />
+                <InsertAnswer ctx={ctx} text={one.text} />
               </div>
             </div>
-          ) : (
-            // 老会话里工具行没有 `tool`（D-0097 之前存的）—— 当一句淡字画出来。
-            <p key={i} className={s.note}>
-              <span className={s.noteDot} />
-              {one.text}
-            </p>
           )
+          if (seen) after.push(node)
+          else before.push(node)
+        }
+      } else {
+        // 老会话里工具行没有 `tool`（D-0097 之前存的）—— 当一句淡字画出来。
+        const node = (
+          <p key={i} className={s.note}>
+            <span className={s.noteDot} />
+            {one.text}
+          </p>
+        )
         if (seen) after.push(node)
         else before.push(node)
       }
       i++
     }
+    const thought =
+      thinks.length || marks.length ? (
+        <ThoughtBlock key={`t${start}`} ctx={ctx} thinks={thinks} marks={marks} />
+      ) : null
+    // 没工具时思维链放在回答前面；有工具时夹在「先说的话」和「读完再答」中间。
+    if (thought && marks.length === 0) out.push(thought)
     out.push(...before)
-    if (marks.length) out.push(<ThoughtBlock key={`t${start}`} ctx={ctx} marks={marks} />)
+    if (thought && marks.length > 0) out.push(thought)
     out.push(...after)
     if (rag) out.push(<SourceCards key={`s${start}`} ctx={ctx} trace={rag} />)
   }
@@ -989,14 +1137,45 @@ function CopyAnswer({ ctx, text }: { ctx: Context; text: string }) {
   )
 }
 
+/** 把这条回答按 markdown 插进当前打开的笔记。没开着就说一声，不自己去开。 */
+function InsertAnswer({ ctx, text }: { ctx: Context; text: string }) {
+  const put = () => {
+    const id = getAiState().viewingDoc
+    const plain = unfenceTables(text.replace(/\[(\d+)\](?!\()/g, '')).trim()
+    if (!id || !ctx.editor.insertMarkdown(id, plain)) {
+      setAiState({ error: ctx.i18n.t('agent.insertFail'), errorFor: getAiState().currentId })
+    }
+  }
+  return (
+    <button type="button" className={s.answerText} onClick={put}>
+      {ctx.i18n.t('agent.insert')}
+    </button>
+  )
+}
 
-/** 一轮的工具调用：平时只有一行标题，点开才是每一步。跑着的时候自己走时钟。 */
-function ThoughtBlock({ ctx, marks }: { ctx: Context; marks: ToolMark[] }) {
-  const [open, setOpen] = useState(false)
+
+/** 一轮的思维链：推理原文 + 工具。跑着的时候展开；有推理时默认也展开。 */
+function ThoughtBlock({
+  ctx,
+  thinks,
+  marks,
+}: {
+  ctx: Context
+  thinks: readonly string[]
+  marks: readonly ToolMark[]
+}) {
+  const text = thinks.join('\n\n').trim()
+  const [opened, setOpened] = useState(text.length > 0)
   const running = marks.some((mark) => mark.ms === null)
+  const open = running || opened
   const now = useClock(running)
   const failed = marks.some((mark) => mark.failed)
   const spent = marks.reduce((sum, mark) => sum + (mark.ms ?? Math.max(0, now - mark.start)), 0)
+  const label = marks.length
+    ? running
+      ? ctx.i18n.t('agent.chainRunning', { n: marks.length })
+      : ctx.i18n.t('agent.chainDone', { n: marks.length, time: secs(spent) })
+    : ctx.i18n.t('agent.chainOnly')
 
   return (
     <div className={s.thought}>
@@ -1004,24 +1183,50 @@ function ThoughtBlock({ ctx, marks }: { ctx: Context; marks: ToolMark[] }) {
         type="button"
         className={running ? `${s.thoughtHead} ${s.toolOn}` : s.thoughtHead}
         aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpened((v) => !v)}
       >
         <span className={s.thoughtChev}>{open ? '▾' : '▸'}</span>
         <span className={s.toolMark}>{running ? frame(now) : failed ? '✕' : '⏺'}</span>
-        <span className={s.thoughtLabel}>
-          {running
-            ? ctx.i18n.t('agent.chainRunning', { n: marks.length })
-            : ctx.i18n.t('agent.chainDone', { n: marks.length, time: secs(spent) })}
-        </span>
+        <span className={s.thoughtLabel}>{label}</span>
         {running ? <span className={s.toolTime}>({secs(spent)})</span> : null}
       </button>
       {open ? (
         <div className={s.thoughtBody}>
+          {text ? <ThinkText text={text} follow={running} /> : null}
           {mergeMarks(marks).map((group, at) => (
             <ToolRow key={at} marks={group} />
           ))}
         </div>
+      ) : text ? (
+        <div className={s.thinkPreview}>{text}</div>
       ) : null}
+    </div>
+  )
+}
+
+/** 还在流的思维链：跟在光标上面，自己滚到最底。 */
+function ThinkLive({ text, label }: { text: string; label: string }) {
+  const now = useClock(true)
+  return (
+    <div className={s.thought}>
+      <div className={`${s.thoughtHead} ${s.toolOn}`}>
+        <span className={s.toolMark}>{frame(now)}</span>
+        <span className={s.thoughtLabel}>{label}</span>
+      </div>
+      <ThinkText text={text} follow />
+    </div>
+  )
+}
+
+function ThinkText({ text, follow }: { text: string; follow?: boolean }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (follow && el) el.scrollTop = el.scrollHeight
+  }, [text, follow])
+  return (
+    <div ref={ref} className={s.thinkText}>
+      {text}
     </div>
   )
 }

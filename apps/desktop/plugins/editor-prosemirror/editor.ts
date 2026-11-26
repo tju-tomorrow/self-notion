@@ -45,7 +45,7 @@ import { inputRulesPlugin } from './plugins/input-rules'
 import { listNumberPlugin } from './plugins/list-number'
 import { mentionPlugin } from './plugins/mention'
 import { mobileInsertPlugin } from './plugins/mobile-insert'
-import { pastePlugin } from './plugins/paste'
+import { insertMarkdown, pastePlugin } from './plugins/paste'
 import { slashPlugin } from './plugins/slash'
 import { tablePlugin } from './plugins/table'
 import { bodyEnd, trailingBlockPlugin, withTrailingEmpty } from './plugins/trailing-block'
@@ -767,6 +767,13 @@ export function insertTextAt(id: string, text: string, at: 'caret' | 'end' = 'ca
   view.dispatch(view.state.tr.setSelection(Selection.atEnd(view.state.doc)).scrollIntoView())
   view.focus()
   return true
+}
+
+/** 契约 `insertMarkdown`：回答写回活文档，保留标题和列表。 */
+export function insertMarkdownAt(id: string, markdown: string): boolean {
+  const rec = live.get(id)
+  if (!rec) return false
+  return insertMarkdown(rec.view, markdown)
 }
 
 /** 内存监控（D-0088 / 架构 §8）。`bytes` 的含义换了：从「Y.Doc 编码字节」变成「doc JSON 字节数」。 */

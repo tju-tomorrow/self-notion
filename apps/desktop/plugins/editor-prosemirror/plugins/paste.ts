@@ -313,6 +313,17 @@ function markdownBlocks(text: string): PMNode[] | null {
   return blocksFromMarkdown(text)
 }
 
+/** 助手把回答写回这篇：markdown 解成块，插在光标那一块后面。 */
+export function insertMarkdown(view: EditorView, markdown: string): boolean {
+  const text = markdown.replace(/\r\n?/g, '\n').trim()
+  if (!text || !targetsFor(view)) return false
+  const blocks = blocksFromMarkdown(text) ?? plainBlocks(text)
+  if (!blocks?.length) return false
+  insertBlocks(view, blocks)
+  view.focus()
+  return true
+}
+
 /** markdown 解出来的那几块直接落 —— 全是新块，id 得换新（同 `freshIds` 的道理，契约 P4）。 */
 function insertBlocks(view: EditorView, blocks: PMNode[]): void {
   const targets = targetsFor(view)

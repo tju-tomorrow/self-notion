@@ -9,6 +9,7 @@
  */
 import { useSyncExternalStore } from 'react'
 
+import type { AiImage, AiMessage } from '../../src/kernel/contract'
 import type { RagScope, RagTrace } from './rag'
 
 /** 页面上的一行。`note` 是「调用了哪个工具」这类过程记录，不是对话。 */
@@ -25,6 +26,8 @@ export interface Line {
   quote?: string
   /** 粘贴进来的图。`data` 是缩过的 jpeg base64。 */
   images?: { mime: string; data: string }[]
+  /** 这一轮的思维链。只给人看，不进下一轮发给模型的正文。 */
+  think?: string
   /** 检索那一行的结果：过程、预算、片段和来源卡都从这里画。 */
   rag?: RagTrace
 }
@@ -50,6 +53,8 @@ export interface Session {
   /** 最后一次说话的时间 —— 历史按它倒序 */
   at: number
   lines: Line[]
+  /** 模型接着看的对话（不含系统提示）。气泡续不上工具结果。 */
+  transcript: AiMessage[]
   /** 这条会话**累计烧掉的 token 估数**（`tokens.ts`）—— 不算它，历史那一列没东西可标。 */
   spent: number
 }
@@ -75,6 +80,14 @@ export interface Approval {
 /** 卡片上那三个出口。 */
 export type ApprovalChoice = 'once' | 'always' | 'deny'
 
+/** 一轮还没结束时用户插的一句。`content` 是模型看到的（可含划线），`text` 是气泡。 */
+export interface Steer {
+  text: string
+  content: string
+  quote?: string
+  images?: AiImage[]
+}
+
 export interface AiUiState {
   sessions: Session[]
   currentId: string
@@ -88,15 +101,28 @@ export interface AiUiState {
   stopRequested: boolean
   /** 这一回合什么时候开始的 —— 「正在想…」后面那个活计时从它算。 */
   busySince: number
-  /** 正在生成的那一段（流式的字先落这儿，说完了才进会话）。 */
-  draft: string
+  /** 正在跑的那条会话。切走之后，字和插话仍写回它，不写进眼前这条。 */
+  runningId: string | null
+  /** 跑的过程中插进来、模型还没听到的话。听到的那一下才进 `lines`。 */
+  steers: Steer[]
   error: string
+  /** 这条错误属于哪次会话。切走不该在另一条上亮。 */
+  errorFor: string | null
   /** 撤销条：一个回合一条。 */
   undo: Undo[]
   /** 本次对话里写操作直接放行（bypass）。**不落盘**：下次启动回到每次确认。 */
   autoRun: boolean
   /** 正等着用户点头的那次写操作。 */
   pending: Approval | null
+  /** 思考开不开、开到多深。发出去之前由 Rust 按网关改成它认识的字段。 */
+  think: ThinkLevel
+}
+
+export const THINK_LEVELS = ['off', 'low', 'medium', 'high', 'xhigh'] as const
+export type ThinkLevel = (typeof THINK_LEVELS)[number]
+
+export function isThinkLevel(value: unknown): value is ThinkLevel {
+  return typeof value === 'string' && (THINK_LEVELS as readonly string[]).includes(value)
 }
 
 /** 落盘的键。**带插件名前缀** —— `meta` 表是全局的（同 `shell-tabs.session`）。 */
@@ -107,7 +133,7 @@ function makeId(): string {
 }
 
 function blank(): Session {
-  return { id: makeId(), title: '', at: Date.now(), lines: [], spent: 0 }
+  return { id: makeId(), title: '', at: Date.now(), lines: [], transcript: [], spent: 0 }
 }
 
 const first = blank()
@@ -119,11 +145,14 @@ let state: AiUiState = {
   busy: false,
   stopRequested: false,
   busySince: 0,
-  draft: '',
+  runningId: null,
+  steers: [],
   error: '',
+  errorFor: null,
   undo: [],
   autoRun: false,
   pending: null,
+  think: 'medium',
 }
 
 /** 卡片上按钮的回调 —— 不进 state（函数不该跟着 UI 状态走）。 */
@@ -171,6 +200,11 @@ export function resolveApproval(choice: ApprovalChoice): void {
   pendingResolve = null
   setAiState({ pending: null, autoRun: choice === 'always' ? true : state.autoRun })
   fn?.(choice)
+}
+
+export function setThinkLevel(level: ThinkLevel): void {
+  if (state.think === level) return
+  setAiState({ think: level })
 }
 
 /** ⇧Tab / 点那颗模式签：本次对话里在「每次确认」和「自动执行」之间切。 */
@@ -224,87 +258,112 @@ export function closeDock(): void {
 
 /** 一次工具调用跑完 —— 按 `id` 认领那一行（并发时同名的那几条只能靠它分）。耗时从那一行
  *  自己记的 `start` 算，调用方不用传。 */
-export function finishTool(id: string, failed: boolean): void {
-  const { currentId, sessions } = state
-  setAiState({
-    sessions: sessions.map((sess) => {
-      if (sess.id !== currentId) return sess
-      const at = sess.lines.findLastIndex((line) => line.tool?.id === id && line.tool.ms === null)
-      if (at < 0) return sess
-      const lines = sess.lines.slice()
-      const tool = lines[at]?.tool
-      if (tool) lines[at] = { ...lines[at], tool: { ...tool, ms: Date.now() - tool.start, failed } }
-      return { ...sess, lines }
-    }),
+export function finishTool(id: string, failed: boolean, sessionId = state.currentId): void {
+  mapSession(sessionId, (sess) => {
+    const at = sess.lines.findLastIndex((line) => line.tool?.id === id && line.tool.ms === null)
+    if (at < 0) return sess
+    const lines = sess.lines.slice()
+    const tool = lines[at]?.tool
+    if (tool) lines[at] = { ...lines[at], tool: { ...tool, ms: Date.now() - tool.start, failed } }
+    return { ...sess, lines }
   })
 }
 
 /** 检索跑完：把结果挂到那条 `rag_search` 行上，并收掉计时。 */
-export function finishRag(id: string, trace: RagTrace): void {
-  const { currentId, sessions } = state
-  setAiState({
-    sessions: sessions.map((sess) => {
-      if (sess.id !== currentId) return sess
-      return {
-        ...sess,
-        lines: sess.lines.map((line) =>
-          line.tool?.id === id && line.tool.ms === null
-            ? { ...line, tool: { ...line.tool, ms: Date.now() - line.tool.start }, rag: trace }
-            : line,
-        ),
-      }
-    }),
-  })
+export function finishRag(id: string, trace: RagTrace, sessionId = state.currentId): void {
+  mapSession(sessionId, (sess) => ({
+    ...sess,
+    lines: sess.lines.map((line) =>
+      line.tool?.id === id && line.tool.ms === null
+        ? { ...line, tool: { ...line.tool, ms: Date.now() - line.tool.start }, rag: trace }
+        : line,
+    ),
+  }))
 }
 
-/** 往**当前**这条会话末尾加一行。第一句话顺手当标题（左侧列表要显示它）。 */
-export function pushLine(line: Line): void {
-  const { currentId, sessions } = state
-  setAiState({
-    sessions: sessions.map((sess) =>
-      sess.id !== currentId
-        ? sess
-        : {
-            ...sess,
-            title: sess.title || (line.role === 'user' ? line.text.slice(0, 24) : ''),
-            at: Date.now(),
-            lines: [...sess.lines, line],
-          },
-    ),
-  })
+/** 往指定会话末尾加一行。不传就当前这条。第一句话顺手当标题。 */
+export function pushLine(line: Line, sessionId = state.currentId): void {
+  mapSession(sessionId, (sess) => ({
+    ...sess,
+    title: sess.title || (line.role === 'user' ? line.text.slice(0, 24) : ''),
+    at: Date.now(),
+    lines: [...sess.lines, line],
+  }))
 }
 
 /** 一轮烧掉多少 —— 循环每转一轮报一次（输入那包 + 这轮产出的字）。 */
-export function addSpend(tokens: number): void {
+export function addSpend(tokens: number, sessionId = state.currentId): void {
   if (tokens <= 0) return
-  const { currentId, sessions } = state
-  setAiState({
-    sessions: sessions.map((sess) =>
-      sess.id !== currentId ? sess : { ...sess, spent: sess.spent + tokens },
-    ),
+  mapSession(sessionId, (sess) => ({ ...sess, spent: sess.spent + tokens }))
+}
+
+export function setTranscript(sessionId: string, transcript: AiMessage[]): void {
+  mapSession(sessionId, (sess) => ({ ...sess, transcript }))
+}
+
+function mapSession(id: string, fn: (sess: Session) => Session): void {
+  let changed = false
+  const sessions = state.sessions.map((sess) => {
+    if (sess.id !== id) return sess
+    const next = fn(sess)
+    changed = next !== sess
+    return next
   })
+  if (changed) setAiState({ sessions })
 }
 
 /** 新开一条。**当前这条本来就空就不动** —— 否则连点几下就攒出一串空会话。 */
 export function newSession(): void {
   if (currentSession().lines.length === 0) return
-  cancelApproval()
+  // 另一条还在跑：别拆它的确认卡，也别把它的自动执行清掉。
+  if (!state.busy) cancelApproval()
   const fresh = blank()
-  // 自动执行只对「本次对话」有效 —— 新开一条就回到每次确认。
   setAiState({
     sessions: [...state.sessions, fresh],
     currentId: fresh.id,
-    draft: '',
-    error: '',
-    autoRun: false,
+    ...(state.busy ? {} : { error: '', errorFor: null, autoRun: false }),
   })
+  if (!state.busy) {
+    setDraft('')
+    setThink('')
+  }
 }
 
 export function openSession(id: string): void {
   if (id === state.currentId) return
   if (!state.sessions.some((sess) => sess.id === id)) return
-  cancelApproval()
-  setAiState({ currentId: id, draft: '', error: '', autoRun: false })
+  if (!state.busy) cancelApproval()
+  setAiState({
+    currentId: id,
+    ...(state.busy ? {} : { error: '', errorFor: null, autoRun: false }),
+  })
+  if (!state.busy) {
+    setDraft('')
+    setThink('')
+  }
+}
+
+/** 跑的过程中插一句。模型要等这一轮工具结束才听得到（pi 的 steering）。 */
+export function queueSteer(item: Steer): void {
+  setAiState({ steers: [...state.steers, item] })
+}
+
+/** 取出还没送进模型的插话，同时落成气泡。调用方负责写进 transcript。 */
+export function takeSteers(sessionId: string): AiMessage[] {
+  const batch = state.steers
+  if (!batch.length) return []
+  setAiState({ steers: [] })
+  for (const item of batch) {
+    pushLine(
+      { role: 'user', text: item.text, quote: item.quote, images: item.images },
+      sessionId,
+    )
+  }
+  return batch.map((item) => ({
+    role: 'user',
+    content: item.content,
+    ...(item.images?.length ? { images: item.images } : {}),
+  }))
 }
 
 export function clearUndo(groupId: string): void {
@@ -314,6 +373,78 @@ export function clearUndo(groupId: string): void {
 /** 从盘上读回来的那一份（`history.ts` 校验过形状了）。 */
 export function restoreSessions(sessions: Session[], currentId: string): void {
   setAiState({ sessions, currentId })
+}
+
+/** 流式正文。不进 `AiUiState`：每个 token 不该把历史列和落盘一起叫醒。 */
+let draft = ''
+let draftPending = ''
+let draftFrame = 0
+const draftSubs = new Set<() => void>()
+
+export function setDraft(next: string): void {
+  draftPending = next
+  if (next === '') {
+    if (draftFrame) cancelAnimationFrame(draftFrame)
+    draftFrame = 0
+    if (draft === '') return
+    draft = ''
+    for (const cb of draftSubs) cb()
+    return
+  }
+  if (draftFrame) return
+  draftFrame = requestAnimationFrame(() => {
+    draftFrame = 0
+    if (draft === draftPending) return
+    draft = draftPending
+    for (const cb of draftSubs) cb()
+  })
+}
+
+/** 正在流的思维链。和草稿一样，不进会话状态。 */
+let think = ''
+let thinkPending = ''
+let thinkFrame = 0
+const thinkSubs = new Set<() => void>()
+
+export function setThink(next: string): void {
+  thinkPending = next
+  if (next === '') {
+    if (thinkFrame) cancelAnimationFrame(thinkFrame)
+    thinkFrame = 0
+    if (think === '') return
+    think = ''
+    for (const cb of thinkSubs) cb()
+    return
+  }
+  if (thinkFrame) return
+  thinkFrame = requestAnimationFrame(() => {
+    thinkFrame = 0
+    if (think === thinkPending) return
+    think = thinkPending
+    for (const cb of thinkSubs) cb()
+  })
+}
+
+export function useThink(): string {
+  return useSyncExternalStore(
+    (cb) => {
+      thinkSubs.add(cb)
+      return () => void thinkSubs.delete(cb)
+    },
+    () => think,
+    () => '',
+  )
+}
+
+export function useDraft(): string {
+  return useSyncExternalStore(
+    (cb) => {
+      draftSubs.add(cb)
+      return () => void draftSubs.delete(cb)
+    },
+    () => draft,
+    () => '',
+  )
 }
 
 export function useAiState(): AiUiState {
