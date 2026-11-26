@@ -162,6 +162,16 @@ export const sidebar = style({
   '@media': { '(max-width: 720px)': { transition: 'background-color 150ms ease-out, border-color 150ms ease-out' } },
 })
 
+/** 主题把侧栏拉到窗口顶时，这条归拖窗口（高 = 主题给侧栏的 `padding-top`）。 */
+export const dragStrip = style({
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  height: 36,
+  display: 'none',
+})
+
 /** 拖拽改侧栏宽度的抓带。只有 4px 宽、贴右缘内侧：细到看不见，但够得着。
  *  `zIndex` 要压过侧栏里的滚动区，不然鼠标移到最右边根本抓不住。 */
 export const resizer = style({

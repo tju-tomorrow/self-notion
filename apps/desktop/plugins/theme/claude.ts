@@ -159,6 +159,9 @@ html[data-sn-theme="claude"] [data-sn-shell] aside {
   background: var(--sn-canvas) !important;
   border-right: none;
 }
+html[data-sn-theme="claude"] [data-sn-shell] aside [data-sn-drag] {
+  display: block;
+}
 html[data-sn-theme="claude"] [data-sn-shell][data-collapsed="1"] aside {
   padding: 0;
   border: none;

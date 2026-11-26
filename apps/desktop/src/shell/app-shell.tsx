@@ -341,6 +341,11 @@ export function AppShell({ ctx }: { ctx: Context }) {
             }
             style={mobile ? { width: 'min(84vw, 320px)' } : undefined}
           >
+            {/* 主题把侧栏拉到窗口顶时，红绿灯右侧这一条是侧栏的 padding，不属于顶栏
+                —— 没有这层，那块空白拖不动窗口。原版布局侧栏在顶栏下面，不显示。 */}
+            {!collapsed && !mobile ? (
+              <div className={s.dragStrip} data-tauri-drag-region data-sn-drag="" />
+            ) : null}
             <SlotHost ctx={ctx} name="sidebar.item" />
             {/* 折叠了就没有宽度可拖；手机抽屉也不拖 */}
             {!collapsed && !mobile && (
