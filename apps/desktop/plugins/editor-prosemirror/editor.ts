@@ -11,7 +11,7 @@ import { history, redo, undo } from 'prosemirror-history'
 import { undoInputRule } from 'prosemirror-inputrules'
 import { keymap } from 'prosemirror-keymap'
 import type { Node as PMNode } from 'prosemirror-model'
-import { EditorState, Selection, type Plugin } from 'prosemirror-state'
+import { AllSelection, EditorState, Selection, type Plugin } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
 
 import type {
@@ -519,15 +519,27 @@ export async function mountEditor(
     titleEl.addEventListener('compositionend', () => syncTitle(false))
   }
 
-  // 标题里按 ⏎ → 落到正文第一行（Notion 的规矩）。★ 标题是个 `input`、不归 PM 管，
-  //   PM 收不到它的 keydown —— 不自己接这一下就什么都不发生。
+  // 标题是个 `input`、不归 PM 管，PM 收不到它的 keydown —— ⏎ 落正文、⌘A 两段式都得自己接。
   titleEl.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter') return
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      const doc = view.state.doc
+      // 整篇第一个能落光标的文字位置；一个都没有（满篇分割线那种）就落在第一块前面。
+      const at = firstTextPos(doc, 0, doc.content.size) ?? 1
+      view.dispatch(view.state.tr.setSelection(Selection.near(doc.resolve(at), 1)).scrollIntoView())
+      view.focus()
+      return
+    }
+    // ⌘A：先全选标题，再按一次选整篇 —— 跟正文块同一套两段式。
+    if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.isComposing) return
+    if (e.key.toLowerCase() !== 'a') return
     e.preventDefault()
-    const doc = view.state.doc
-    // 整篇第一个能落光标的文字位置；一个都没有（满篇分割线那种）就落在第一块前面。
-    const at = firstTextPos(doc, 0, doc.content.size) ?? 1
-    view.dispatch(view.state.tr.setSelection(Selection.near(doc.resolve(at), 1)).scrollIntoView())
+    const all = titleEl.selectionStart === 0 && titleEl.selectionEnd === titleEl.value.length
+    if (!all) {
+      titleEl.select()
+      return
+    }
+    view.dispatch(view.state.tr.setSelection(new AllSelection(view.state.doc)).scrollIntoView())
     view.focus()
   })
 

@@ -17,7 +17,7 @@ import { enter } from './enter'
 import { hardBreak } from './hard-break'
 import { indent, outdent } from './indent'
 import { moveBlockDown, moveBlockUp } from './move-block'
-import { selectAllInCode } from './select-all'
+import { selectAllInBlock } from './select-all'
 import {
   addColumnAfter,
   addColumnBefore,
@@ -45,8 +45,8 @@ export const notionKeymap: Record<string, Command> = {
   'Mod-Shift-ArrowUp': moveBlockUp,
   'Mod-Shift-ArrowDown': moveBlockDown,
   'Mod-d': duplicateBlock,
-  // 代码块里先选这一段代码，再按一次才是全篇（原生菜单那条已摘掉，⌘A 能到 DOM）。
-  'Mod-a': selectAllInCode,
+  // 代码块 / 标题里先选这一块，再按一次才是全篇（原生菜单那条已摘掉，⌘A 能到 DOM）。
+  'Mod-a': selectAllInBlock,
   // 行内格式（Notion 同款键位）。
   'Mod-b': toggleMark(schema.marks.bold),
   'Mod-i': toggleMark(schema.marks.italic),
