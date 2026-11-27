@@ -3,6 +3,7 @@
  * 翻页只在进出；点进一层是锁进，不是再翻一次。
  */
 import type { Node as PMNode } from 'prosemirror-model'
+import { TextSelection } from 'prosemirror-state'
 import type { EditorView } from 'prosemirror-view'
 
 import { blobUrl } from '../../../src/platform/blob-url'
@@ -119,6 +120,7 @@ export function mountVerso(scroller: HTMLElement, hooks: VersoHooks): Verso {
   let edge: HTMLDivElement | null = null
   let spineTitle: HTMLDivElement | null = null
   let spineGist: HTMLDivElement | null = null
+  let backBtn: HTMLButtonElement | null = null
   let readBtn: HTMLButtonElement | null = null
   let jumpBtn: HTMLButtonElement | null = null
   let flap: HTMLDivElement | null = null
@@ -191,8 +193,9 @@ export function mountVerso(scroller: HTMLElement, hooks: VersoHooks): Verso {
   }
 
   function paintChrome(node: MapNode, chain: MapNode[], enter: boolean): void {
-    if (!spineTitle || !spineGist || !readBtn || !crumbs || !edge) return
+    if (!spineTitle || !spineGist || !readBtn || !backBtn || !crumbs || !edge) return
     here = node
+    backBtn.hidden = chain.length < 2
     spineTitle.textContent = node.label
     spineTitle.title = node.label
     spineTitle.dataset.root = chain.length === 1 ? '1' : '0'
@@ -591,14 +594,6 @@ export function mountVerso(scroller: HTMLElement, hooks: VersoHooks): Verso {
   function onKey(e: KeyboardEvent): void {
     if (phase !== 'open' || !root) return
     if (!(e.target instanceof Node) || !root.contains(e.target)) return
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      e.stopPropagation()
-      if (flapAt !== null) closeFlap()
-      else if (path.length > 0) goDepth(path.length - 1)
-      else closeVerso(true, true)
-      return
-    }
     const onCard = e.target instanceof HTMLElement && e.target.classList.contains('sn-verso-card')
     if (!onCard) return
     if (e.key === 'ArrowDown') {
@@ -649,6 +644,12 @@ export function mountVerso(scroller: HTMLElement, hooks: VersoHooks): Verso {
     const board = el('div', 'sn-verso-board')
     edge = el('div', 'sn-verso-edge')
     const spine = el('div', 'sn-verso-spine')
+    backBtn = el('button', 'sn-verso-back', '上一层')
+    backBtn.type = 'button'
+    backBtn.hidden = true
+    backBtn.addEventListener('click', () => {
+      if (path.length > 0) goDepth(path.length - 1)
+    })
     spineTitle = el('div', 'sn-verso-spine-title')
     spineGist = el('div', 'sn-verso-spine-gist')
     const actions = el('div', 'sn-verso-spine-actions')
@@ -662,7 +663,7 @@ export function mountVerso(scroller: HTMLElement, hooks: VersoHooks): Verso {
       if (here) jump(here.pos)
     })
     actions.append(readBtn, jumpBtn)
-    spine.append(spineTitle, spineGist, actions)
+    spine.append(backBtn, spineTitle, spineGist, actions)
     fan = el('div', 'sn-verso-fan')
     svg = document.createElementNS(SVG, 'svg')
     svg.setAttribute('class', 'sn-verso-links')
@@ -691,9 +692,7 @@ export function mountVerso(scroller: HTMLElement, hooks: VersoHooks): Verso {
 
   function playOpen(): void {
     if (!map) return
-    map.style.pointerEvents = 'none'
     if (!motionOk() || !leaf) {
-      map.style.pointerEvents = 'auto'
       focusIndex(0)
       return
     }
@@ -705,7 +704,6 @@ export function mountVerso(scroller: HTMLElement, hooks: VersoHooks): Verso {
       done = true
       window.clearTimeout(timer)
       if (leaf) leaf.style.display = 'none'
-      if (map) map.style.pointerEvents = 'auto'
       if (root && !root.contains(document.activeElement)) focusIndex(0)
     }
     const timer = window.setTimeout(finish, 900)
@@ -745,6 +743,7 @@ export function mountVerso(scroller: HTMLElement, hooks: VersoHooks): Verso {
     closeTimer = 0
     resizeRaf = 0
     ro.disconnect()
+    window.removeEventListener('keydown', onEscape, true)
     raiseSide(false)
     if (main) delete main.dataset.verso
     stopMedia()
@@ -759,6 +758,7 @@ export function mountVerso(scroller: HTMLElement, hooks: VersoHooks): Verso {
     edge = null
     spineTitle = null
     spineGist = null
+    backBtn = null
     readBtn = null
     jumpBtn = null
     flap = null
@@ -813,9 +813,37 @@ export function mountVerso(scroller: HTMLElement, hooks: VersoHooks): Verso {
     }
   }
 
+  /** 结构面盖住正文时，块选区和「评论此块」不该还浮在上面。 */
+  function releaseSelection(view: EditorView): void {
+    const sel = view.state.selection
+    if (sel instanceof TextSelection && sel.empty) return
+    const doc = view.state.doc
+    if (doc.content.size === 0) return
+    const pos = Math.max(0, Math.min(sel.from, doc.content.size))
+    try {
+      const next = TextSelection.near(doc.resolve(pos))
+      if (!next.eq(sel)) view.dispatch(view.state.tr.setSelection(next))
+    } catch (err) {
+      reportError('editor-prosemirror', err)
+    }
+  }
+
+  /** 焦点不在结构面上时，Esc 也要能退一层。 */
+  function onEscape(e: KeyboardEvent): void {
+    if (e.key !== 'Escape' || phase !== 'open' || !root) return
+    const pane = root.closest('.sn-pane')
+    if (pane && !pane.classList.contains('sn-pane-on')) return
+    e.preventDefault()
+    e.stopPropagation()
+    if (flapAt !== null) closeFlap()
+    else if (path.length > 0) goDepth(path.length - 1)
+    else closeVerso(true, true)
+  }
+
   function openVerso(view: EditorView): void {
     const host = scroller.parentElement
     if (!host || phase !== 'closed') return
+    releaseSelection(view)
     editor = view
     phase = 'open'
     hooks.onOpenChange(true)
@@ -826,6 +854,7 @@ export function mountVerso(scroller: HTMLElement, hooks: VersoHooks): Verso {
     build(host)
     place()
     raiseSide(true)
+    window.addEventListener('keydown', onEscape, true)
     renderLevel(true)
     playOpen()
   }

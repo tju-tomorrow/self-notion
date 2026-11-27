@@ -235,6 +235,7 @@ export function blankDragPlugin(): Plugin {
 
       const onDown = (e: MouseEvent): void => {
         if (e.button !== 0) return
+        if (host.parentElement?.querySelector('.sn-verso')) return
         if (Date.now() - lastTouchAt < 700) return
         const target = e.target
         if (!(target instanceof Element)) return
@@ -319,6 +320,7 @@ export function blankDragPlugin(): Plugin {
 
       const onTouchDown = (e: PointerEvent): void => {
         if (e.pointerType === 'mouse' || !e.isPrimary || tPointer !== -1) return
+        if (host.parentElement?.querySelector('.sn-verso')) return
         const target = e.target
         if (!(target instanceof Element)) return
         if (target.closest('.sn-block, input, textarea, select, button, a') !== null) return

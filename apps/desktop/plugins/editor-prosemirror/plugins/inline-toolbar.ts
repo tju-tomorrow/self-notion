@@ -379,6 +379,7 @@ function createBar(
   }
 
   function sync(): void {
+    if (view.dom.closest('.sn-pane-main')?.querySelector('.sn-verso')) return hide()
     const { state } = view
     const box = view.hasFocus() && canFormat(state) ? selectionBox(view) : null
     if (!box) return hide()

@@ -36,6 +36,8 @@ export function CommentBubble({ ctx }: { ctx: Context }) {
 
     const measure = async (): Promise<void> => {
       raf = 0
+      // 结构面盖着正文时，块选区的「评论此块」不该再浮上来。
+      if (document.querySelector('.sn-pane-on .sn-verso')) return setAt(null)
       const st = getCommentState()
       if (st.docId === null || st.draft !== null) return setAt(null)
       try {

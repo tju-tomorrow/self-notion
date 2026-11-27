@@ -158,12 +158,12 @@ globalStyle('.sn-verso-edge:empty', { display: 'none' })
 
 globalStyle('.sn-verso-stripe', {
   flex: '1 1 auto',
-  maxHeight: 18,
-  minHeight: 12,
+  maxHeight: 28,
+  minHeight: 22,
   border: 'none',
   padding: 0,
-  background: `linear-gradient(${TEXT}, ${TEXT}) center / 100% 1.5px no-repeat`,
-  opacity: 0.38,
+  background: `linear-gradient(${TEXT}, ${TEXT}) center / 100% 2px no-repeat`,
+  opacity: 0.45,
   cursor: 'pointer',
 })
 
@@ -178,6 +178,36 @@ globalStyle('.sn-verso-spine', {
   minWidth: 0,
   padding: '8px 16px 8px 6px',
 })
+
+globalStyle('.sn-verso-back', {
+  alignSelf: 'flex-start',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 2,
+  margin: '0 0 10px',
+  padding: '6px 10px 6px 2px',
+  border: 'none',
+  borderRadius: 4,
+  background: 'transparent',
+  color: TEXT,
+  font: 'inherit',
+  fontSize: 14,
+  lineHeight: 1.2,
+  cursor: 'pointer',
+})
+
+globalStyle('.sn-verso-back::before', {
+  content: "'‹'",
+  fontSize: 22,
+  lineHeight: 1,
+  width: 18,
+})
+
+globalStyle('.sn-verso-back:hover', {
+  background: `color-mix(in srgb, ${TEXT} 8%, transparent)`,
+})
+
+globalStyle('.sn-verso-back[hidden]', { display: 'none' })
 
 globalStyle('.sn-verso-spine-title', {
   fontSize: 26,
