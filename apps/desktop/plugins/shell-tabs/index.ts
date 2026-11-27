@@ -27,6 +27,7 @@ import {
 import { reportError } from '../../src/kernel/errors'
 // 多窗口：窗口标签（`win-N`）—— 会话恢复与持久化只有主窗口做。
 import { isMainWindow } from '../../src/kernel/window'
+import { activateTab } from './activate'
 import { createTabs, pruneSnapshot, restore, serialize } from './tabs'
 import { TabBar } from './view'
 
@@ -76,13 +77,6 @@ export function apply(ctx: Context) {
     return liveIds?.has(id) === true
   }
 
-  /** 让主区切到某个标签。画布走自己的事件（文档向的插件不该看见它）。 */
-  const activateTab = (id: string) => {
-    const canvas = drawioTabParts(id)
-    if (canvas) ctx.emit(OPEN_CANVAS, canvas)
-    else ctx.emit(OPEN_DOC, { id })
-  }
-
   /** 把标签裁到「库里还在的」。一个不剩就跟关光所有标签一样回首页。 */
   const prune = () => {
     const before = store.snapshot()
@@ -90,7 +84,7 @@ export function apply(ctx: Context) {
     const after = store.snapshot()
     if (after === before) return
     if (after.activeId === null) ctx.emit(CLOSE_ALL)
-    else if (after.activeId !== before.activeId) activateTab(after.activeId)
+    else if (after.activeId !== before.activeId) activateTab(ctx, after.activeId)
   }
 
   /** 把设置里的会话读回来（`restore` 逐字段校验，坏数据降级成空标签）。 */
@@ -109,7 +103,7 @@ export function apply(ctx: Context) {
     //   主区却空着 —— 编辑器只认 OPEN_DOC，不认标签条里有什么（契约里没有「当前文档」）。
     //   自己也会收到这条（同 ctx 的 emit 会回到下面的 `ctx.on`），但 `store.open` 对
     //   已经激活的标签是空操作，不会转圈。
-    if (after !== null && after !== before) activateTab(after)
+    if (after !== null && after !== before) activateTab(ctx, after)
   }
 
   // 先按当下读到的恢复一次（非主窗口不读，理由见上）。
@@ -146,7 +140,7 @@ export function apply(ctx: Context) {
       store.close(id)
       const after = store.snapshot().activeId
       if (after === null) ctx.emit(CLOSE_ALL)
-      else if (after !== before) activateTab(after)
+      else if (after !== before) activateTab(ctx, after)
     }),
 
     // 菜单里的「新窗口」（⌘⇧N，见 `src/windows.rs`）：Rust 把事件发给**前台那个窗口**，

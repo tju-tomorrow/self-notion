@@ -379,6 +379,18 @@ pub fn dispatch(
             }
             Ok(out)
         },
+        // 画布保存：只换那一个块的 xml（读-改-写）。不整篇覆盖 —— 不然画布打开期间
+        // 别处（另一个窗口 / 手机推送 / 助手）的改动会被一起盖掉。
+        "doc:patchDrawio" => {
+            let a: DocPatchDrawio = parse(args)?;
+            let ok = call(db, |c| docs::patch_drawio(c, &a.id, &a.block_id, &a.xml))?;
+            if ok == Value::Bool(true) {
+                if let Some(h) = app {
+                    crate::windows::relay_doc(h, win, &a.id);
+                }
+            }
+            Ok(serde_json::json!({ "ok": ok }))
+        },
         // 标签整组替换（D-0086）。唯一写入口是文档 ⋯ 菜单那一行。
         "doc:tags" => call(db, |c| {
             let a: DocTags = parse(args)?;
@@ -956,6 +968,15 @@ struct DocApply {
     /// 不是"把边全删了"。少了 `default` 这一层，升级应用的一瞬间所有反链消失。
     #[serde(default)]
     links: Option<Vec<LinkArg>>,
+}
+
+/// `doc:patchDrawio`：画布只写自己那一块，不送整篇。
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DocPatchDrawio {
+    id: String,
+    block_id: String,
+    xml: String,
 }
 
 /// `sync:put`（P3-4）：覆盖源内容。

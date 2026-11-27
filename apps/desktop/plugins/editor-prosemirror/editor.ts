@@ -21,6 +21,7 @@ import type {
   DocMem,
 } from '../../src/kernel/contract'
 import { filePathOf } from '../../src/kernel/contract'
+import { flushCanvas } from '../../src/drawio/pending'
 import { reportError } from '../../src/kernel/errors'
 import { renderBacklinks, type BacklinksView } from './backlinks'
 import { anchorTop, anchorsOf, commentApi, stripAnchors, type CommentHooks } from './comment'
@@ -376,6 +377,8 @@ export async function mountEditor(
   side?: HTMLElement,
   opts?: { readOnly?: boolean },
 ): Promise<EditorHandle> {
+  // 画布的防抖保存可能还没落库：先等它。否则读进来的是旧 xml，之后整篇写回就把它盖掉了。
+  await flushCanvas(docId)
   const handle = await need().hydrate(docId)
   const readOnly = opts?.readOnly === true
   if (handle.deletedAt != null && !readOnly) {

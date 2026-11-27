@@ -101,6 +101,40 @@ function toComment(rec: CommentRecord): Comment {
   }
 }
 
+/** PM doc JSON 的最小形状 —— 只够找到块和它的 drawio 子节点。 */
+interface PmNode {
+  type?: string
+  attrs?: Record<string, unknown>
+  content?: PmNode[]
+}
+
+function findDrawio(node: PmNode, blockId: string): PmNode | null {
+  if (!Array.isArray(node.content)) return null
+  if (node.type === 'blockContainer' && node.attrs?.id === blockId) {
+    return node.content.find((n) => n.type === 'drawio') ?? null
+  }
+  for (const child of node.content) {
+    const found = findDrawio(child, blockId)
+    if (found) return found
+  }
+  return null
+}
+
+/** 只换 `blockContainer[blockId]` 里 drawio 的 xml（和 Rust 的 `patch_drawio` 同义）。 */
+function patchDrawio(content: string | null, blockId: string, xml: string): string | null {
+  if (!content) return null
+  let root: PmNode
+  try {
+    root = JSON.parse(content) as PmNode
+  } catch {
+    return null
+  }
+  const node = findDrawio(root, blockId)
+  if (!node) return null
+  node.attrs = { ...node.attrs, xml }
+  return JSON.stringify(root)
+}
+
 /** 搜索 / 反链共用的一份全文缓存；写正文或元数据时 `dataRevision()` 会变。 */
 let searchCache: { rev: number; rows: { rec: DocRecord; md: string }[] } | null = null
 
@@ -394,6 +428,25 @@ export function createWebRpc(hooks: RpcHooks): RpcService {
         await putDoc(rec)
         schedulePush()
         return null
+      }
+
+      // 画布保存：只换那一个块的 xml（和 Rust 的 `doc:patchDrawio` 同义）。
+      case 'doc:patchDrawio': {
+        const rec = await mustGet(String(a.id))
+        const body = (await getContent(rec.id)) ?? { id: rec.id, content: null, md: '', baseContent: null }
+        const next = patchDrawio(
+          body.content,
+          String(a.blockId ?? ''),
+          typeof a.xml === 'string' ? a.xml : '',
+        )
+        if (next === null) return { ok: false }
+        body.content = next
+        await putContent(body)
+        rec.mdAt = now()
+        rec.dirty = true
+        await putDoc(rec)
+        schedulePush()
+        return { ok: true }
       }
 
       case 'doc:touch': {

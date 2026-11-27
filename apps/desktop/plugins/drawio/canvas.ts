@@ -1,8 +1,9 @@
 /**
  * 画布页的控制器：工具条 + maxgraph + 读写库（D-0216）。
  *
- * 数据这一侧只有两步：打开时 `doc:open` 拿整篇 JSON，改动防抖后把那一块的 `attrs.xml`
- * 换掉再 `doc:apply` 写回。笔记页没有同时开着（换标签时编辑器已卸载），所以不需要双向同步。
+ * 数据这一侧只有两步：打开时 `doc:open` 拿整篇 JSON（只为了找块和读初始 xml），改动防抖后
+ * `doc:patchDrawio` 只写那一个块的 xml（D-0221）。笔记页没有同时开着（换标签时编辑器已卸载），
+ * 所以不需要双向同步；两边切换前各等对方把攒着的改动落完（`src/drawio/pending.ts`）。
  */
 import type { Context } from 'cordis'
 
@@ -15,6 +16,7 @@ import {
 } from '../../src/drawio/engine'
 import { drawioTabParts } from '../../src/kernel/contract'
 import { reportError } from '../../src/kernel/errors'
+import { flushCanvas, registerCanvasFlush } from '../../src/drawio/pending'
 import * as s from './page.css'
 
 interface JsonNode {
@@ -85,10 +87,12 @@ export class DrawioCanvas {
   private styleHint!: HTMLElement
 
   private json: JsonNode | null = null
-  private node: JsonNode | null = null
   private graph: DrawioGraph | null = null
   private offChange: (() => void) | undefined
+  private offFlush: (() => void) | undefined
   private timer: number | undefined
+  /** 落库串行链：两次写不能交错，否则旧的那次可能后到、把新的盖掉。 */
+  private chain: Promise<void> = Promise.resolve()
   private menu: HTMLElement | null = null
   private picker: HTMLElement | null = null
   private pickerPoint: { x: number; y: number } | null = null
@@ -96,6 +100,8 @@ export class DrawioCanvas {
   private spacePan = false
   private dirty = false
   private disposed = false
+  /** 块被删了：别再写，也别再重试。 */
+  private gone = false
 
   constructor(ctx: Context, tabId: string, root: HTMLElement) {
     this.ctx = ctx
@@ -111,6 +117,8 @@ export class DrawioCanvas {
     window.addEventListener('keydown', this.onKey)
     window.addEventListener('keyup', this.onKeyUp)
     window.addEventListener('blur', this.onBlur)
+    // 编辑器读这篇之前会先等这里落完（见 `src/drawio/pending.ts`）。
+    this.offFlush = registerCanvasFlush(this.docId, () => this.flush())
     void this.load()
   }
 
@@ -138,7 +146,11 @@ export class DrawioCanvas {
       const box = document.createElement('span')
       box.className = s.shapeGroup
       for (const shape of group.items) {
-        const b = this.button(shape.glyph, shape.label, () => this.graph?.insert(shape))
+        const b = this.button(shape.glyph, shape.label, () => {
+          this.graph?.insert(shape)
+          this.refresh()
+          this.host.focus()
+        })
         b.classList.add(s.shapeBtn)
         this.wireDrag(b, shape)
         box.appendChild(b)
@@ -336,6 +348,8 @@ export class DrawioCanvas {
 
   private async load(): Promise<void> {
     try {
+      // 别的画布可能还攒着改动：先落库，不然读到的是旧 xml。
+      await flushCanvas(this.docId)
       const h = await this.ctx.rpc.call<{
         content: string | null
         doc: { title: string; deletedAt: number | null }
@@ -348,7 +362,6 @@ export class DrawioCanvas {
       const block = this.findBlock()
       const node = block?.content?.find((n) => n.type === 'drawio') ?? null
       if (!block || !node) return this.missing('这个画布已经不在原来的笔记里了')
-      this.node = node
 
       const xml = typeof node.attrs?.xml === 'string' ? node.attrs.xml : ''
       const graph = await createDrawioGraph(this.host, { xml, interactive: true })
@@ -385,19 +398,48 @@ export class DrawioCanvas {
     this.timer = window.setTimeout(() => void this.save(), SAVE_MS)
   }
 
-  private async save(): Promise<void> {
-    if (this.timer !== undefined) clearTimeout(this.timer)
-    this.timer = undefined
-    const graph = this.graph
-    if (!graph || !this.node) return
-    // 先同步取出 XML 再 await —— 卸载时图已经拆了也还能拿到这一段。
-    const xml = graph.serialize()
-    this.node.attrs = { ...this.node.attrs, xml }
-    const content = JSON.stringify(this.json)
+  /**
+   * 排一次落库。XML 在这里**同步**取 —— 卸载时图已经拆了也还留着这一段。
+   * 写按 `chain` 串行，两次写不会交错。
+   */
+  private save(): Promise<void> {
+    if (this.timer !== undefined) {
+      clearTimeout(this.timer)
+      this.timer = undefined
+    }
+    if (this.gone) return this.chain
+    const xml = this.graph?.serialize()
+    if (xml === undefined) return this.chain
     this.dirty = false
+    const write = this.chain.then(() => this.write(xml))
+    // 失败也不能断链：后面排着的保存得照样跑。
+    this.chain = write.catch(() => undefined)
+    return this.chain
+  }
+
+  /** 立刻把攒着的改动落完；编辑器读这篇之前等它。 */
+  private flush(): Promise<void> {
+    if (this.timer !== undefined) {
+      clearTimeout(this.timer)
+      this.timer = undefined
+    }
+    return this.dirty ? this.save() : this.chain
+  }
+
+  private async write(xml: string): Promise<void> {
     try {
-      // 不带 title / md：少了 reindex（FTS 重建），画布每存一次不该重灌一遍全文索引。
-      await this.ctx.rpc.call('doc:apply', { id: this.docId, content, origin: 'user' })
+      // 只换这一块的 xml：画布不拥有整篇，整篇写回会盖掉别处的改动。
+      const r = await this.ctx.rpc.call<{ ok?: boolean }>('doc:patchDrawio', {
+        id: this.docId,
+        blockId: this.blockId,
+        xml,
+      })
+      if (r?.ok === false) {
+        // 块被删了 / 被换掉了：别把画布写回来。
+        this.gone = true
+        if (!this.disposed) this.setStatus('这个画布已经不在笔记里了')
+        return
+      }
       if (!this.disposed) this.setStatus('已保存')
     } catch (err) {
       this.dirty = true
@@ -742,11 +784,11 @@ export class DrawioCanvas {
     window.removeEventListener('keydown', this.onKey)
     window.removeEventListener('keyup', this.onKeyUp)
     window.removeEventListener('blur', this.onBlur)
-    if (this.timer !== undefined) {
-      clearTimeout(this.timer)
-      this.timer = undefined
-    }
-    if (this.dirty) void this.save()
+    // 先把 XML 同步抢出来，再拆图；闸门等这次写落地才摘 —— 编辑器可能正等在它后面。
+    const saved = this.flush()
+    const offFlush = this.offFlush
+    this.offFlush = undefined
+    void saved.finally(() => offFlush?.())
     this.offChange?.()
     this.offChange = undefined
     this.graph?.dispose()

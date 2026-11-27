@@ -22,6 +22,7 @@ import {
   type EditorService,
 } from '../../src/kernel/contract'
 import { nextCopyTitle, retitleDocJson } from '../../src/kernel/doc-name'
+import { flushAllCanvases } from '../../src/drawio/pending'
 import { reportError, reportNote } from '../../src/kernel/errors'
 import { isWeb } from '../../src/platform/env'
 import { setLoadBacklinks } from './backlinks'
@@ -422,6 +423,7 @@ export function apply(ctx: Context) {
         void load()
           .then((editor) => editor.flushAll())
           .catch((err: unknown) => reportError('editor-prosemirror', err))
+        void flushAllCanvases().catch((err: unknown) => reportError('drawio', err))
       }
       const onHidden = () => {
         if (document.visibilityState === 'hidden') flushNow()
@@ -444,7 +446,11 @@ export function apply(ctx: Context) {
           event.preventDefault()
           try {
             const editor = await load()
-            await editor.flushAll()
+            // 画布不跟 React 卸载走，没人替它落 —— 关窗口这一下要一起等。
+            await Promise.all([
+              editor.flushAll(),
+              flushAllCanvases().catch((err: unknown) => reportError('drawio', err)),
+            ])
           } catch (err) {
             reportError('editor-prosemirror', err)
           }

@@ -1,7 +1,8 @@
 //! 文档：元数据（documents）+ 正文（doc，PM doc JSON）+ 索引（doc_text / doc_fts）。
 //!
-//! ★ **改内容的唯一入口是 `apply`**，`version::restore` 是另一个。
-//! 「先快照后写」的顺序在这两个函数里强制，调用方（命令分派、AI、前端）跳不过去（D-0043）。
+//! ★ 改正文的入口只有三个：`apply`（整篇）、`version::restore`（整篇回滚）、
+//! `patch_drawio`（只改画布块的那一个属性）。「先快照后写」的顺序在前两个里强制，
+//! 调用方（命令分派、AI、前端）跳不过去（D-0043）。
 
 use super::{clean_controls, db_err, links, new_id, not_found, now_ms, version};
 use crate::commands::{ApiError, ApiResult};
@@ -395,6 +396,56 @@ pub fn apply(conn: &Connection, a: Apply<'_>) -> ApiResult<()> {
     }
 
     tx.commit().map_err(db_err)
+}
+
+/// 只换一篇里某个块的 `drawio.attrs.xml`（画布保存）。
+///
+/// ★ 为什么不走 `apply` 的整篇覆盖：画布只拥有自己那一块。整篇写回会把「打开画布之后
+///   别处发生的改动」一起盖掉 —— 另一个窗口、手机推送、助手写库都可能在这段窗口里改。
+/// 读-改-写在同一事务里，只动那一个属性；返回 `false` = 块已经不在了（被删/被替换），
+/// 调用方不该把画布写回来。
+pub fn patch_drawio(conn: &Connection, doc_id: &str, block_id: &str, xml: &str) -> ApiResult<bool> {
+    let tx = conn.unchecked_transaction().map_err(db_err)?;
+    let content: String = tx
+        .query_row("SELECT content FROM doc WHERE doc_id = ?1", [doc_id], |r| r.get(0))
+        .optional()
+        .map_err(db_err)?
+        .ok_or_else(|| ApiError::new("no_doc", "这篇还没有正文"))?;
+    let mut root: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| ApiError::new("bad_content", e.to_string()))?;
+    let Some(attrs) = drawio_attrs_mut(&mut root, block_id) else {
+        return Ok(false);
+    };
+    attrs.insert("xml".into(), serde_json::Value::String(xml.to_owned()));
+    let next = serde_json::to_string(&root).map_err(|e| ApiError::new("encode", e.to_string()))?;
+    tx.execute("UPDATE doc SET content = ?2 WHERE doc_id = ?1", params![doc_id, next])
+        .map_err(db_err)?;
+    tx.commit().map_err(db_err)?;
+    Ok(true)
+}
+
+/// 找到 `attrs.id == block_id` 的块容器，再找它**直接子节点**里的 `drawio`，返回它的 attrs。
+/// 块可能嵌在 blockGroup 里（分栏 / 折叠），所以要递归往下找。
+fn drawio_attrs_mut<'a>(
+    node: &'a mut serde_json::Value,
+    block_id: &str,
+) -> Option<&'a mut serde_json::Map<String, serde_json::Value>> {
+    let is_block = node.get("type").and_then(serde_json::Value::as_str) == Some("blockContainer")
+        && node.pointer("/attrs/id").and_then(serde_json::Value::as_str) == Some(block_id);
+    if is_block {
+        let content = node.get_mut("content")?.as_array_mut()?;
+        let drawio = content
+            .iter_mut()
+            .find(|n| n.get("type").and_then(serde_json::Value::as_str) == Some("drawio"))?;
+        return drawio.get_mut("attrs")?.as_object_mut();
+    }
+    let content = node.get_mut("content")?.as_array_mut()?;
+    for child in content.iter_mut() {
+        if let Some(found) = drawio_attrs_mut(child, block_id) {
+            return Some(found);
+        }
+    }
+    None
 }
 
 /// 维护 Markdown 投影 + 全文索引。**两者同一个 payload**（D-0040）。

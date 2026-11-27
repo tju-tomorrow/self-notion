@@ -11,16 +11,15 @@ import {
   AGENT_TAB_ID,
   CLOSE_ALL,
   DOCS_CHANGED,
-  OPEN_CANVAS,
   OPEN_DOC,
   SPLIT_VIEW,
-  drawioTabParts,
   fileTitleOf,
   isDrawioTab,
   type DocMeta,
   type SplitViewEvent,
 } from '../../src/kernel/contract'
 import type { TabsStore } from './tabs'
+import { activateTab } from './activate'
 import { PagePicker } from './page-picker'
 import * as s from './tabs.css'
 
@@ -163,9 +162,7 @@ function TabItem({
    *  重复广播是安全的：`ctx.on(OPEN_DOC)` 那边调 `store.open`，对已激活的标签是空操作。 */
   const activate = () => {
     store.activate(id)
-    const canvas = drawioTabParts(id)
-    if (canvas) ctx.emit(OPEN_CANVAS, canvas)
-    else ctx.emit(OPEN_DOC, { id })
+    activateTab(ctx, id)
   }
 
   const close = (e: { stopPropagation(): void }) => {
@@ -175,8 +172,8 @@ function TabItem({
     const after = store.snapshot().activeId
     // 关光了就回首页 —— 否则主区停在编辑器上，里面却什么都没有（一片黑，像坏了）。
     if (after === null) ctx.emit(CLOSE_ALL)
-    // 关的正是激活那个 → 邻居上位，得让编辑器换过去
-    else if (after !== before) ctx.emit(OPEN_DOC, { id: after })
+    // 关的正是激活那个 → 邻居上位，得让主区换过去。邻居可能是画布标签，所以走 activateTab。
+    else if (after !== before) activateTab(ctx, after)
   }
 
   return (
@@ -287,7 +284,7 @@ function TabItem({
               onClick={() => {
                 setMenu(null)
                 store.closeOthers(id)
-                ctx.emit(OPEN_DOC, { id })
+                activateTab(ctx, id)
               }}
             >
               {ctx.i18n.t('shell-tabs.closeOthers')}
@@ -301,7 +298,7 @@ function TabItem({
                 // 固定住的会留下来 —— 只有真的一枚不剩才回首页。
                 const after = store.snapshot().activeId
                 if (after === null) ctx.emit(CLOSE_ALL)
-                else ctx.emit(OPEN_DOC, { id: after })
+                else activateTab(ctx, after)
               }}
             >
               {ctx.i18n.t('shell-tabs.closeAll')}
