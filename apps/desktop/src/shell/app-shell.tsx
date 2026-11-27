@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react'
 import type { Context } from 'cordis'
 import { PageIcon, PlusIcon, SearchIcon, SettingsIcon, SidebarIcon } from '@blocksuite/icons/rc'
-import { AGENT_TAB_ID, CLOSE_ALL, DOCS_CHANGED, OPEN_DOC, SHOW_LIST, isFileId } from '../kernel/contract'
+import { AGENT_TAB_ID, CLOSE_ALL, DOCS_CHANGED, OPEN_CANVAS, OPEN_DOC, SHOW_LIST, drawioTabId, isDrawioTab, isFileId } from '../kernel/contract'
 import * as s from './shell.css'
 import * as motion from '../ui/motion.css'
 import { readLocal, writeLocal } from '../kernel/local'
@@ -13,7 +13,7 @@ import { reportError } from '../kernel/errors'
 import { SlotHost } from './slot-host'
 
 /** 主区显示哪一页。放外壳是因为只有外壳知道主区该给谁。 */
-type MainView = 'home' | 'doc' | 'agent'
+type MainView = 'home' | 'doc' | 'agent' | 'drawio'
 
 function useDocView(ctx: Context): { view: MainView; id: string | null } {
   const [state, setState] = useState<{ view: MainView; id: string | null }>({
@@ -23,7 +23,11 @@ function useDocView(ctx: Context): { view: MainView; id: string | null } {
   useEffect(() => {
     // 助手那个虚拟标签（D-0095）也走 OPEN_DOC —— 外壳靠 id 分流，不走第二个事件。
     const offOpen = ctx.on(OPEN_DOC, ({ id }) =>
-      setState({ view: id === AGENT_TAB_ID ? 'agent' : 'doc', id }),
+      setState({ view: id === AGENT_TAB_ID ? 'agent' : isDrawioTab(id) ? 'drawio' : 'doc', id }),
+    )
+    // 画布（D-0216）有自己的事件：文档向的插件不该看见 `sn:drawio:` 这种 id。
+    const offCanvas = ctx.on(OPEN_CANVAS, ({ docId, blockId }) =>
+      setState({ view: 'drawio', id: drawioTabId(docId, blockId) }),
     )
     // 「回首页」有两条路：关光标签（CLOSE_ALL）+ 侧栏点了某个列表页（SHOW_LIST）。
     const home = () => setState({ view: 'home', id: null })
@@ -32,6 +36,7 @@ function useDocView(ctx: Context): { view: MainView; id: string | null } {
     // ctx.on 的逆函数返回 boolean，React 要 void —— 包一层（D-0033）
     return () => {
       void offOpen()
+      void offCanvas()
       void offClose()
       void offList()
     }
@@ -367,6 +372,9 @@ export function AppShell({ ctx }: { ctx: Context }) {
               {view === 'agent' ? (
                 // 助手那一页（D-0095）：整块主区，自己带左历史右对话
                 <SlotHost ctx={ctx} name="main.page" />
+              ) : view === 'drawio' ? (
+                // 画布（D-0216）：同样整块主区，自己带工具条
+                <SlotHost ctx={ctx} name="main.drawio" />
               ) : (
                 <>
               {/* 页面顶栏（面包屑 + 页面操作）。壳只负责渲染这个槽，里面由插件塞。

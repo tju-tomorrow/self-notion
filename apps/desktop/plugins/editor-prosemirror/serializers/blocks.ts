@@ -11,7 +11,7 @@ type Spec = Record<string, unknown>
 const TYPES =
   'paragraph / heading / quote / callout / codeBlock / equation / divider / ' +
   'bulletedListItem / numberedListItem / todoItem / toggle / table / image / video / audio / file / ' +
-  'voiceNote / subpage / syncedBlock / templateButton / columnList / tableOfContents / breadcrumb'
+  'voiceNote / drawio / subpage / syncedBlock / templateButton / columnList / tableOfContents / breadcrumb'
 
 export function docFromBlocks(blocks: unknown): string {
   if (!Array.isArray(blocks)) throw new Error('doc_blocks：blocks 必须是数组')
@@ -110,6 +110,8 @@ function block(raw: unknown, where: string): PMNode {
         [],
         spec,
       )
+    case 'drawio':
+      return container(schema.nodes.drawio.create({ xml: str(spec.xml) }), [], spec)
     case 'subpage':
       return container(schema.nodes.subpage.create({ docId: str(spec.docId) }), [], spec)
     case 'syncedBlock':

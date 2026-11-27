@@ -14,7 +14,7 @@ import { newBlockId } from './id'
 import { liftOut } from './move'
 
 /** 插进来会自带一个空段落垫底的原子块。 */
-const MEDIA = new Set(['image', 'video', 'audio', 'file', 'voiceNote'])
+const MEDIA = new Set(['image', 'video', 'audio', 'file', 'voiceNote', 'drawio'])
 
 const DEGRADE_TO_PARAGRAPH = new Set([
   'quote',

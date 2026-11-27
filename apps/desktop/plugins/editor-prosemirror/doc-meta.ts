@@ -58,6 +58,17 @@ export function openDoc(id: string): void {
   openDocFn?.(id)
 }
 
+let openCanvasFn: ((docId: string, blockId: string) => void) | undefined
+
+export function setOpenCanvas(fn: (docId: string, blockId: string) => void): void {
+  openCanvasFn = fn
+}
+
+/** 打开某个 drawio 块的画布标签（D-0216）。先落库再开，由 `index.ts` 接。 */
+export function openCanvas(docId: string, blockId: string): void {
+  openCanvasFn?.(docId, blockId)
+}
+
 let createDocFn: ((title: string, parentId: string | null) => Promise<string>) | undefined
 
 export function setCreateDoc(fn: (title: string, parentId: string | null) => Promise<string>): void {

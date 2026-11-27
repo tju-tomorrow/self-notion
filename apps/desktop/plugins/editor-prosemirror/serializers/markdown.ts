@@ -1052,6 +1052,8 @@ function renderContent(state: MarkdownSerializerState, node: PMNode): void {
     // 目录 / 面包屑是现算的页面元素，markdown 里没有对应写法 —— ignore（不 throw、不写占位）。
     case 'tableOfContents':
     case 'breadcrumb':
+    // 画布没有 markdown 写法；md 是搜索投影，不该塞一整段 XML 进去（D-0216）。
+    case 'drawio':
       return
     // markdown 没有分栏 —— 拍平：各列内容前后相接。
     case 'columnList':

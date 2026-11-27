@@ -25,6 +25,7 @@ const WEB_PLUGINS = new Set([
   'home',
   'search-panel',
   'editor-prosemirror',
+  'drawio',
   'code-theme',
   'blob',
   'theme',

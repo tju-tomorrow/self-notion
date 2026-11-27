@@ -31,6 +31,9 @@ importers:
       '@blocksuite/icons':
         specifier: ^2.2.17
         version: 2.2.17(@types/react@19.3.0)(change-case@4.1.2)(lit@3.3.3)(react@19.3.0)
+      '@maxgraph/core':
+        specifier: ^0.25.2
+        version: 0.25.2
       '@tauri-apps/api':
         specifier: ^2
         version: 2.12.1
@@ -717,6 +720,9 @@ packages:
 
   '@lottiefiles/dotlottie-web@0.44.0':
     resolution: {integrity: sha512-IUWKVciDJI/BMWDWnh7j0Ngd0N8q9ySRAwm84aDqIE07qpmdZ7x1rkIpBaU1yHSNqNYHeh1Rxsl+LC3CY4f0KA==}
+
+  '@maxgraph/core@0.25.2':
+    resolution: {integrity: sha512-oEGR8uF7p6UhPa0hTi4KBs7496bB9Bx3O76BOYPhOmJIi+V2ioWr1MNg+M1IeVre41tzUpWeo8KLJPmlNDzhrg==}
 
   '@mermaid-js/parser@2.0.1':
     resolution: {integrity: sha512-j37dj/h6p6pots1L7pLPPNuABEEu9WP4OYg9pW1g+nYG331j0+3canE9OagtYdytYvdSAMG+2fKU5cxep6LgjA==}
@@ -5392,6 +5398,8 @@ snapshots:
       lit: 3.3.3
 
   '@lottiefiles/dotlottie-web@0.44.0': {}
+
+  '@maxgraph/core@0.25.2': {}
 
   '@mermaid-js/parser@2.0.1':
     dependencies:

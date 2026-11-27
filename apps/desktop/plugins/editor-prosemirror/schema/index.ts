@@ -346,6 +346,21 @@ const nodes: Record<string, NodeSpec> = {
   video: content(mediaNode('video', 'sn-video')),
   audio: content(mediaNode('audio', 'sn-audio')),
   file: content(mediaNode('a', 'sn-file')),
+  // drawio 画布（D-0216）：xml 是 drawio 兼容的 mxGraphModel，预览由 NodeView 现画。
+  drawio: content({
+    atom: true,
+    attrs: { xml: { default: '' } },
+    parseDOM: [
+      {
+        tag: 'div.sn-drawio',
+        getAttrs: (el) => ({ xml: (el as HTMLElement).dataset.xml ?? '' }),
+      },
+    ],
+    toDOM: (node): DOMOutputSpec => [
+      'div',
+      { class: 'sn-drawio', 'data-xml': String(node.attrs.xml ?? '') },
+    ],
+  }),
   // 语音笔记（D-0215）：WAV 存 blob，transcript 空串 = 还没转写。
   voiceNote: content({
     atom: true,

@@ -7,7 +7,7 @@ import { createElement, useSyncExternalStore } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { Context } from 'cordis'
 
-import { AGENT_TAB_ID, CLOSE_ALL, OPEN_DOC, SHOW_LIST } from '../../src/kernel/contract'
+import { AGENT_TAB_ID, CLOSE_ALL, OPEN_CANVAS, OPEN_DOC, SHOW_LIST } from '../../src/kernel/contract'
 import { VoiceBar } from './bar'
 
 export const name = 'voice-input'
@@ -44,6 +44,8 @@ export function apply(ctx: Context): void {
   ctx.effect(() => [
     // 助手那个虚拟标签不是文档 —— 那里没有正文可落。
     ctx.on(OPEN_DOC, ({ id }) => setCurrent(id === AGENT_TAB_ID ? null : id)),
+    // 画布页没有正文可落（D-0216）。
+    ctx.on(OPEN_CANVAS, () => setCurrent(null)),
     ctx.on(SHOW_LIST, () => setCurrent(null)),
     ctx.on(CLOSE_ALL, () => setCurrent(null)),
   ])

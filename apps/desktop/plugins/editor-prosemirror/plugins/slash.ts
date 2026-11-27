@@ -98,6 +98,14 @@ const ITEMS: readonly SlashItem[] = [
     alias: ['语音', '语音笔记', '录音', '录一段', 'yuyin', 'luyin', 'voice', 'voicenote', 'audio'],
   },
   {
+    name: 'Drawio',
+    group: 'advanced',
+    hint: 'Diagram canvas',
+    icon: '◇',
+    block: { type: 'drawio' },
+    alias: ['画布', 'drawio', '图表', '流程图', '架构图', 'canvas', 'diagram', 'huabu', 'liuchengtu'],
+  },
+  {
     name: 'Text',
     group: 'basic',
     hint: 'Plain text',

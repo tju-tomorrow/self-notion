@@ -14,6 +14,7 @@ import {
   COMMENT_LAYOUT,
   DOC_SAVED,
   DOCS_CHANGED,
+  OPEN_CANVAS,
   OPEN_DOC,
   type CommentState,
   type CommentTarget,
@@ -25,7 +26,7 @@ import { reportError, reportNote } from '../../src/kernel/errors'
 import { isWeb } from '../../src/platform/env'
 import { setLoadBacklinks } from './backlinks'
 import { setPutBlob } from './blob'
-import { allDocs, setCreateDoc, setDocs, setLoadDoc, setOpenDoc } from './doc-meta'
+import { allDocs, setCreateDoc, setDocs, setLoadDoc, setOpenCanvas, setOpenDoc } from './doc-meta'
 import { setSyncApi } from './sync'
 import { setVoiceApi } from './voice'
 import { setScheme as setMermaidScheme } from './nodes/mermaid'
@@ -321,6 +322,13 @@ export function apply(ctx: Context) {
   // ★ 这一段是**轻的**：`doc:list` 走 rpc，不碰编辑器本体，所以进得了启动路径。
   ctx.effect(() => {
     setOpenDoc((id) => ctx.emit(OPEN_DOC, { id }))
+    // 画布块（D-0216）：先把这篇攒着的改动落库，再开画布标签 —— 不然画布读到的是旧 JSON。
+    setOpenCanvas((docId, blockId) => {
+      void ctx.editor
+        .flush(docId)
+        .catch((err: unknown) => reportError('editor-prosemirror', err))
+        .finally(() => ctx.emit(OPEN_CANVAS, { docId, blockId }))
+    })
     // 存图片 / 附件。字节走 base64（线格式，D-0047），Rust 按 sha256 去重。
     setPutBlob(async (file) => {
       const bytes = new Uint8Array(await file.arrayBuffer())

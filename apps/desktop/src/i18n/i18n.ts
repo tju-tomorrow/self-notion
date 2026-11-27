@@ -659,6 +659,7 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     // ────────── W1 追加区：内置 agent（D-0087）。**只在锚点之间加** ──────────
     // 前缀是 `agent.*` 不是 `ai.*` —— `ai.*` 那一串是设置页的 BYO endpoint，别撞。
     'agent.title': '内置助手',
+    'drawio.tab': '画布',
     'agent.open': '助手',
     'agent.dock': '助手：在右侧对话',
     'agent.collapse': '收进右侧栏',
@@ -1453,6 +1454,7 @@ const DICT: Readonly<Record<Lang, Readonly<Record<string, string>>>> = {
     // ────────── W1 追加区：内置 agent（D-0087）。**只在锚点之间加** ──────────
     // `agent.*` 而不是 `ai.*` —— 后者是设置页的 BYO endpoint，别撞。
     'agent.title': 'Assistant',
+    'drawio.tab': 'Canvas',
     'agent.open': 'Assistant',
     'agent.dock': 'Assistant: chat on the right',
     'agent.collapse': 'Open in the right sidebar',

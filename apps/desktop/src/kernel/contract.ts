@@ -248,6 +248,8 @@ export type SlotName =
   /** 「助手」那一页（D-0095）。外壳的**第三个**分支：主区整块交给助手（左边历史、右边对话），
    *  跟 `main.view` 分开一格 —— 它不该叠在正文上，也不该跟正文抢一半宽度。 */
   | 'main.page'
+  /** drawio 画布那一页（D-0216）。整块主区，不叠在正文上。 */
+  | 'main.drawio'
   | 'settings.section'
   | 'titlebar.center'
   | 'titlebar.right'
@@ -333,6 +335,35 @@ export const AGENT_TAB_ID = 'sn:agent'
 
 export interface OpenDocEvent {
   id: string
+}
+
+/* ─────────────────── drawio 画布标签（D-0216）─────────────────── */
+
+/** 画布标签也是虚拟标签：id 里带着源文档和块，标签条恢复时靠它找回来。 */
+export const DRAWIO_TAB_PREFIX = 'sn:drawio:'
+
+export function drawioTabId(docId: string, blockId: string): string {
+  return `${DRAWIO_TAB_PREFIX}${docId}:${blockId}`
+}
+
+export function isDrawioTab(id: string): boolean {
+  return id.startsWith(DRAWIO_TAB_PREFIX)
+}
+
+export function drawioTabParts(id: string): { docId: string; blockId: string } | null {
+  if (!isDrawioTab(id)) return null
+  const rest = id.slice(DRAWIO_TAB_PREFIX.length)
+  const at = rest.indexOf(':')
+  if (at <= 0 || at >= rest.length - 1) return null
+  return { docId: rest.slice(0, at), blockId: rest.slice(at + 1) }
+}
+
+/** 笔记里的画布块被点开。**不走 `OPEN_DOC`** —— 文档向的插件不该看见它。 */
+export const OPEN_CANVAS = 'ui:openCanvas'
+
+export interface OpenCanvasEvent {
+  docId: string
+  blockId: string
 }
 
 /** 关掉**某一个**标签（D-0104 续）。发出去的人只有一处：助手那一页上那颗「收进右侧栏」——
@@ -1065,6 +1096,7 @@ declare module 'cordis' {
   interface Events {
     [CLOSE_TAB]: (payload: CloseTabEvent) => void
     [OPEN_DOC]: (payload: OpenDocEvent) => void
+    [OPEN_CANVAS]: (payload: OpenCanvasEvent) => void
     [SPLIT_VIEW]: (payload: SplitViewEvent) => void
     [CLOSE_ALL]: () => void
     [SHOW_LIST]: (payload: ShowListEvent) => void

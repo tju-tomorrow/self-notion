@@ -11,9 +11,12 @@ import {
   AGENT_TAB_ID,
   CLOSE_ALL,
   DOCS_CHANGED,
+  OPEN_CANVAS,
   OPEN_DOC,
   SPLIT_VIEW,
+  drawioTabParts,
   fileTitleOf,
+  isDrawioTab,
   type DocMeta,
   type SplitViewEvent,
 } from '../../src/kernel/contract'
@@ -126,10 +129,15 @@ function TabItem({
   panes: number
 }) {
   const agent = id === AGENT_TAB_ID
-  // 助手那一个不是文档：库里查不到它的名字和图标，所以名字和图标都自己给（D-0095）。
+  // 助手 / 画布都不是文档：库里查不到它们的名字和图标，所以自己给（D-0095 / D-0216）。
   // 外部文件同理（D-0137）：库里没有它，名字就是文件名。
+  const drawio = isDrawioTab(id)
   const fileTitle = fileTitleOf(id)
-  const title = agent ? ctx.i18n.t('agent.title') : (fileTitle ?? doc?.title ?? '')
+  const title = drawio
+    ? ctx.i18n.t('drawio.tab')
+    : agent
+      ? ctx.i18n.t('agent.title')
+      : (fileTitle ?? doc?.title ?? '')
   // 拖拽悬停的落点高亮（落点用下落当下的下标算，所以只需一个布尔）
   const [over, setOver] = useState(false)
   /** 标签上那个小菜单（关闭其他 / 关闭全部）的位置。null = 没开。 */
@@ -155,7 +163,9 @@ function TabItem({
    *  重复广播是安全的：`ctx.on(OPEN_DOC)` 那边调 `store.open`，对已激活的标签是空操作。 */
   const activate = () => {
     store.activate(id)
-    ctx.emit(OPEN_DOC, { id })
+    const canvas = drawioTabParts(id)
+    if (canvas) ctx.emit(OPEN_CANVAS, canvas)
+    else ctx.emit(OPEN_DOC, { id })
   }
 
   const close = (e: { stopPropagation(): void }) => {
@@ -211,7 +221,9 @@ function TabItem({
     >
       {/* 图标在前，像浏览器的 favicon —— AFFiNE 的标签也是这么排的 */}
       <span className={s.tabIcon}>
-        {agent ? (
+        {drawio ? (
+          <span style={{ fontSize: 14, lineHeight: 1 }}>◇</span>
+        ) : agent ? (
           // 助手那个标签的图标也是**那只宠物**（D-0095 续）。拿不到就不画 —— 名字还在。
           (ctx.get('mascot')?.face(16) as ReactNode) ?? null
         ) : fileTitle !== null ? (
@@ -254,18 +266,21 @@ function TabItem({
             </button>
             {/* 分屏入口就在标签上：右键哪一篇，就把它放进新开出来的那一栏。
                 已经在看的（激活）那一篇不重发 OPEN_DOC —— 否则焦点被拽回旧栏，新栏空着没人管。 */}
-            <button
-              type="button"
-              className={s.menuItem}
-              onClick={() => {
-                setMenu(null)
-                const want = panes >= 3 ? 1 : panes + 1
-                ctx.emit(SPLIT_VIEW, { panes: want })
-                if (want > 1 && store.snapshot().activeId !== id) ctx.emit(OPEN_DOC, { id })
-              }}
-            >
-              {ctx.i18n.t(panes >= 3 ? 'shell-tabs.unsplit' : 'shell-tabs.split')}
-            </button>
+            {/* 画布不分屏：编辑器那套分栏只认文档（D-0216）。 */}
+            {!drawio && (
+              <button
+                type="button"
+                className={s.menuItem}
+                onClick={() => {
+                  setMenu(null)
+                  const want = panes >= 3 ? 1 : panes + 1
+                  ctx.emit(SPLIT_VIEW, { panes: want })
+                  if (want > 1 && store.snapshot().activeId !== id) ctx.emit(OPEN_DOC, { id })
+                }}
+              >
+                {ctx.i18n.t(panes >= 3 ? 'shell-tabs.unsplit' : 'shell-tabs.split')}
+              </button>
+            )}
             <button
               type="button"
               className={s.menuItem}

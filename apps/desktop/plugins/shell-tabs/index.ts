@@ -12,7 +12,18 @@ import { createElement } from 'react'
 import { appListen } from '../../src/platform/events'
 // 事件名与载荷类型都从契约来；`Events` 的声明也在契约里（`declare module` 那一块）
 // —— 消费方不用再各补一份。
-import { AGENT_TAB_ID, CLOSE_ALL, CLOSE_TAB, DOCS_CHANGED, OPEN_DOC, isFileId, type DocMeta } from '../../src/kernel/contract'
+import {
+  AGENT_TAB_ID,
+  CLOSE_ALL,
+  CLOSE_TAB,
+  DOCS_CHANGED,
+  OPEN_CANVAS,
+  OPEN_DOC,
+  drawioTabId,
+  drawioTabParts,
+  isFileId,
+  type DocMeta,
+} from '../../src/kernel/contract'
 import { reportError } from '../../src/kernel/errors'
 // 多窗口：窗口标签（`win-N`）—— 会话恢复与持久化只有主窗口做。
 import { isMainWindow } from '../../src/kernel/window'
@@ -56,8 +67,21 @@ export function apply(ctx: Context) {
     return inflight
   }
   /** 助手那一页不是文档，库里查不到 —— 永远留着。外部文件同理（D-0137）：
-   *  它在磁盘上，`doc:list` 里当然没有它，不特判就会一裁就被关掉。 */
-  const keep = (id: string) => id === AGENT_TAB_ID || isFileId(id) || liveIds?.has(id) === true
+   *  它在磁盘上，`doc:list` 里当然没有它，不特判就会一裁就被关掉。
+   *  画布标签（D-0216）看它的源文档还在不在。 */
+  const keep = (id: string) => {
+    if (id === AGENT_TAB_ID || isFileId(id)) return true
+    const canvas = drawioTabParts(id)
+    if (canvas) return liveIds?.has(canvas.docId) === true
+    return liveIds?.has(id) === true
+  }
+
+  /** 让主区切到某个标签。画布走自己的事件（文档向的插件不该看见它）。 */
+  const activateTab = (id: string) => {
+    const canvas = drawioTabParts(id)
+    if (canvas) ctx.emit(OPEN_CANVAS, canvas)
+    else ctx.emit(OPEN_DOC, { id })
+  }
 
   /** 把标签裁到「库里还在的」。一个不剩就跟关光所有标签一样回首页。 */
   const prune = () => {
@@ -66,7 +90,7 @@ export function apply(ctx: Context) {
     const after = store.snapshot()
     if (after === before) return
     if (after.activeId === null) ctx.emit(CLOSE_ALL)
-    else if (after.activeId !== before.activeId) ctx.emit(OPEN_DOC, { id: after.activeId })
+    else if (after.activeId !== before.activeId) activateTab(after.activeId)
   }
 
   /** 把设置里的会话读回来（`restore` 逐字段校验，坏数据降级成空标签）。 */
@@ -85,7 +109,7 @@ export function apply(ctx: Context) {
     //   主区却空着 —— 编辑器只认 OPEN_DOC，不认标签条里有什么（契约里没有「当前文档」）。
     //   自己也会收到这条（同 ctx 的 emit 会回到下面的 `ctx.on`），但 `store.open` 对
     //   已经激活的标签是空操作，不会转圈。
-    if (after !== null && after !== before) ctx.emit(OPEN_DOC, { id: after })
+    if (after !== null && after !== before) activateTab(after)
   }
 
   // 先按当下读到的恢复一次（非主窗口不读，理由见上）。
@@ -102,6 +126,8 @@ export function apply(ctx: Context) {
 
     // 侧栏/编辑器点了文档 → 加一个标签（已开着就切过去）。**不回发**，否则自己收自己。
     ctx.on(OPEN_DOC, ({ id }) => store.open(id)),
+    // 画布块被点开（D-0216）：加一个 `sn:drawio:` 标签。
+    ctx.on(OPEN_CANVAS, ({ docId, blockId }) => store.open(drawioTabId(docId, blockId))),
 
     // 库变了（别处删了 / 进了回收站 / 硬删）→ 开着的那篇可能已经没了。重取全库再裁一次，
     // 否则标签还在、点过去就是 `doc:open` 的 no such doc。
@@ -120,7 +146,7 @@ export function apply(ctx: Context) {
       store.close(id)
       const after = store.snapshot().activeId
       if (after === null) ctx.emit(CLOSE_ALL)
-      else if (after !== before) ctx.emit(OPEN_DOC, { id: after })
+      else if (after !== before) activateTab(after)
     }),
 
     // 菜单里的「新窗口」（⌘⇧N，见 `src/windows.rs`）：Rust 把事件发给**前台那个窗口**，
