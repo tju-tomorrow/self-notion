@@ -180,7 +180,7 @@ export interface DrawioGraph {
   zoomOut(): void
   actualSize(): void
   scale(): number
-  insert(shape: PaletteShape): void
+  insert(shape: PaletteShape, at?: { x: number; y: number }): void
   connectSelected(): boolean
   removeSelected(): void
   undo(): void
@@ -346,10 +346,10 @@ export async function createDrawioGraph(
     }
   }
 
-  const insert = (shape: PaletteShape): void => {
+  const insert = (shape: PaletteShape, at?: { x: number; y: number }): void => {
     const [w, h] = shape.size
-    const c = viewCenter()
-    const drift = (seq++ % 6) * GRID * 2
+    const c = at ?? viewCenter()
+    const drift = at ? 0 : (seq++ % 6) * GRID * 2
     graph.batchUpdate(() => {
       const cell = graph.insertVertex({
         value: '',

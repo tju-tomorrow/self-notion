@@ -6,7 +6,13 @@
  */
 import type { Context } from 'cordis'
 
-import { createDrawioGraph, PALETTE, type DrawioGraph, type SelectionStyle } from '../../src/drawio/engine'
+import {
+  createDrawioGraph,
+  PALETTE,
+  type DrawioGraph,
+  type PaletteShape,
+  type SelectionStyle,
+} from '../../src/drawio/engine'
 import { drawioTabParts } from '../../src/kernel/contract'
 import { reportError } from '../../src/kernel/errors'
 import * as s from './page.css'
@@ -84,6 +90,9 @@ export class DrawioCanvas {
   private offChange: (() => void) | undefined
   private timer: number | undefined
   private menu: HTMLElement | null = null
+  private picker: HTMLElement | null = null
+  private pickerPoint: { x: number; y: number } | null = null
+  private dragging: PaletteShape | null = null
   private spacePan = false
   private dirty = false
   private disposed = false
@@ -131,6 +140,7 @@ export class DrawioCanvas {
       for (const shape of group.items) {
         const b = this.button(shape.glyph, shape.label, () => this.graph?.insert(shape))
         b.classList.add(s.shapeBtn)
+        this.wireDrag(b, shape)
         box.appendChild(b)
       }
       shapes.append(label, box)
@@ -196,6 +206,9 @@ export class DrawioCanvas {
     this.host.addEventListener('contextmenu', this.onContextMenu)
     this.host.addEventListener('mouseup', () => this.refresh())
     this.host.addEventListener('keyup', () => this.refresh())
+    this.host.addEventListener('dragover', this.onDragOver)
+    this.host.addEventListener('drop', this.onDrop)
+    this.host.addEventListener('dblclick', this.onDblClick)
 
     page.append(bar, styleBar, this.host)
     this.root.appendChild(page)
@@ -433,6 +446,134 @@ export class DrawioCanvas {
     ARROWS.forEach(([m], i) => this.arrowBtns[i]?.classList.toggle(s.toolOn, m === mode && !noEdge))
   }
 
+  /* ─────────────────────────── 拖图形 / 双击选图形 ─────────────────────────── */
+
+  private wireDrag(el: HTMLElement, shape: PaletteShape): void {
+    el.draggable = true
+    // WKWebView 只认 draggable 有时拖不起来，补一个 vendor 属性。
+    el.style.setProperty('-webkit-user-drag', 'element')
+    el.addEventListener('dragstart', (e) => {
+      this.dragging = shape
+      if (e.dataTransfer) {
+        e.dataTransfer.setData('application/x-sn-shape', shape.id)
+        e.dataTransfer.setData('text/plain', shape.label)
+        e.dataTransfer.effectAllowed = 'copy'
+        // 拖影用图形本身，别拖着整个按钮跑。
+        const ghost = document.createElement('div')
+        ghost.className = s.dragGhost
+        ghost.textContent = shape.glyph
+        document.body.appendChild(ghost)
+        e.dataTransfer.setDragImage(ghost, 26, 18)
+        setTimeout(() => ghost.remove(), 0)
+      }
+    })
+    el.addEventListener('dragend', () => {
+      this.dragging = null
+      this.closePicker()
+    })
+  }
+
+  /** 客户端坐标 → 画布坐标（拖放落点 / 双击位置用）。 */
+  private toGraph(e: { clientX: number; clientY: number }): { x: number; y: number } {
+    const view = this.graph?.graph.getView()
+    const rect = this.host.getBoundingClientRect()
+    const scale = view?.scale ?? 1
+    return {
+      x: (e.clientX - rect.left - (view?.translate.x ?? 0)) / scale,
+      y: (e.clientY - rect.top - (view?.translate.y ?? 0)) / scale,
+    }
+  }
+
+  private readonly onDragOver = (e: DragEvent): void => {
+    if (!this.dragging) return
+    e.preventDefault()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+  }
+
+  private readonly onDrop = (e: DragEvent): void => {
+    const shape = this.dragging
+    this.dragging = null
+    const graph = this.graph
+    if (!shape || !graph) return
+    e.preventDefault()
+    this.closePicker()
+    graph.insert(shape, this.toGraph(e))
+    this.refresh()
+    this.host.focus()
+  }
+
+  private readonly onDblClick = (e: MouseEvent): void => {
+    const graph = this.graph
+    if (!graph) return
+    const rect = this.host.getBoundingClientRect()
+    // 双击图形是改文字（maxgraph 自己处理），只有空白处才弹选择器。
+    if (graph.graph.getCellAt(e.clientX - rect.left, e.clientY - rect.top)) return
+    this.pickerPoint = this.toGraph(e)
+    this.openPicker(e.clientX, e.clientY)
+  }
+
+  private openPicker(x: number, y: number): void {
+    this.closeMenu()
+    this.closePicker()
+    const graph = this.graph
+    if (!graph) return
+
+    const box = document.createElement('div')
+    box.className = s.picker
+    const head = document.createElement('div')
+    head.className = s.pickerHead
+    head.textContent = '拖动图形进画布，或点一下放到这里'
+    box.appendChild(head)
+
+    for (const group of PALETTE) {
+      const label = document.createElement('div')
+      label.className = s.pickerLabel
+      label.textContent = group.label
+      const grid = document.createElement('div')
+      grid.className = s.pickerGrid
+      for (const shape of group.items) {
+        const item = document.createElement('button')
+        item.type = 'button'
+        item.className = s.pickerItem
+        item.title = shape.label
+        const glyph = document.createElement('span')
+        glyph.className = s.pickerGlyph
+        glyph.textContent = shape.glyph
+        const name = document.createElement('span')
+        name.className = s.pickerName
+        name.textContent = shape.label
+        item.append(glyph, name)
+        item.addEventListener('click', () => {
+          const at = this.pickerPoint ?? undefined
+          this.closePicker()
+          graph.insert(shape, at)
+          this.refresh()
+        })
+        this.wireDrag(item, shape)
+        grid.appendChild(item)
+      }
+      box.append(label, grid)
+    }
+
+    document.body.appendChild(box)
+    const r = box.getBoundingClientRect()
+    box.style.left = `${Math.max(8, Math.min(x, window.innerWidth - r.width - 8))}px`
+    box.style.top = `${Math.max(8, Math.min(y, window.innerHeight - r.height - 8))}px`
+    this.picker = box
+    setTimeout(() => document.addEventListener('mousedown', this.onPickerDown, true), 0)
+  }
+
+  private readonly onPickerDown = (e: MouseEvent): void => {
+    if (this.picker && e.target instanceof Node && this.picker.contains(e.target)) return
+    this.closePicker()
+  }
+
+  private closePicker(): void {
+    document.removeEventListener('mousedown', this.onPickerDown, true)
+    this.picker?.remove()
+    this.picker = null
+  }
+
   /* ─────────────────────────── 右键菜单 ─────────────────────────── */
 
   private readonly onContextMenu = (e: MouseEvent): void => {
@@ -453,6 +594,7 @@ export class DrawioCanvas {
 
   private openMenu(x: number, y: number): void {
     this.closeMenu()
+    this.closePicker()
     const graph = this.graph
     if (!graph) return
     const menu = document.createElement('div')
@@ -527,6 +669,7 @@ export class DrawioCanvas {
     }
     if (e.key === 'Escape') {
       if (this.menu) this.closeMenu()
+      else if (this.picker) this.closePicker()
       else graph.clearSelection()
       this.refresh()
       return
@@ -595,6 +738,7 @@ export class DrawioCanvas {
   dispose(): void {
     this.disposed = true
     this.closeMenu()
+    this.closePicker()
     window.removeEventListener('keydown', this.onKey)
     window.removeEventListener('keyup', this.onKeyUp)
     window.removeEventListener('blur', this.onBlur)

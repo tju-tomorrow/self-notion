@@ -173,6 +173,93 @@ export const swatchNone = style({
     'linear-gradient(to top right, transparent calc(50% - 1px), #9ca3af calc(50% - 1px), #9ca3af calc(50% + 1px), transparent calc(50% + 1px)), #fff',
 })
 
+/* 拖图形时的跟随影子（只给 setDragImage 拍快照用，画在屏幕外）。 */
+export const dragGhost = style({
+  position: 'fixed',
+  left: -200,
+  top: -200,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 52,
+  height: 36,
+  border: '1px solid #475569',
+  borderRadius: 7,
+  background: '#fff',
+  color: '#475569',
+  fontSize: 22,
+  lineHeight: 1,
+  pointerEvents: 'none',
+})
+
+/* ── 双击空白处弹出的图形选择器 ── */
+
+export const picker = style({
+  position: 'fixed',
+  zIndex: 1000,
+  width: 340,
+  padding: 8,
+  borderRadius: 12,
+  border: '1px solid rgba(128, 128, 128, .3)',
+  background: '#fff',
+  boxShadow: '0 12px 32px rgba(0, 0, 0, .2)',
+  selectors: {
+    '[data-theme="dark"] &': { background: '#222', borderColor: 'rgba(255, 255, 255, .16)' },
+  },
+})
+
+export const pickerHead = style({
+  margin: '2px 4px 6px',
+  fontSize: 12,
+  color: MUTED,
+})
+
+export const pickerLabel = style({
+  margin: '6px 4px 4px',
+  fontSize: 11,
+  color: MUTED,
+})
+
+export const pickerGrid = style({
+  display: 'grid',
+  gridTemplateColumns: 'repeat(5, 1fr)',
+  gap: 4,
+})
+
+export const pickerItem = style({
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 2,
+  height: 54,
+  minWidth: 0,
+  padding: '0 2px',
+  border: '1px solid transparent',
+  borderRadius: 8,
+  background: 'transparent',
+  color: 'inherit',
+  cursor: 'grab',
+  selectors: {
+    '&:hover': { background: HOVER },
+    '&:focus-visible': { outline: `2px solid ${ACCENT}`, outlineOffset: 1 },
+  },
+})
+
+export const pickerGlyph = style({
+  fontSize: 17,
+  lineHeight: 1,
+})
+
+export const pickerName = style({
+  maxWidth: '100%',
+  overflow: 'hidden',
+  fontSize: 10,
+  color: MUTED,
+  whiteSpace: 'nowrap',
+  textOverflow: 'ellipsis',
+})
+
 /* ── 右键菜单 ── */
 
 export const menu = style({
