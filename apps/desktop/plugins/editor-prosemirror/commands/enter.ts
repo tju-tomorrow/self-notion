@@ -12,7 +12,7 @@ import { blockAt } from './block'
 import { newBlockId } from './id'
 import { liftOut } from './move'
 
-/** 回车续出来的下一块是什么：列表 / 待办 / 引用 / 标注续同类；标题只当一行，落到段落。 */
+/** 回车续出来的下一块是什么：列表 / 待办 / 引用 / 标注 / 标题都续同类。 */
 function continuation(content: PMNode): { type: NodeType; attrs: Attrs | null } {
   const name = content.type.name
   if (name === 'bulletedListItem' || name === 'numberedListItem' || name === 'quote') {
@@ -21,6 +21,8 @@ function continuation(content: PMNode): { type: NodeType; attrs: Attrs | null } 
   // 待办续出来的新块一定是没勾的
   if (name === 'todoItem') return { type: content.type, attrs: { checked: false } }
   if (name === 'callout') return { type: content.type, attrs: { icon: content.attrs.icon ?? '' } }
+  // 标题接着写还是同级别的标题（用户 2026-11-27）；空标题上的回车再落成段落，不然出不去。
+  if (name === 'heading') return { type: content.type, attrs: content.attrs }
   return { type: schema.nodes.paragraph, attrs: null }
 }
 
@@ -43,8 +45,11 @@ export const enter: Command = (state, dispatch) => {
   const contentEnd = block.pos + content.nodeSize // 内容内部最后一个位置
   const rest = content.content.cut((empty ? from : $to.pos) - contentStart)
 
-  // 空列表项回车：再续就是一个空条目，出去比续强 —— 嵌套里先反缩进，顶层降级成段落。
-  if ((name === 'bulletedListItem' || name === 'numberedListItem' || name === 'todoItem') && content.content.size === 0) {
+  // 空的列表项 / 标题上回车：再续就是一个空条目，出去比续强 —— 嵌套里先反缩进，顶层降级成段落。
+  if (
+    (name === 'bulletedListItem' || name === 'numberedListItem' || name === 'todoItem' || name === 'heading') &&
+    content.content.size === 0
+  ) {
     if (!dispatch) return true
     const lifted = liftOut(state, $from, block)
     dispatch(lifted ?? state.tr.setNodeMarkup(block.pos + 1, schema.nodes.paragraph))
