@@ -10,7 +10,8 @@ import type { Node as PMNode } from 'prosemirror-model'
 import { Plugin } from 'prosemirror-state'
 
 import { schema } from './schema'
-import { bookmarkIcon, listIcon } from './icons'
+import { bookmarkIcon, listIcon, mapIcon } from './icons'
+import { mountVerso } from './structure/view'
 import './outline.css'
 
 export interface OutlineStrings {
@@ -87,6 +88,20 @@ export function outlinePlugin(host: HTMLElement, scroller: HTMLElement, strings:
       anchorButton.setAttribute('aria-label', '锚点')
       anchorButton.appendChild(bookmarkIcon(15))
 
+      // 锚点左边：同一篇的结构面（D-0220）。
+      const versoButton = document.createElement('button')
+      versoButton.type = 'button'
+      versoButton.className = 'sn-outline-toggle sn-verso-toggle'
+      versoButton.title = '结构'
+      versoButton.setAttribute('aria-label', '结构')
+      versoButton.setAttribute('aria-pressed', 'false')
+      versoButton.appendChild(mapIcon(15))
+
+      const verso = mountVerso(scroller, {
+        onOpenChange: open => versoButton.setAttribute('aria-pressed', open ? 'true' : 'false'),
+        focusToggle: () => versoButton.focus(),
+      })
+
       const panel = document.createElement('div')
       panel.className = 'sn-outline'
       const list = document.createElement('div')
@@ -95,7 +110,7 @@ export function outlinePlugin(host: HTMLElement, scroller: HTMLElement, strings:
       anchorList.className = 'sn-anchor-list'
       panel.append(list, anchorList)
 
-      host.append(button, anchorButton, panel)
+      host.append(versoButton, anchorButton, button, panel)
       let mode: 'outline' | 'anchors' = host.dataset.mode === 'anchors' ? 'anchors' : 'outline'
       host.dataset.mode = mode
 
@@ -258,6 +273,13 @@ export function outlinePlugin(host: HTMLElement, scroller: HTMLElement, strings:
 
       button.addEventListener('click', () => openAs('outline'))
       anchorButton.addEventListener('click', () => openAs('anchors'))
+      versoButton.addEventListener('click', () => {
+        // 手机上这一列是底部 sheet，开着会挡住翻过去的那一面。
+        const mobile =
+          window.innerWidth <= 720 || document.documentElement.dataset.mobile === '1'
+        if (open && mobile) setOpen(false)
+        verso.toggle(view)
+      })
       scroller.addEventListener('scroll', onScroll, { passive: true })
       // ★ 视图会被**重建**（`find.ts` / `comment.ts` 的 `reconfigure` 把所有插件视图 destroy 再建一遍），
       //   所以「开着没过」这件事存在 `data-on` 上 —— destroy 时故意不清，换篇 / 拔插件由 `view.ts` 清。
@@ -266,13 +288,17 @@ export function outlinePlugin(host: HTMLElement, scroller: HTMLElement, strings:
 
       return {
         update: (next, prev) => {
-          if (next.state.doc !== prev.doc) schedule()
+          if (next.state.doc === prev.doc) return
+          schedule()
+          verso.sync(next)
         },
         destroy: () => {
           scroller.removeEventListener('scroll', onScroll)
           if (raf) cancelAnimationFrame(raf)
           if (activeRaf) cancelAnimationFrame(activeRaf)
           // `data-on` **不清**（见上面 `setOpen` 那句）—— 换篇 / 拔插件由 `view.ts` 的 teardown 清。
+          verso.destroy()
+          versoButton.remove()
           button.remove()
           anchorButton.remove()
           panel.remove()

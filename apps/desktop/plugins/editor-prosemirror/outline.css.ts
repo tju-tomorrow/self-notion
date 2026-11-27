@@ -58,8 +58,10 @@ globalStyle('.sn-outline-list', { display: 'flex', flexDirection: 'column', gap:
 
 /* ── 锚点：跟大纲共用一列，各一颗按钮 ── */
 
-// 大纲那颗在 `right: 8`，锚点往左让一格。
+// 大纲那颗在 `right: 8`，锚点往左让一格，结构再往左一格。
 globalStyle('.sn-anchor-toggle', { right: 36 })
+globalStyle('.sn-verso-toggle', { right: 64 })
+globalStyle('.sn-verso-toggle[aria-pressed="true"]', { color: 'var(--sn-accent, #1e96eb)' })
 
 // 同一列只露当前模式那份列表。
 globalStyle('.sn-pane-side[data-mode="anchors"] .sn-outline-list', { display: 'none' })

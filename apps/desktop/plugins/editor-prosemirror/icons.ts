@@ -35,6 +35,37 @@ export function bookmarkIcon(size = 14): SVGSVGElement {
   return icon(size, ['M7 3.5h10v17l-5-3.6-5 3.6z'])
 }
 
+/** 结构：一个点分出三支。 */
+export function mapIcon(size = 14): SVGSVGElement {
+  const el = document.createElementNS(NS, 'svg')
+  el.setAttribute('viewBox', '0 0 24 24')
+  el.setAttribute('width', String(size))
+  el.setAttribute('height', String(size))
+  el.setAttribute('fill', 'none')
+  el.setAttribute('stroke', 'currentColor')
+  el.setAttribute('stroke-width', '1.7')
+  el.setAttribute('stroke-linecap', 'round')
+  el.setAttribute('aria-hidden', 'true')
+  const path = document.createElementNS(NS, 'path')
+  path.setAttribute('d', 'M7.2 8.2 12 12.4 17.4 7.6M12 12.4 15.6 18')
+  el.appendChild(path)
+  for (const [cx, cy] of [
+    [6.2, 7.2],
+    [12, 13.2],
+    [18.2, 6.6],
+    [16.2, 18.6],
+  ] as const) {
+    const c = document.createElementNS(NS, 'circle')
+    c.setAttribute('cx', String(cx))
+    c.setAttribute('cy', String(cy))
+    c.setAttribute('r', '1.7')
+    c.setAttribute('fill', 'currentColor')
+    c.setAttribute('stroke', 'none')
+    el.appendChild(c)
+  }
+  return el
+}
+
 /** 创建时间。 */
 export function calendarIcon(size = 14): SVGSVGElement {
   return icon(size, [
