@@ -150,6 +150,7 @@ class BlockHandle {
     document.addEventListener('mousemove', this.onMouseMove, true)
     document.addEventListener('scroll', this.onScroll, true)
     this.view.dom.addEventListener('contextmenu', this.onContextMenu)
+    this.view.dom.addEventListener('click', this.onDividerClick, true)
     this.view.dom.addEventListener('pointerdown', this.onBlockPointerDown)
     window.addEventListener('pointermove', this.onBlockPointerMove)
     window.addEventListener('pointerup', this.cancelPress)
@@ -188,6 +189,7 @@ class BlockHandle {
     document.removeEventListener('mousemove', this.onMouseMove, true)
     document.removeEventListener('scroll', this.onScroll, true)
     this.view.dom.removeEventListener('contextmenu', this.onContextMenu)
+    this.view.dom.removeEventListener('click', this.onDividerClick, true)
     this.view.dom.removeEventListener('pointerdown', this.onBlockPointerDown)
     window.removeEventListener('pointermove', this.onBlockPointerMove)
     window.removeEventListener('pointerup', this.cancelPress)
@@ -361,6 +363,24 @@ class BlockHandle {
       selectBlockRange(this.view, hover.id)
       this.openMenu([hover.id], hover.el)
     }
+    this.view.focus()
+  }
+
+  /** 分割线只有 1px，手柄很难指到（用户 2026-11-27）：点这条线的任何地方都当成点手柄。 */
+  private onDividerClick = (e: MouseEvent): void => {
+    const target = e.target
+    if (!(target instanceof Element)) return
+    const el = target.closest('.sn-block')
+    if (!(el instanceof HTMLElement) || !this.view.dom.contains(el)) return
+    const atom = el.firstElementChild
+    if (!(atom instanceof HTMLElement) || atom.tagName !== 'HR') return
+    const id = el.getAttribute('data-id') ?? ''
+    if (id === '') return
+    e.preventDefault()
+    e.stopPropagation()
+    this.anchorId = id
+    selectBlockRange(this.view, id)
+    this.openMenu([id], el)
     this.view.focus()
   }
 

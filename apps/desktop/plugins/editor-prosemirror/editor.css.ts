@@ -368,6 +368,9 @@ globalStyle('.ProseMirror hr', {
   background: 'var(--sn-line, rgba(0, 0, 0, .1))',
 })
 
+// 分割线整块可点（点一下弹块菜单）—— 1px 的线本身太难指。
+globalStyle('.ProseMirror .sn-block:has(> hr)', { cursor: 'pointer' })
+
 // 段与段：每侧 5 + `.sn-block` 自身的 2 = 14px。视觉分块靠它，不是靠行距。
 globalStyle('.sn-block > p', { margin: '5px 0' })
 
