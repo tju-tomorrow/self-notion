@@ -45,6 +45,16 @@ export interface ToolMark {
   failed?: boolean
 }
 
+/** 历史里记的文档快照。标题和路径都要存 —— 只存 id 的话，笔记改名/删掉后历史就断了。 */
+export interface DocAnchor {
+  id: string
+  title: string
+  path: string
+}
+
+/** 一条会话最多记这么多引用 —— 再多也没有哪张界面画得下，落盘先顶住。 */
+export const REF_CAP = 200
+
 /** 一次对话。左侧历史那一列列的就是它。 */
 export interface Session {
   id: string
@@ -57,6 +67,10 @@ export interface Session {
   transcript: AiMessage[]
   /** 这条会话**累计烧掉的 token 估数**（`tokens.ts`）—— 不算它，历史那一列没东西可标。 */
   spent: number
+  /** 发起锚点：第一次发消息时主屏正在编辑的那篇。老会话没有。 */
+  origin?: DocAnchor
+  /** 会话生命周期内碰过的其它文档（提及 / 检索 / 读取 / 写入），按首次出现去重。 */
+  refs?: DocAnchor[]
 }
 
 /** 一个待撤销的回合（`docs/ai.md` 第六节：**撤销的单位是回合，不是文档**）。 */
@@ -297,6 +311,38 @@ export function pushLine(line: Line, sessionId = state.currentId): void {
     at: Date.now(),
     lines: [...sess.lines, line],
   }))
+}
+
+/** 第一次发消息时定锚。已经有了就不动 —— 中途切笔记不该改「从哪开始」。 */
+export function setOrigin(sessionId: string, origin: DocAnchor): void {
+  mapSession(sessionId, (sess) => (sess.origin ? sess : { ...sess, origin }))
+}
+
+/** 并一批引用。按 id 去重；后到的能把空的标题/路径补上。 */
+export function addRefs(sessionId: string, refs: readonly DocAnchor[]): void {
+  if (!refs.length) return
+  mapSession(sessionId, (sess) => {
+    const current = sess.refs ?? []
+    const byId = new Map(current.map((one) => [one.id, one]))
+    let changed = false
+    for (const ref of refs) {
+      if (!ref.id || !ref.id.trim()) continue
+      const prev = byId.get(ref.id)
+      if (!prev) {
+        if (byId.size >= REF_CAP) continue
+        byId.set(ref.id, ref)
+        changed = true
+      } else if ((!prev.title && ref.title) || (!prev.path && ref.path)) {
+        byId.set(ref.id, {
+          id: ref.id,
+          title: prev.title || ref.title,
+          path: prev.path || ref.path,
+        })
+        changed = true
+      }
+    }
+    return changed ? { ...sess, refs: [...byId.values()] } : sess
+  })
 }
 
 /** 一轮烧掉多少 —— 循环每转一轮报一次（输入那包 + 这轮产出的字）。 */

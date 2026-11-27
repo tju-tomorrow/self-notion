@@ -19,7 +19,7 @@ import type { Context } from 'cordis'
 import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 
-import { AGENT_TAB_ID, OPEN_DOC } from '../../src/kernel/contract'
+import { AGENT_TAB_ID, CLOSE_ALL, OPEN_DOC, SHOW_LIST } from '../../src/kernel/contract'
 import { makeAi } from './chat'
 import { AgentEntry } from './entry'
 import { installHistory } from './history'
@@ -67,6 +67,12 @@ export function apply(ctx: Context) {
       if (id !== AGENT_TAB_ID) setAiState({ viewingDoc: id })
     }),
   )
+
+  // 回到首页 / 列表页 = 主屏没有正在编辑的文档。历史栏的「本篇 / 文件夹」不该再指着一篇关掉的。
+  ctx.effect(() => [
+    ctx.on(CLOSE_ALL, () => setAiState({ viewingDoc: null })),
+    ctx.on(SHOW_LIST, () => setAiState({ viewingDoc: null })),
+  ])
 
   ctx.effect(() => [
     installHistory(ctx),

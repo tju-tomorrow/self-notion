@@ -89,8 +89,8 @@ export const thread = style([
   flatButton,
   {
     position: 'relative',
-    minHeight: 28,
-    padding: '4px 8px 4px 12px',
+    minHeight: 40,
+    padding: '5px 8px 5px 12px',
     fontSize: 13,
     lineHeight: '18px',
     color: 'var(--affine-v2-text-secondary)',
@@ -134,6 +134,241 @@ export const threadTok = style({
     [`${thread}:hover &`]: { opacity: 1 },
     [`${thread}[data-on="1"] &`]: { opacity: 1 },
   },
+})
+
+/* 两行那条：上面标题，下面发起锚点 / 命中片段 / 关系标记。 */
+
+export const threadMain = style({
+  flex: '1 1 auto',
+  minWidth: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 1,
+})
+
+export const threadTop = style({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  width: '100%',
+  minWidth: 0,
+})
+
+export const threadMeta = style({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 3,
+  minWidth: 0,
+  fontSize: 11,
+  lineHeight: '15px',
+  color: 'var(--affine-v2-text-tertiary)',
+  whiteSpace: 'nowrap',
+})
+
+export const threadMetaText = style({
+  minWidth: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+})
+
+export const threadMetaCount = style({
+  flex: '0 0 auto',
+  fontVariantNumeric: 'tabular-nums',
+})
+
+export const threadDotOn = style({
+  flex: '0 0 auto',
+  fontSize: 9,
+  lineHeight: 1,
+  color: 'var(--affine-primary-color)',
+})
+
+export const threadDotOff = style({
+  flex: '0 0 auto',
+  fontSize: 9,
+  lineHeight: 1,
+  color: 'var(--affine-v2-text-tertiary)',
+})
+
+/* ── 历史栏顶部：搜索 + 三态过滤 ── */
+
+/** 搜索框 + 标签页 + 列表，整列自己排。 */
+export const historyPane = style({
+  flex: '1 1 auto',
+  minHeight: 0,
+  display: 'flex',
+  flexDirection: 'column',
+})
+
+export const historyFilter = style({
+  flex: '0 0 auto',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+  padding: '0 2px 6px',
+})
+
+export const historySearch = style({ position: 'relative' })
+
+export const searchBox = style({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  height: 28,
+  padding: '0 8px',
+  borderRadius: 8,
+  border: '0.5px solid var(--affine-v2-layer-insideBorder-border)',
+  background: 'var(--affine-v2-layer-background-primary)',
+  selectors: {
+    '&:focus-within': { borderColor: 'var(--affine-primary-color)' },
+  },
+})
+
+export const searchIcon = style({
+  flex: '0 0 auto',
+  display: 'flex',
+  color: 'var(--affine-v2-text-tertiary)',
+})
+
+export const searchInput = style({
+  flex: '1 1 auto',
+  minWidth: 0,
+  padding: 0,
+  border: 'none',
+  outline: 'none',
+  background: 'transparent',
+  color: 'var(--affine-v2-text-primary)',
+  fontFamily: 'inherit',
+  fontSize: 12,
+  selectors: {
+    '&::placeholder': { color: 'var(--affine-v2-text-tertiary)' },
+  },
+})
+
+export const searchClear = style({
+  flex: '0 0 auto',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 16,
+  height: 16,
+  padding: 0,
+  border: 'none',
+  borderRadius: 4,
+  background: 'transparent',
+  color: 'var(--affine-v2-text-tertiary)',
+  cursor: 'pointer',
+  selectors: {
+    '&:hover': {
+      color: 'var(--affine-v2-text-secondary)',
+      background: 'var(--affine-v2-layer-background-hoverOverlay)',
+    },
+  },
+})
+
+export const historyChipRow = style({
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 4,
+  paddingTop: 4,
+})
+
+export const historyChip = style({
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+  maxWidth: '100%',
+  height: 22,
+  padding: '0 5px 0 6px',
+  borderRadius: 6,
+  background: 'var(--affine-v2-layer-background-hoverOverlay)',
+  color: 'var(--affine-v2-text-secondary)',
+  fontSize: 11,
+})
+
+export const historyChipText = style({
+  minWidth: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+})
+
+export const historyChipX = style({
+  flex: '0 0 auto',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 14,
+  height: 14,
+  padding: 0,
+  border: 'none',
+  borderRadius: 3,
+  background: 'transparent',
+  color: 'var(--affine-v2-text-tertiary)',
+  cursor: 'pointer',
+  selectors: {
+    '&:hover': { color: 'var(--affine-v2-text-primary)' },
+  },
+})
+
+export const historyTabs = style({
+  display: 'flex',
+  gap: 2,
+  padding: 2,
+  borderRadius: 8,
+})
+
+export const historyTab = style({
+  flex: '1 1 0',
+  minWidth: 0,
+  height: 24,
+  padding: '0 4px',
+  border: 'none',
+  borderRadius: 6,
+  background: 'transparent',
+  color: 'var(--affine-v2-text-tertiary)',
+  fontFamily: 'inherit',
+  fontSize: 11,
+  whiteSpace: 'nowrap',
+  cursor: 'pointer',
+  selectors: {
+    '&:hover': { background: 'var(--affine-v2-layer-background-hoverOverlay)' },
+    '&:disabled': { opacity: 0.4, cursor: 'default' },
+    '&:disabled:hover': { background: 'transparent' },
+  },
+})
+
+export const historyTabOn = style({
+  background: 'var(--affine-v2-layer-background-hoverOverlay)',
+  color: 'var(--affine-v2-text-primary)',
+  fontWeight: 500,
+})
+
+export const historyHit = style({
+  padding: '0 1px',
+  borderRadius: 2,
+  background: 'color-mix(in srgb, var(--affine-primary-color, #1e96eb) 14%, transparent)',
+  color: 'var(--affine-v2-text-primary)',
+})
+
+export const historyEmpty = style({
+  padding: '18px 8px',
+  color: 'var(--affine-v2-text-tertiary)',
+  fontSize: 12,
+  lineHeight: 1.6,
+  textAlign: 'center',
+})
+
+export const historyEmptyClear = style({
+  display: 'block',
+  margin: '8px auto 0',
+  padding: 0,
+  border: 'none',
+  background: 'transparent',
+  color: 'var(--affine-primary-color)',
+  fontFamily: 'inherit',
+  fontSize: 12,
+  cursor: 'pointer',
 })
 
 /* ── 右半：对话 ── */
@@ -1221,6 +1456,16 @@ export const thinkMenu = style([
   {
     right: 'auto',
     width: 220,
+  },
+])
+
+/** 历史搜索的 `@` 选择器：贴在搜索框下面，不往上弹（上面是工具栏）。 */
+export const historyPicker = style([
+  picker,
+  {
+    top: 'calc(100% + 4px)',
+    bottom: 'auto',
+    maxHeight: 260,
   },
 ])
 

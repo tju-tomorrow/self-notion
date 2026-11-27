@@ -31,6 +31,7 @@ import {
   FolderIcon,
   PageIcon,
   PlusIcon,
+  SearchIcon,
   SidebarIcon,
   StopIcon,
   VoiceIcon,
@@ -42,6 +43,15 @@ import { readLocal, writeLocal } from '../../src/kernel/local'
 import { copyText } from '../../src/ui/clipboard'
 import { useImeGuard } from '../../src/ui/ime'
 import * as s from './ai.css'
+import {
+  matchSession,
+  nameOf,
+  refCountOf,
+  relationOf,
+  snippetOf,
+  type HistoryHere,
+  type HistoryScope,
+} from './history-view'
 import { runTurn, steer, type Quote } from './loop'
 import { Markdown, unfenceTables, type CiteCtx } from './md'
 import { placeOf, type Place } from './place'
@@ -74,6 +84,7 @@ import {
   THINK_LEVELS,
   type Approval,
   type Line,
+  type Session,
   type ThinkLevel,
   type ToolMark,
 } from './state'
@@ -263,46 +274,390 @@ function whenOf(at: number, now: number): (typeof WHEN)[number] {
   return 'older'
 }
 
+const SCOPES: { key: HistoryScope; hint: string }[] = [
+  { key: 'related', hint: 'agent.filter.relatedHint' },
+  { key: 'folder', hint: 'agent.filter.folderHint' },
+  { key: 'all', hint: 'agent.filter.allHint' },
+]
+
 /** 历史。整页左边一列、右侧栏里那条窄栏，都是这一份。 */
 function ThreadList({ ctx }: { ctx: Context }) {
   const st = useAiState()
+  const place = usePlace(ctx, st.viewingDoc)
+  const here = useMemo<HistoryHere>(
+    () => ({ id: st.viewingDoc, dir: place?.dir ?? null }),
+    [st.viewingDoc, place?.dir],
+  )
+  const [scope, setScope] = useState<HistoryScope>('all')
+  const [query, setQuery] = useState('')
+  const [pick, setPick] = useState<RagScopeItem | null>(null)
+  const [picker, setPicker] = useState<{ start: number; q: string; active: number } | null>(null)
+  const [catalog, setCatalog] = useState<RagScopeItem[]>([])
+  const [catalogLoaded, setCatalogLoaded] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const search = useRef<HTMLInputElement>(null)
+  const canHere = here.id !== null && here.dir !== null
+
+  // 当前文档关掉/删掉后，本篇和文件夹都没有参照了 —— 落回全部，别把整列藏空。
+  useEffect(() => {
+    if (scope !== 'all' && !canHere) setScope('all')
+  }, [scope, canHere])
+
+  const options = picker ? catalog.filter((item) => matchesScope(item, picker.q)).slice(0, 8) : []
+  const active = picker ? Math.min(picker.active, Math.max(0, options.length - 1)) : 0
+
+  const openPicker = () => {
+    if (catalogLoaded || loading) return
+    setLoading(true)
+    void loadScopes(ctx)
+      .then((items) => setCatalog(items))
+      .catch((err) => reportError('ai', err))
+      .finally(() => {
+        setLoading(false)
+        setCatalogLoaded(true)
+      })
+  }
+
+  const syncPicker = (value: string, caret: number) => {
+    const token = atToken(value, caret)
+    if (!token) {
+      setPicker(null)
+      return
+    }
+    openPicker()
+    setPicker((prev) =>
+      prev && prev.start === token.start
+        ? { ...prev, q: token.q, active: 0 }
+        : { ...token, active: 0 },
+    )
+  }
+
+  const choose = (item: RagScopeItem) => {
+    if (!picker) return
+    setQuery((prev) => prev.slice(0, picker.start) + prev.slice(picker.start + 1 + picker.q.length))
+    setPick(item)
+    setPicker(null)
+    requestAnimationFrame(() => search.current?.focus())
+  }
+
+  const clearAll = () => {
+    setQuery('')
+    setPick(null)
+    setPicker(null)
+  }
+
+  const visible = useMemo(
+    () =>
+      sessionsByRecency().filter((sess) =>
+        matchSession(sess, { scope, query, pick }, here),
+      ),
+    [st.sessions, scope, query, pick, here],
+  )
+
   const now = Date.now()
-  const sessions = sessionsByRecency()
   const groups = WHEN.map((key) => ({
     key,
-    items: sessions.filter((sess) => whenOf(sess.at, now) === key),
+    items: visible.filter((sess) => whenOf(sess.at, now) === key),
   })).filter((group) => group.items.length > 0)
+
+  const empty = emptyOf(query, pick, scope)
+
   return (
-    <div className={s.historyList}>
-      {groups.map((group) => (
-        <div key={group.key} className={s.threadGroup}>
-          <div className={s.threadWhen}>{ctx.i18n.t(`agent.when.${group.key}`)}</div>
-          {group.items.map((sess) => {
-            const tokens = sessionTokens(sess)
-            const title = sess.title || ctx.i18n.t('agent.untitled')
+    <div className={s.historyPane}>
+      <div className={s.historyFilter}>
+        <div className={s.historySearch}>
+          <div className={s.searchBox}>
+            <span className={s.searchIcon}>
+              <SearchIcon width={13} height={13} />
+            </span>
+            <input
+              ref={search}
+              className={s.searchInput}
+              type="text"
+              spellCheck={false}
+              value={query}
+              placeholder={ctx.i18n.t('agent.filter.search')}
+              aria-label={ctx.i18n.t('agent.filter.search')}
+              onChange={(e) => {
+                const value = e.target.value
+                setQuery(value)
+                syncPicker(value, e.target.selectionStart ?? value.length)
+              }}
+              onBlur={() => setPicker(null)}
+              onKeyDown={(e) => {
+                if (picker) {
+                  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                    e.preventDefault()
+                    const step = e.key === 'ArrowDown' ? 1 : -1
+                    setPicker((p) =>
+                      p
+                        ? { ...p, active: (active + step + Math.max(1, options.length)) % Math.max(1, options.length) }
+                        : p,
+                    )
+                    return
+                  }
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    const item = options[active]
+                    if (item) choose(item)
+                    return
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    setPicker(null)
+                    return
+                  }
+                }
+                if (e.key === 'Escape') {
+                  if (query || pick) {
+                    e.preventDefault()
+                    clearAll()
+                  }
+                  return
+                }
+                if (e.key === 'Backspace' && query === '' && pick) {
+                  e.preventDefault()
+                  setPick(null)
+                }
+              }}
+            />
+            {query ? (
+              <button
+                type="button"
+                className={s.searchClear}
+                title={ctx.i18n.t('agent.filter.clearSearch')}
+                aria-label={ctx.i18n.t('agent.filter.clearSearch')}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setQuery('')}
+              >
+                <CloseIcon width={11} height={11} />
+              </button>
+            ) : null}
+          </div>
+          {pick ? (
+            <div className={s.historyChipRow}>
+              <div className={s.historyChip} title={pick.path}>
+                {pick.kind === 'dir' ? (
+                  <FolderIcon width={12} height={12} />
+                ) : (
+                  <PageIcon width={12} height={12} />
+                )}
+                <span className={s.historyChipText}>{pick.title}</span>
+                <button
+                  type="button"
+                  className={s.historyChipX}
+                  title={ctx.i18n.t('agent.filter.pickRemove')}
+                  aria-label={ctx.i18n.t('agent.filter.pickRemove')}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setPick(null)}
+                >
+                  <CloseIcon width={10} height={10} />
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {picker ? (
+            <div className={s.historyPicker} role="listbox" aria-label={ctx.i18n.t('agent.filter.pickDoc')}>
+              <div className={s.pickHead}>{ctx.i18n.t('agent.filter.pickDoc')}</div>
+              {options.length === 0 ? (
+                <div className={s.pickEmpty}>
+                  {loading ? ctx.i18n.t('agent.thinking') : ctx.i18n.t('agent.scopeEmpty')}
+                </div>
+              ) : (
+                options.map((item, at) => (
+                  <button
+                    key={`${item.kind}\u0000${item.path}`}
+                    type="button"
+                    role="option"
+                    aria-selected={at === active}
+                    className={at === active ? s.pickOn : s.pick}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onMouseEnter={() =>
+                      setPicker((p) => (p ? { ...p, active: at } : p))
+                    }
+                    onClick={() => choose(item)}
+                  >
+                    {item.kind === 'dir' ? (
+                      <FolderIcon width={14} height={14} />
+                    ) : (
+                      <PageIcon width={14} height={14} />
+                    )}
+                    <span className={s.pickMain}>
+                      <span className={s.pickTitle}>{item.title}</span>
+                      <span className={s.pickPath}>{item.path}</span>
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          ) : null}
+        </div>
+        <div className={s.historyTabs} role="tablist">
+          {SCOPES.map(({ key, hint }) => {
+            const disabled = key !== 'all' && !canHere
+            const where = key === 'folder' ? here.dir : key === 'related' ? place?.title : null
             return (
               <button
-                key={sess.id}
+                key={key}
                 type="button"
-                className={s.thread}
-                data-on={sess.id === st.currentId ? '1' : '0'}
-                data-empty={sess.title ? '0' : '1'}
-                title={title}
-                onClick={() => openSession(sess.id)}
+                role="tab"
+                aria-selected={scope === key}
+                disabled={disabled}
+                title={
+                  disabled
+                    ? ctx.i18n.t('agent.filter.needDoc')
+                    : `${ctx.i18n.t(hint)}${where ? ` · ${where}` : ''}`
+                }
+                className={scope === key ? `${s.historyTab} ${s.historyTabOn}` : s.historyTab}
+                onClick={() => setScope(key)}
               >
-                <span className={s.threadLabel}>{title}</span>
-                {tokens > 0 ? (
-                  <span className={s.threadTok} title={ctx.i18n.t('agent.tokens', { n: tokens })}>
-                    {formatTokens(tokens)}
-                  </span>
-                ) : null}
+                {ctx.i18n.t(`agent.filter.${key}`)}
               </button>
             )
           })}
         </div>
-      ))}
+      </div>
+      <div className={s.historyList}>
+        {groups.length === 0 ? (
+          <div className={s.historyEmpty}>
+            {ctx.i18n.t(empty.key, empty.vars)}
+            {query || pick ? (
+              <button type="button" className={s.historyEmptyClear} onClick={clearAll}>
+                {ctx.i18n.t('agent.filter.clear')}
+              </button>
+            ) : null}
+          </div>
+        ) : (
+          groups.map((group) => (
+            <div key={group.key} className={s.threadGroup}>
+              <div className={s.threadWhen}>{ctx.i18n.t(`agent.when.${group.key}`)}</div>
+              {group.items.map((sess) => {
+                const tokens = sessionTokens(sess)
+                const title = sess.title || ctx.i18n.t('agent.untitled')
+                return (
+                  <button
+                    key={sess.id}
+                    type="button"
+                    className={s.thread}
+                    data-on={sess.id === st.currentId ? '1' : '0'}
+                    data-empty={sess.title ? '0' : '1'}
+                    title={threadTip(ctx, sess, title)}
+                    onClick={() => openSession(sess.id)}
+                  >
+                    <span className={s.threadMain}>
+                      <span className={s.threadTop}>
+                        <span className={s.threadLabel}>{title}</span>
+                        {tokens > 0 ? (
+                          <span className={s.threadTok} title={ctx.i18n.t('agent.tokens', { n: tokens })}>
+                            {formatTokens(tokens)}
+                          </span>
+                        ) : null}
+                      </span>
+                      <ThreadMeta ctx={ctx} session={sess} scope={scope} here={here} query={query} />
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          ))
+        )}
+      </div>
     </div>
   )
+}
+
+/** 第二行：搜索时给命中片段，否则给发起锚点；本篇模式下换成关系标记。 */
+function ThreadMeta({
+  ctx,
+  session,
+  scope,
+  here,
+  query,
+}: {
+  ctx: Context
+  session: Session
+  scope: HistoryScope
+  here: HistoryHere
+  query: string
+}): ReactNode {
+  const snippet = query.trim() ? snippetOf(session, query) : null
+  if (snippet) {
+    const before = snippet.text.slice(0, snippet.hit)
+    const hit = snippet.text.slice(snippet.hit, snippet.hit + snippet.len)
+    const after = snippet.text.slice(snippet.hit + snippet.len)
+    return (
+      <span className={s.threadMeta}>
+        <span className={s.threadMetaText}>
+          {before}
+          <mark className={s.historyHit}>{hit}</mark>
+          {after}
+        </span>
+      </span>
+    )
+  }
+
+  const rel = relationOf(session, scope, here)
+  if (scope === 'related' && rel) {
+    return (
+      <span className={s.threadMeta}>
+        <span className={rel === 'origin' ? s.threadDotOn : s.threadDotOff}>
+          {rel === 'origin' ? '●' : '○'}
+        </span>
+        <span className={s.threadMetaText}>
+          {ctx.i18n.t(rel === 'origin' ? 'agent.filter.startedHere' : 'agent.filter.readHere')}
+        </span>
+      </span>
+    )
+  }
+
+  // 老会话没有 origin，但有回填的 refs —— 拿第一颗当线索，别让第二行空着。
+  const first = session.origin ?? session.refs?.[0]
+  if (!first) return null
+  const name = nameOf(first) || ctx.i18n.t('agent.filter.unnamed')
+  const count = session.origin ? refCountOf(session) : (session.refs?.length ?? 0)
+  return (
+    <span className={s.threadMeta}>
+      {scope === 'folder' && rel ? (
+        <span className={rel === 'origin' ? s.threadDotOn : s.threadDotOff}>
+          {rel === 'origin' ? '●' : '○'}
+        </span>
+      ) : null}
+      <PageIcon width={11} height={11} />
+      <span className={s.threadMetaText}>{name}</span>
+      {count > 0 ? <span className={s.threadMetaCount}>· {count}</span> : null}
+    </span>
+  )
+}
+
+function threadTip(ctx: Context, session: Session, title: string): string {
+  const parts = [title]
+  if (session.origin) {
+    const name = nameOf(session.origin) || ctx.i18n.t('agent.filter.unnamed')
+    parts.push(ctx.i18n.t('agent.filter.tipOrigin', { title: name }))
+  }
+  const refs = (session.refs ?? []).filter((ref) => ref.id !== session.origin?.id)
+  if (refs.length) {
+    const names = refs.slice(0, 8).map((ref) => nameOf(ref) || ctx.i18n.t('agent.filter.unnamed'))
+    parts.push(
+      ctx.i18n.t('agent.filter.tipRefs', {
+        list: `${names.join('、')}${refs.length > 8 ? '…' : ''}`,
+      }),
+    )
+  }
+  return parts.join('\n')
+}
+
+function emptyOf(
+  query: string,
+  pick: RagScopeItem | null,
+  scope: HistoryScope,
+): { key: string; vars?: Record<string, string> } {
+  const q = query.trim()
+  if (q) return { key: 'agent.filter.emptySearch', vars: { q } }
+  if (pick) return { key: 'agent.filter.emptyPick', vars: { title: pick.title } }
+  if (scope === 'related') return { key: 'agent.filter.emptyRelated' }
+  if (scope === 'folder') return { key: 'agent.filter.emptyFolder' }
+  return { key: 'agent.filter.emptyAll' }
 }
 
 /** 对话本身：上面那些行 + 下面那个输入胶囊。整页和右侧那一列都是它。

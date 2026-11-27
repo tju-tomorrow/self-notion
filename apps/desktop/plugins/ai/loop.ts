@@ -38,14 +38,17 @@ import {
 import { placeOf, whereNow } from './place'
 import {
   emptyPrompt,
+  loadScopes,
   mergeTraces,
   scopeLabel,
   searchScope,
   sourcesBlock,
   type RagScope,
+  type RagScopeItem,
   type RagTrace,
 } from './rag'
 import {
+  addRefs,
   addSpend,
   askApproval,
   cancelApproval,
@@ -58,9 +61,11 @@ import {
   queueSteer,
   setAiState,
   setDraft,
+  setOrigin,
   setThink,
   setTranscript,
   takeSteers,
+  type DocAnchor,
   type Session,
   type Undo,
 } from './state'
@@ -158,6 +163,7 @@ export async function runTurn(
   // 开头就钉死：跑的过程中人可以切到别的会话，字不能写错地方。
   const sessionId = state.currentId
   const session = state.sessions.find((s) => s.id === sessionId)
+  const firstTurn = !session || session.lines.length === 0
   const groupId = newGroupId()
   const written = new Set<string>()
   // 开头钉死这一问的联网开关：跑的过程中再点，只影响下一问。
@@ -179,6 +185,17 @@ export async function runTurn(
     stopRequested: false,
   })
   const picked = await focusScopes(ctx, prompt, quote, scopes ?? [])
+  // 发起锚点只在第一句定；划选所在的那篇优先于「刚才在看的那篇」。
+  if (firstTurn) {
+    const id = quote?.id ?? getAiState().viewingDoc
+    const anchor = id ? await anchorOfId(ctx, id) : null
+    if (anchor) setOrigin(sessionId, anchor)
+  }
+  addRefs(sessionId, anchorsOfScopes(picked))
+  if (quote?.id) {
+    const anchor = await anchorOfId(ctx, quote.id)
+    if (anchor) addRefs(sessionId, [anchor])
+  }
   pushLine(
     {
       role: 'user',
@@ -197,6 +214,7 @@ export async function runTurn(
     // 只有圈了范围、划了字、或这句话是在问当前这篇时才检索。普通闲聊不翻库。
     const found = picked.length ? await retrieve(ctx, picked, prompt, quote, groupId, sessionId) : null
     const trace = found?.trace ?? null
+    addRefs(sessionId, anchorsOfTrace(trace))
     const rules = scopeRules(ctx, picked, trace, found?.related ?? '')
     const system = await systemPrompt(ctx, picked.length > 0, webOn)
     const user: AiMessage = {
@@ -213,7 +231,7 @@ export async function runTurn(
     await runLoop(
       messages,
       {
-        tools: toolsFor(ctx, specs, groupId, written, picked, found?.extra ?? []),
+        tools: toolsFor(ctx, specs, groupId, sessionId, written, picked, found?.extra ?? []),
         takeSteering: () => takeSteers(sessionId),
         onAssistant: (turn) => {
           const text = turn.content.trim()
@@ -590,11 +608,122 @@ function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…` : text
 }
 
+interface AnchorIndex {
+  byId: Map<string, RagScopeItem>
+  byShort: Map<string, RagScopeItem>
+  byPath: Map<string, RagScopeItem>
+}
+
+let anchorCache: { at: number; index: AnchorIndex } | null = null
+let anchorPending: Promise<AnchorIndex> | null = null
+
+/** `rag:scopes` 的目录缓存翻成三张表：完整 id / 8 位短 id / 路径。 */
+function anchorIndex(ctx: Context): Promise<AnchorIndex> {
+  if (anchorCache && Date.now() - anchorCache.at < 30_000) return Promise.resolve(anchorCache.index)
+  if (anchorPending) return anchorPending
+  const pending = loadScopes(ctx)
+    .then((items) => {
+      const index: AnchorIndex = { byId: new Map(), byShort: new Map(), byPath: new Map() }
+      for (const item of items) {
+        if (item.kind !== 'doc' || !item.id) continue
+        index.byId.set(item.id, item)
+        index.byShort.set(item.id.slice(0, 8), item)
+        index.byPath.set(item.path, item)
+        if (item.path.startsWith('/tree/')) {
+          index.byPath.set(`/outline/${item.path.slice(6)}`, item)
+        }
+      }
+      anchorCache = { at: Date.now(), index }
+      return index
+    })
+    .finally(() => {
+      anchorPending = null
+    })
+  anchorPending = pending
+  return pending
+}
+
+/** 一个 id 的锚点。目录缓存里没有（刚建、刚删）就退回 `placeOf`。 */
+async function anchorOfId(ctx: Context, id: string): Promise<DocAnchor | null> {
+  try {
+    const item = (await anchorIndex(ctx)).byId.get(id)
+    if (item) return { id, title: item.title, path: item.path }
+  } catch {
+    // 目录没预热时走下面的 placeOf，不让记录来源把这一轮拖垮。
+  }
+  const place = await placeOf(ctx, id)
+  if (place) return { id, title: place.title, path: place.path }
+  return { id, title: '', path: '' }
+}
+
+function anchorsOfScopes(scopes: readonly RagScope[]): DocAnchor[] {
+  const out: DocAnchor[] = []
+  for (const scope of scopes) {
+    if (scope.kind === 'doc') out.push({ id: scope.id, title: scope.title, path: scope.path })
+  }
+  return out
+}
+
+function anchorsOfTrace(trace: RagTrace | null): DocAnchor[] {
+  if (!trace) return []
+  return trace.usedDocs.map((doc) => ({ id: doc.id, title: doc.title, path: doc.path }))
+}
+
+/** 一次工具调用碰过哪些文档。路径/短 id 在目录缓存里换；换不到就当没碰过。 */
+async function refsOfTool(
+  ctx: Context,
+  name: string,
+  args: Record<string, unknown>,
+  result: unknown,
+): Promise<DocAnchor[]> {
+  const index = await anchorIndex(ctx)
+  const out: DocAnchor[] = []
+  const byId = (value: unknown): void => {
+    if (typeof value !== 'string' || value === '') return
+    const item = index.byId.get(value) ?? index.byShort.get(value)
+    if (item?.id) out.push({ id: item.id, title: item.title, path: item.path })
+  }
+  const byPath = (value: unknown): void => {
+    if (typeof value !== 'string' || !value.startsWith('/')) return
+    const item = index.byPath.get(value)
+    if (item?.id) out.push({ id: item.id, title: item.title, path: item.path })
+  }
+
+  for (const key of ['id', 'docId', 'target', 'parentId', 'parent', 'currentDocId']) byId(args[key])
+  for (const key of ['path', 'id', 'docId', 'target', 'parentId', 'parent']) byPath(args[key])
+  if (Array.isArray(args['ids'])) for (const id of args['ids']) byId(id)
+
+  if (name === 'doc_create') {
+    const made = result as { id?: unknown; title?: unknown } | null
+    if (made && typeof made.id === 'string' && made.id) {
+      const place = await placeOf(ctx, made.id)
+      out.push({
+        id: made.id,
+        title: place?.title ?? (typeof made.title === 'string' ? made.title : ''),
+        path: place?.path ?? '',
+      })
+    }
+  } else if (result && typeof result === 'object') {
+    const box = result as Record<string, unknown>
+    byId(box['id'])
+    byId(box['docId'])
+  }
+
+  if ((name === 'notes_find' || name === 'notes_related') && typeof result === 'string') {
+    for (const match of result.matchAll(/\[([0-9a-f]{8})\]/g)) byId(match[1])
+  }
+  if (name === 'vfs_grep' && typeof result === 'string') {
+    for (const match of result.matchAll(/^(\/(?:tree|outline)\/[^:\n]+\.md):\d+:/gm)) byPath(match[1])
+  }
+  return out
+}
+
 /** 契约里的 `ToolSpec` → 循环要的 `HarnessTool`。**读并发、写串行**。 */
 function toolsFor(
   ctx: Context,
   specs: readonly ToolSpec[],
   groupId: string,
+  sessionId: string,
   written: Set<string>,
   scopes: readonly RagScope[],
   extra: readonly string[],
@@ -619,6 +748,11 @@ function toolsFor(
         const result = await spec.run(args, signal)
         const id = (result as { id?: unknown } | null)?.id
         if (WRITES.has(spec.name) && typeof id === 'string') written.add(id)
+        try {
+          addRefs(sessionId, await refsOfTool(ctx, spec.name, args, result))
+        } catch {
+          // 记引用是旁路：目录没预热、路径对不上，都不该影响工具结果。
+        }
         return asToolOutput(result)
       } catch (err) {
         // 工具失败是常态（模型给错参数），不当故障报 —— 但得能查到（AGENTS.md §3）。

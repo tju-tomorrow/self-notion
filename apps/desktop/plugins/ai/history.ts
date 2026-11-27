@@ -9,16 +9,38 @@
 import type { Context } from 'cordis'
 
 import type { AiMessage, AiToolCall } from '../../src/kernel/contract'
-import { SESSIONS_KEY, getAiState, isThinkLevel, restoreSessions, setThinkLevel, subscribeState, type Line, type Session, type ToolMark } from './state'
+import { loadScopes, type RagChunk, type RagScope, type RagTrace } from './rag'
+import { REF_CAP, SESSIONS_KEY, addRefs, getAiState, isThinkLevel, restoreSessions, setThinkLevel, subscribeState, type DocAnchor, type Line, type Session, type ToolMark } from './state'
 
 const THINK_KEY = 'agent.think'
-import type { RagChunk, RagScope, RagTrace } from './rag'
+/** 老会话的 refs 只补一次。 */
+const BACKFILL_KEY = 'agent.refsBackfilled'
 
 const ROLES: readonly Line['role'][] = ['user', 'ai', 'note']
 
 export function installHistory(ctx: Context): () => void {
   /** 上一次读/写过的原文。它的全部作用：打断「自己写回 → onChange 通知 → 又拿回来写一次」那个圈。 */
   let lastRaw = ''
+  /** 老会话的 refs 只补一次；失败就下次启动再试。 */
+  let backfillStarted = false
+  const maybeBackfill = (): void => {
+    if (backfillStarted || ctx.settings.get<string>(BACKFILL_KEY) === '1') return
+    // 设置是异步预热的：还没读到原文时别急着判定「没有老会话」。
+    const raw = ctx.settings.get<string>(SESSIONS_KEY)
+    if (typeof raw !== 'string' || raw === '') return
+    if (!getAiState().sessions.some((sess) => sess.lines.length > 0 && !sess.refs?.length)) {
+      ctx.settings.set(BACKFILL_KEY, '1')
+      return
+    }
+    backfillStarted = true
+    void backfillRefs(ctx)
+      .then((done) => {
+        if (done) ctx.settings.set(BACKFILL_KEY, '1')
+      })
+      .catch(() => {
+        backfillStarted = false
+      })
+  }
 
   // 流式草稿不在 sessions 里。引用没变就别整包 stringify —— 每个 token 都写一遍会卡。
   let seenSessions = getAiState().sessions
@@ -39,11 +61,15 @@ export function installHistory(ctx: Context): () => void {
     if (typeof raw !== 'string' || raw === '' || raw === lastRaw) return
     lastRaw = raw
     const restored = parse(raw)
-    if (restored) restoreSessions(restored.sessions, restored.currentId)
+    if (restored) {
+      restoreSessions(restored.sessions, restored.currentId)
+      maybeBackfill()
+    }
   }
 
   // 装的时候多半还读不到 —— `plugin-settings` 的预热是异步的，预热完它会 notify 一次。
   pull()
+  maybeBackfill()
   const offChange = ctx.settings.onChange(SESSIONS_KEY, pull)
   const offSub = subscribeState(save)
   const offThink = installThink(ctx)
@@ -101,6 +127,8 @@ function parse(raw: string): { sessions: Session[]; currentId: string } | null {
       at: typeof one.at === 'number' ? one.at : Date.now(),
       // 老会话（D-0096 之前存的）没有这个字段 —— 当 0，不丢那整条。
       spent: typeof one.spent === 'number' && one.spent >= 0 ? one.spent : 0,
+      origin: anchorOf(one.origin),
+      refs: anchorsOf(one.refs),
       transcript: messagesOf(one.transcript),
       lines: one.lines.flatMap((line) => {
         if (typeof line !== 'object' || line === null) return []
@@ -128,6 +156,72 @@ function parse(raw: string): { sessions: Session[]; currentId: string } | null {
       ? box.currentId
       : sessions[0].id
   return { sessions, currentId }
+}
+
+/** 老会话的 refs 从已经存下来的检索轨迹、圈定范围和工具路径里补一次。
+ *  `origin` 不补 —— 那时候没记「按下发送时在看哪篇」，猜不出来。 */
+async function backfillRefs(ctx: Context): Promise<boolean> {
+  const docs: { id: string; title: string; path: string }[] = []
+  for (const item of await loadScopes(ctx)) {
+    if (item.kind === 'doc' && item.id) {
+      docs.push({ id: item.id, title: item.title, path: item.path })
+    }
+  }
+  if (!docs.length) return false
+
+  const byId = new Map(docs.map((doc) => [doc.id, doc]))
+  const byShort = new Map(docs.map((doc) => [doc.id.slice(0, 8), doc]))
+  const byPath = new Map<string, (typeof docs)[number]>()
+  for (const doc of docs) {
+    byPath.set(doc.path, doc)
+    if (doc.path.startsWith('/tree/')) byPath.set(`/outline/${doc.path.slice(6)}`, doc)
+  }
+
+  for (const session of getAiState().sessions) {
+    if (session.refs?.length) continue
+    const refs: DocAnchor[] = []
+    for (const line of session.lines) {
+      for (const used of line.rag?.usedDocs ?? []) {
+        refs.push({ id: used.id, title: used.title, path: used.path })
+      }
+      for (const scope of line.scopes ?? (line.scope ? [line.scope] : [])) {
+        if (scope.kind === 'doc' && scope.id) {
+          refs.push({ id: scope.id, title: scope.title, path: scope.path })
+        }
+      }
+      const detail = line.tool?.detail ?? ''
+      const hit = byPath.get(detail) ?? byId.get(detail) ?? byShort.get(detail)
+      if (hit) refs.push(hit)
+    }
+    if (refs.length) addRefs(session.id, refs)
+  }
+  return true
+}
+
+/** 读回来的那一份不可信：缺 id 的锚点整颗丢掉，重复的引用只留第一颗。 */
+function anchorOf(raw: unknown): DocAnchor | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const value = raw as Partial<DocAnchor>
+  if (typeof value.id !== 'string' || value.id === '') return undefined
+  return {
+    id: value.id,
+    title: typeof value.title === 'string' ? value.title : '',
+    path: typeof value.path === 'string' ? value.path : '',
+  }
+}
+
+function anchorsOf(raw: unknown): DocAnchor[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const out: DocAnchor[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    const anchor = anchorOf(item)
+    if (!anchor || seen.has(anchor.id)) continue
+    seen.add(anchor.id)
+    out.push(anchor)
+    if (out.length >= REF_CAP) break
+  }
+  return out.length ? out : undefined
 }
 
 function messagesOf(raw: unknown): AiMessage[] {
