@@ -57,6 +57,12 @@ tauri-plugin-single-instance = "2"
 # （D-0032：插件默认禁网；AI 的 HTTP 也走 Rust，见 D-0042）。
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "native-tls"] }
 
+# ── 网页正文抽取（D-0217）────────────────────────────────────────────────────
+# `web_read` 用 arc90 可读性算法的 Rust 移植（kumabook/readability）挑正文，
+# 挑不出来（列表页 / 只剩导航）再退回整页文本。
+# 关掉默认 feature：它自带的 `reqwest` 是 0.11，而我们的 HTTP 出口在 `backup/http.rs`。
+readability = { version = "0.3", default-features = false }
+
 # ── 局域网同步服务（D-0195 / D-0196）──────────────────────────────────────────
 # 手机网页版和桌面共用一份数据：HTTP 服务在 Rust 侧，手机只拿静态资源和同步接口。
 # 只绑局域网，不碰公网。TLS 是 PWA 的硬前提（Service Worker 只认安全上下文）。

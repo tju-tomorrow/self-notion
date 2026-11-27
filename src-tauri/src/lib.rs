@@ -29,6 +29,7 @@ mod syncing;
 mod tts;
 mod vfs;
 mod voice;
+mod web;
 mod windows;
 
 pub fn run() {

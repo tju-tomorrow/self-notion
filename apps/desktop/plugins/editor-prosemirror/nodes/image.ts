@@ -10,6 +10,7 @@
 import type { Node as PMNode } from 'prosemirror-model'
 import type { NodeViewConstructor } from 'prosemirror-view'
 
+import { IMAGE_DRAG_MIME } from '../../../src/kernel/contract'
 import { blobUrl } from '../../../src/platform/blob-url'
 import { selectBlockRange } from '../plugins/block-selection'
 import { asString, asWidth } from './attrs'
@@ -31,7 +32,8 @@ export const imageView: NodeViewConstructor = (node, view, getPos) => {
   const img = document.createElement('img')
   img.className = 'sn-image-img'
   img.alt = ''
-  img.draggable = false
+  // 可拖：拖到右侧助手 = 把这张图发给 AI（下面的 dragstart 带上 blob id）。
+  img.draggable = true
 
   const grip = document.createElement('span')
   grip.className = 'sn-image-grip'
@@ -135,6 +137,16 @@ export const imageView: NodeViewConstructor = (node, view, getPos) => {
       e.preventDefault()
       caption.blur()
     }
+  })
+
+  // 拖出去的是「这张图的引用」，不是搬块：别让 PM 把 dragstart 当成 slice 带走。
+  img.addEventListener('dragstart', (e) => {
+    const blobId = asString(currentNode()?.attrs.blobId)
+    if (!blobId || !e.dataTransfer) return
+    e.dataTransfer.setData(IMAGE_DRAG_MIME, blobId)
+    e.dataTransfer.setData('text/plain', `self-notion://blob/${blobId}`)
+    e.dataTransfer.effectAllowed = 'copy'
+    e.stopPropagation()
   })
 
   // 图片首先是个块：单击选中它（能 Tab 缩进 / 用块手柄），双击才放大。

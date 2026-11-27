@@ -31,6 +31,7 @@ import {
   type VfsHit,
 } from '../../src/kernel/contract'
 import { readWithImages } from './media'
+import { webReadTool, webSearchTool } from './web'
 
 /** 一次读给模型的上限。再长就让它带 offset 续读。 */
 const READ_CAP = 6_000
@@ -88,6 +89,8 @@ export function apply(ctx: Context) {
   add(moveTool(ctx))
   add(tagTool(ctx))
   add(familiarityTool(ctx))
+  add(webSearchTool(ctx))
+  add(webReadTool(ctx))
 }
 
 /* ─────────────────────────── 读 ─────────────────────────── */

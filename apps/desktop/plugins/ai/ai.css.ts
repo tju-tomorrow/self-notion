@@ -1154,6 +1154,13 @@ export const footRow = style({
   gap: 8,
 })
 
+export const footChips = style({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  flexWrap: 'wrap',
+})
+
 export const mode = style({
   display: 'inline-flex',
   alignItems: 'center',

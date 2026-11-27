@@ -180,6 +180,13 @@ pub fn dispatch(
         // 一次模型往返几秒到几十秒，攥着库锁会把整个应用卡住。要 AppHandle 发 `ai:delta`。
         "ai:chat" => crate::ai::chat(app, db, args, win),
 
+        // ── 联网搜索（D-0217；实现在 `src/web/`）──────────────────────────────
+        // 同 `ai:chat`：立刻返回，结果从 `web:done` / `web:error` 事件来。
+        "web:search" => crate::web::search(app, db, args, win),
+        "web:read" => crate::web::read(app, args, win),
+        "web:status" => crate::web::status(db),
+        "web:configure" => crate::web::configure(db, args),
+
         // ── web 版 AI 面板（D-0074；实现在 `src/aiweb.rs`）─────────────────────
         "aiweb:show" => {
             let a: crate::aiweb::ShowArgs = parse(args)?;

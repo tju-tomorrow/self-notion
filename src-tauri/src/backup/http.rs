@@ -8,6 +8,7 @@
 //! 用阻塞客户端就不用自己搭 tokio runtime。
 
 use std::error::Error as _;
+use std::io::Read;
 use std::sync::OnceLock;
 use std::thread;
 use std::time::Duration;
@@ -16,6 +17,7 @@ use std::time::Duration;
 pub struct Response {
     pub status: u16,
     pub body: Vec<u8>,
+    pub headers: Vec<(String, String)>,
 }
 
 const ATTEMPTS: u32 = 3;
@@ -83,11 +85,84 @@ pub fn send(
         match req.send() {
             Ok(resp) => {
                 let status = resp.status().as_u16();
+                let headers = collect_headers(&resp);
                 let body = resp.bytes().map_err(|e| chain(&e))?.to_vec();
-                return Ok(Response { status, body });
+                return Ok(Response { status, body, headers });
             }
             Err(e) => last = chain(&e),
         }
     }
     Err(format!("发了 {ATTEMPTS} 次都没发出去：{last}"))
+}
+
+const QUICK_MAX_BYTES: u64 = 4 * 1024 * 1024;
+
+fn quick(no_redirect: bool) -> &'static reqwest::blocking::Client {
+    static FOLLOW: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+    static PLAIN: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+    let cell = if no_redirect { &PLAIN } else { &FOLLOW };
+    cell.get_or_init(|| {
+        let mut builder = reqwest::blocking::Client::builder().timeout(Duration::from_secs(6));
+        if no_redirect {
+            builder = builder.redirect(reqwest::redirect::Policy::none());
+        }
+        builder.build().expect("HTTP client 建不起来（TLS 后端初始化失败）")
+    })
+}
+
+fn quick_call(
+    client: &reqwest::blocking::Client,
+    method: &str,
+    url: &str,
+    headers: &[(String, String)],
+    body: Option<Vec<u8>>,
+) -> Result<Response, String> {
+    let m = reqwest::Method::from_bytes(method.as_bytes())
+        .map_err(|e| format!("bad method {method}: {e}"))?;
+    let mut req = client.request(m, url);
+    for (k, v) in headers {
+        req = req.header(k.as_str(), v.as_str());
+    }
+    if let Some(b) = &body {
+        req = req.body(b.clone());
+    }
+    let resp = req.send().map_err(|e| chain(&e))?;
+    let status = resp.status().as_u16();
+    let headers = collect_headers(&resp);
+    // 搜索 / 读网页打的是外面的站点，回包大小不该无上限地往内存里灌。
+    let mut body = Vec::new();
+    resp.take(QUICK_MAX_BYTES + 1)
+        .read_to_end(&mut body)
+        .map_err(|e| e.to_string())?;
+    if body.len() as u64 > QUICK_MAX_BYTES {
+        return Err("回包太大（超过 4MB）".to_string());
+    }
+    Ok(Response { status, body, headers })
+}
+
+/// 短超时、不重试的一次往返。联网搜索要在几个公共实例之间轮着试，
+/// 一个死站不能把整轮拖成 `send` 的 3 次 × 30 秒。
+pub fn send_quick(
+    method: &str,
+    url: &str,
+    headers: &[(String, String)],
+    body: Option<Vec<u8>>,
+) -> Result<Response, String> {
+    quick_call(quick(false), method, url, headers, body)
+}
+
+/// 不自动跟随跳转 —— `web_read` 要自己检查每一跳，别被 302 带去内网。
+pub fn send_quick_plain(
+    method: &str,
+    url: &str,
+    headers: &[(String, String)],
+) -> Result<Response, String> {
+    quick_call(quick(true), method, url, headers, None)
+}
+
+fn collect_headers(resp: &reqwest::blocking::Response) -> Vec<(String, String)> {
+    resp.headers()
+        .iter()
+        .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or("").to_string()))
+        .collect()
 }

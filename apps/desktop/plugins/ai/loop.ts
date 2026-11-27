@@ -97,6 +97,18 @@ const BASE_PROMPT = [
   '工具够用就停并回答。用户要总结成笔记时，资料齐了就写。不要删除文档。不要用 vfs_grep 扫整库，除非 notes_find 明确不够。',
 ].join('\n')
 
+/** 只有这一问点了「联网搜索」才拼进去 —— 关着的时候连工具都不给模型（见 `runTurn`）。 */
+const WEB_PROMPT = [
+  '这一问有联网能力：要最新消息、网页上的资料，或你不确定的外部事实时用 web_search；问「最新 / 今天」时给它 freshness。摘要不够就用 web_read 读那个链接的正文（太长用 offset 续读）。回答里只引用这次读到的链接，搜不到就照实说、最多换一次关键词。笔记里查得到的先查笔记。',
+  '圈了范围时，只有用户明确要联网或问的是实时信息才用网络，并标明哪句来自网络。',
+].join('\n')
+
+const NO_WEB_PROMPT =
+  '这一问没有联网能力（用户没点「联网搜索」）。他要最新消息或外部资料时，直说让他先点对话下方的「联网搜索」再发，不要编。'
+
+/** 联网工具按这一问的开关过滤；别的工具照旧。 */
+const WEB_TOOLS = new Set(['web_search', 'web_read'])
+
 /** 用户划线送进来的那段正文。`path` 拿不到就只说「当前笔记」。 */
 export interface Quote {
   text: string
@@ -148,7 +160,11 @@ export async function runTurn(
   const session = state.sessions.find((s) => s.id === sessionId)
   const groupId = newGroupId()
   const written = new Set<string>()
-  const specs: ToolSpec[] = ctx.get('tools')?.list() ?? []
+  // 开头钉死这一问的联网开关：跑的过程中再点，只影响下一问。
+  const webOn = state.web
+  const specs: ToolSpec[] = (ctx.get('tools')?.list() ?? []).filter(
+    (spec) => webOn || !WEB_TOOLS.has(spec.name),
+  )
   const controller = new AbortController()
   onStopRequest(() => controller.abort())
 
@@ -182,7 +198,7 @@ export async function runTurn(
     const found = picked.length ? await retrieve(ctx, picked, prompt, quote, groupId, sessionId) : null
     const trace = found?.trace ?? null
     const rules = scopeRules(ctx, picked, trace, found?.related ?? '')
-    const system = await systemPrompt(ctx, picked.length > 0)
+    const system = await systemPrompt(ctx, picked.length > 0, webOn)
     const user: AiMessage = {
       role: 'user',
       content: userContent(prompt, quote, trace, found?.related ?? ''),
@@ -434,9 +450,9 @@ function userContent(
 
 /** 系统提示：`/index.md` + `/AGENTS.md` 就是这棵树自己的说明书（`docs/ai.md` 第四节）。
  *  ★ 圈了范围就不再塞那两份 —— 范围已经锁死，索引省下来的两千字给资料。 */
-async function systemPrompt(ctx: Context, scoped = false): Promise<string> {
+async function systemPrompt(ctx: Context, scoped = false, webOn = false): Promise<string> {
   const vfs = ctx.get('vfs')
-  const parts = [BASE_PROMPT]
+  const parts = [BASE_PROMPT, webOn ? WEB_PROMPT : NO_WEB_PROMPT]
   const where = await whereNow(ctx, getAiState().viewingDoc)
   if (where !== '') parts.push(where)
   if (!vfs || scoped) return parts.join('\n\n')
@@ -600,7 +616,7 @@ function toolsFor(
         fillScope(spec.name, args, scopes)
         await assertScope(ctx, scopes, extra, spec.name, args)
         await gate(ctx, spec, call, args, signal)
-        const result = await spec.run(args)
+        const result = await spec.run(args, signal)
         const id = (result as { id?: unknown } | null)?.id
         if (WRITES.has(spec.name) && typeof id === 'string') written.add(id)
         return asToolOutput(result)
@@ -708,7 +724,7 @@ function argsOf(call: AiToolCall): Record<string, unknown> {
 
 /** 参数里那句能认出来的话 —— 名字后面括号里显示的（`vfs_read(/tree/我与我.md)`）。 */
 function detailOf(args: Record<string, unknown>): string {
-  for (const key of ['path', 'query', 'title', 'id']) {
+  for (const key of ['path', 'query', 'url', 'title', 'id']) {
     const value = args[key]
     if (typeof value === 'string' && value !== '') return value
   }

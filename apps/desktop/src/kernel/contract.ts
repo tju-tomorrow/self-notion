@@ -366,6 +366,11 @@ export interface OpenCanvasEvent {
   blockId: string
 }
 
+/* ─────────────────── 图片拖进助手（D-0217）─────────────────── */
+
+/** 笔记里拖一张图出去时带的 MIME；值是 blob id。编辑器写，助手面板读。 */
+export const IMAGE_DRAG_MIME = 'application/x-sn-blob'
+
 /** 关掉**某一个**标签（D-0104 续）。发出去的人只有一处：助手那一页上那颗「收进右侧栏」——
  *  它要把整页收成右边一列，而「关标签」是标签条自己的内部状态，外面没有别的口子。
  *  收到的人按跟点标签上那个 × 一模一样的规矩办：关掉、邻居上位、没标签了回首页。 */
@@ -920,7 +925,8 @@ export interface ToolSpec {
   description: string
   /** JSON Schema：内置 agent 导出成 OpenAI function，外接导出成 MCP tool（D-0042） */
   parameters: unknown
-  run(args: unknown): Promise<unknown>
+  /** `signal` 只给要等外部事件的工具用（`web_search`）—— 用户按停时别再挂着。 */
+  run(args: unknown, signal?: AbortSignal): Promise<unknown>
 }
 
 /** 工具清单的唯一定义处（D-0042）。

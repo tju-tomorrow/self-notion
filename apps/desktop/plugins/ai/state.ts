@@ -116,6 +116,8 @@ export interface AiUiState {
   pending: Approval | null
   /** 思考开不开、开到多深。发出去之前由 Rust 按网关改成它认识的字段。 */
   think: ThinkLevel
+  /** 下一问给不给联网工具（D-0217）。**默认关**：联网是把话发出去的副作用，得人点一下。 */
+  web: boolean
 }
 
 export const THINK_LEVELS = ['off', 'low', 'medium', 'high', 'xhigh'] as const
@@ -153,6 +155,7 @@ let state: AiUiState = {
   autoRun: false,
   pending: null,
   think: 'medium',
+  web: false,
 }
 
 /** 卡片上按钮的回调 —— 不进 state（函数不该跟着 UI 状态走）。 */
@@ -205,6 +208,11 @@ export function resolveApproval(choice: ApprovalChoice): void {
 export function setThinkLevel(level: ThinkLevel): void {
   if (state.think === level) return
   setAiState({ think: level })
+}
+
+/** 输入框下面那颗「联网搜索」。开着才把 web_search / web_read 给模型。 */
+export function toggleWeb(): void {
+  setAiState({ web: !state.web })
 }
 
 /** ⇧Tab / 点那颗模式签：本次对话里在「每次确认」和「自动执行」之间切。 */

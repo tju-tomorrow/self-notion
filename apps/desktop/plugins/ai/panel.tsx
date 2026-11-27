@@ -18,6 +18,7 @@ import {
   useState,
   useSyncExternalStore,
   type ClipboardEvent,
+  type DragEvent,
   type PointerEvent,
   type ReactNode,
 } from 'react'
@@ -35,7 +36,7 @@ import {
   VoiceIcon,
 } from '@blocksuite/icons/rc'
 
-import { AGENT_TAB_ID, CLOSE_TAB, type AiService } from '../../src/kernel/contract'
+import { AGENT_TAB_ID, CLOSE_TAB, IMAGE_DRAG_MIME, type AiService } from '../../src/kernel/contract'
 import { reportError } from '../../src/kernel/errors'
 import { readLocal, writeLocal } from '../../src/kernel/local'
 import { copyText } from '../../src/ui/clipboard'
@@ -66,6 +67,7 @@ import {
   setThinkLevel,
   stop,
   toggleAutoRun,
+  toggleWeb,
   useAiState,
   useDraft,
   useThink,
@@ -82,6 +84,25 @@ const TIPS = ['agent.tip1', 'agent.tip2', 'agent.tip3'] as const
 
 /** Claude Code 那个转圈：八点盲文，一格一格转。 */
 const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+
+/** 「联网搜索」那颗上的地球 —— 为一个小图标引整套图标库不值。 */
+function GlobeMark(): ReactNode {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <ellipse cx="12" cy="12" rx="4" ry="9" />
+      <path d="M3 12h18" />
+    </svg>
+  )
+}
 
 /** 右侧那一列的宽度。默认 380、能拖，落在 `localStorage`（跟网页版 AI 面板一个套路）。 */
 const DOCK_W = 380
@@ -432,6 +453,16 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
     requestAnimationFrame(() => input.current?.focus())
   }
 
+  const addShot = (file: File): void => {
+    void shrinkShot(file).then((shot) => {
+      if (!shot) {
+        setAiState({ error: ctx.i18n.t('agent.imageBig'), errorFor: here })
+        return
+      }
+      setShots((prev) => (prev.length >= 4 ? prev : [...prev, shot]))
+    })
+  }
+
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const items = [...(e.clipboardData?.items ?? [])].filter((item) => item.type.startsWith('image/'))
     if (!items.length) return
@@ -447,15 +478,33 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
     }
     for (const item of items) {
       const file = item.getAsFile()
-      if (!file) continue
-      void shrinkShot(file).then((shot) => {
-        if (!shot) {
-          setAiState({ error: ctx.i18n.t('agent.imageBig'), errorFor: here })
-          return
-        }
-        setShots((prev) => (prev.length >= 4 ? prev : [...prev, shot]))
+      if (file) addShot(file)
+    }
+  }
+
+  // 从笔记里把图片拖过来（D-0217）：编辑器在 dragstart 里写 blob id，这里取出来当附件。
+  const onDragOver = (e: DragEvent<HTMLDivElement>) => {
+    const types = e.dataTransfer.types
+    if (!types.includes(IMAGE_DRAG_MIME) && !types.includes('Files')) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+  }
+
+  const onDrop = (e: DragEvent<HTMLDivElement>) => {
+    const dt = e.dataTransfer
+    if (!dt.types.includes(IMAGE_DRAG_MIME) && !dt.types.includes('Files')) return
+    e.preventDefault()
+    const raw = dt.getData(IMAGE_DRAG_MIME) || dt.getData('text/plain')
+    const id = /^[0-9a-f]+$/.test(raw) ? raw : /self-notion:\/\/blob\/([0-9a-f]+)/.exec(raw)?.[1]
+    if (id) {
+      void blobFile(id).then((file) => {
+        if (file) addShot(file)
       })
     }
+    for (const file of dt.files) {
+      if (file.type.startsWith('image/')) addShot(file)
+    }
+    input.current?.focus()
   }
 
   const ask = (prompt: string, forcedQuote?: string) => {
@@ -484,7 +533,13 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
 
   return (
     <>
-      <div className={compact ? s.dockStream : s.stream} ref={list} onScroll={onScroll}>
+      <div
+        className={compact ? s.dockStream : s.stream}
+        ref={list}
+        onScroll={onScroll}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
+      >
         {lines.length === 0 && !st.busy ? (
           <div className={s.welcome}>
             {pet ? <span className={s.mark}>{pet.face(72) as ReactNode}</span> : null}
@@ -528,7 +583,7 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
         )}
       </div>
 
-      <div className={compact ? s.dockFoot : s.foot}>
+      <div className={compact ? s.dockFoot : s.foot} onDragOver={onDragOver} onDrop={onDrop}>
         {/* 写操作过闸：模型要改库，卡就贴在这儿等人点（不会被聊天记录滚走）。 */}
         {st.pending ? <ApprovalCard ctx={ctx} pending={st.pending} /> : null}
         {/* 这一问圈定的范围。看得见、可撤 —— 发出去之后这里会清空。 */}
@@ -736,7 +791,20 @@ function ChatBody({ ctx, ai, compact }: { ctx: Context; ai: AiService; compact?:
           </div>
         </div>
         <div className={s.footRow}>
-          <ThinkPicker ctx={ctx} />
+          <div className={s.footChips}>
+            <ThinkPicker ctx={ctx} />
+            <button
+              type="button"
+              className={st.web ? s.modeOn : s.mode}
+              title={ctx.i18n.t('agent.webHint')}
+              aria-pressed={st.web}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={toggleWeb}
+            >
+              <GlobeMark />
+              {ctx.i18n.t('agent.web')}
+            </button>
+          </div>
           <span className={s.hint}>{ctx.i18n.t(live ? 'agent.hintBusy' : 'agent.hint')}</span>
           <button
             type="button"
@@ -1347,6 +1415,20 @@ function secs(ms: number): string {
 
 function frame(now: number): string {
   return SPIN[Math.floor(now / 80) % SPIN.length] ?? '⠋'
+}
+
+/** 笔记里拖出来的图片只剩 blob id —— 取回字节，再走同一条压缩路。 */
+async function blobFile(id: string): Promise<File | null> {
+  try {
+    const res = await fetch(`self-notion://blob/${id}`)
+    if (!res.ok) throw new Error(`blob ${res.status}`)
+    const blob = await res.blob()
+    if (!blob.type.startsWith('image/')) return null
+    return new File([blob], `note-${id.slice(0, 6)}`, { type: blob.type })
+  } catch (err) {
+    reportError('ai', err)
+    return null
+  }
 }
 
 /** 贴图先缩到最长边 1280，再压成 jpeg。太大的不收，避免把会话撑爆。 */

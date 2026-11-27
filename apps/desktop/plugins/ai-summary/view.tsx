@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Context } from 'cordis'
 import { SummarizeIcon } from '@blocksuite/icons/rc'
+import { reportError } from '../../src/kernel/errors'
 import { copyText } from '../../src/ui/clipboard'
 import { Hint } from '../../src/ui/hint'
 import { Button, Field, Group, Note, Row, Select } from '../../src/ui/settings'
@@ -210,6 +211,7 @@ export function AiSection({ ctx }: { ctx: Context }) {
   const [baseUrl, setBaseUrl] = useState('')
   const [model, setModel] = useState('')
   const [key, setKey] = useState('')
+  const [searchBase, setSearchBase] = useState('')
   const [status, setStatus] = useState<AiStatus | null>(null)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
@@ -228,15 +230,21 @@ export function AiSection({ ctx }: { ctx: Context }) {
         setModel(st.model)
       })
       .catch((e: unknown) => setError(errText(e)))
+    ctx.rpc
+      .call<{ base: string }>('web:status')
+      .then((st) => setSearchBase(st.base))
+      .catch((e: unknown) => reportError('ai-summary', e))
   }, [ctx])
 
   const save = () => {
     setBusy(true)
     setNote('')
     setError('')
-    ctx.rpc
-      .call<AiStatus>('ai:configure', { baseUrl, model, ...(key ? { apiKey: key } : {}) })
-      .then((st) => {
+    Promise.all([
+      ctx.rpc.call<AiStatus>('ai:configure', { baseUrl, model, ...(key ? { apiKey: key } : {}) }),
+      ctx.rpc.call('web:configure', { base: searchBase.trim() }),
+    ])
+      .then(([st]) => {
         setStatus(st)
         setKey('')
         setNote(t('ai.saved'))
@@ -303,6 +311,15 @@ export function AiSection({ ctx }: { ctx: Context }) {
           mono
           width={260}
           placeholder={status?.hasKey ? t('ai.keyKept') : t('ai.keyPlaceholder')}
+        />
+      </Row>
+
+      <Row label={t('ai.search')} desc={t('ai.searchHint')}>
+        <Field
+          value={searchBase}
+          onChange={setSearchBase}
+          placeholder="https://searx.be"
+          width={320}
         />
       </Row>
 
