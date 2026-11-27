@@ -84,10 +84,8 @@ export const canvas = style({
   position: 'relative',
   overflow: 'hidden',
   outline: 'none',
-  // 点阵底，看得见画布边界又不抢图形。
-  backgroundImage:
-    'radial-gradient(circle, rgba(128, 128, 128, .22) 1px, transparent 1px)',
-  backgroundSize: '20px 20px',
+  // 拖图形时只重画这一格，别让整页跟着重排。
+  contain: 'layout paint',
 })
 
 export const missing = style({

@@ -35,7 +35,6 @@ export class DrawioCanvas {
 
   private json: JsonNode | null = null
   private node: JsonNode | null = null
-  private title = ''
   private graph: DrawioGraph | null = null
   private offChange: (() => void) | undefined
   private timer: number | undefined
@@ -138,7 +137,7 @@ export class DrawioCanvas {
   }
 
   private missing(text: string): void {
-    this.statusEl.textContent = '打不开'
+    this.setStatus('打不开')
     const box = document.createElement('div')
     box.className = s.missing
     box.textContent = text
@@ -154,7 +153,6 @@ export class DrawioCanvas {
         doc: { title: string; deletedAt: number | null }
       }>('doc:open', { id: this.docId })
       if (this.disposed) return
-      this.title = h.doc?.title ?? ''
       if (h.doc?.deletedAt) return this.missing('这篇笔记在回收站里')
       if (!h.content) return this.missing('找不到这篇笔记')
 
@@ -171,12 +169,11 @@ export class DrawioCanvas {
         return
       }
       this.graph = graph
-      this.offChange = graph.onChange(() => {
-        this.schedule()
-        this.refresh()
-      })
+      // 拖动时 mxGraph 每挪一步就发一次 change —— 这里只重置保存防抖，别碰 DOM；
+      // 按钮状态在 mouseup / keyup 时刷新一次就够。
+      this.offChange = graph.onChange(() => this.schedule())
       this.refresh()
-      this.statusEl.textContent = '已保存'
+      this.setStatus('已保存')
       this.host.focus()
     } catch (err) {
       reportError('drawio', err)
@@ -189,9 +186,13 @@ export class DrawioCanvas {
     return group?.content?.find((n) => n.type === 'blockContainer' && n.attrs?.id === this.blockId) ?? null
   }
 
+  private setStatus(text: string): void {
+    if (this.statusEl.textContent !== text) this.statusEl.textContent = text
+  }
+
   private schedule(): void {
     this.dirty = true
-    this.statusEl.textContent = '保存中…'
+    this.setStatus('保存中…')
     if (this.timer !== undefined) clearTimeout(this.timer)
     this.timer = window.setTimeout(() => void this.save(), SAVE_MS)
   }
@@ -205,14 +206,14 @@ export class DrawioCanvas {
     const xml = graph.serialize()
     this.node.attrs = { ...this.node.attrs, xml }
     const content = JSON.stringify(this.json)
-    const title = this.title
     this.dirty = false
     try {
-      await this.ctx.rpc.call('doc:apply', { id: this.docId, content, title, origin: 'user' })
-      if (!this.disposed) this.statusEl.textContent = '已保存'
+      // 不带 title / md：少了 reindex（FTS 重建），画布每存一次不该重灌一遍全文索引。
+      await this.ctx.rpc.call('doc:apply', { id: this.docId, content, origin: 'user' })
+      if (!this.disposed) this.setStatus('已保存')
     } catch (err) {
       this.dirty = true
-      if (!this.disposed) this.statusEl.textContent = '保存失败'
+      if (!this.disposed) this.setStatus('保存失败')
       reportError('drawio', err)
     }
   }

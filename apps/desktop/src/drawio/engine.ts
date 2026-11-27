@@ -20,6 +20,11 @@ function lib(): Promise<Max> {
   return pending
 }
 
+/** 先把引擎块拉下来 —— 空画布没有预览可画，但点开时要它已经在手里。 */
+export function warmDrawio(): void {
+  void lib()
+}
+
 export interface PaletteShape {
   readonly id: string
   readonly label: string
@@ -31,23 +36,22 @@ export interface PaletteShape {
 
 /** 程序员常用的一小撮。maxGraph 默认注册的图形就这些，复杂 stencil 库下一轮再说。 */
 export const PALETTE: readonly PaletteShape[] = [
-  { id: 'rect', label: '矩形', glyph: '▭', style: { whiteSpace: 'wrap', html: 1 }, size: [120, 60] },
-  { id: 'rounded', label: '圆角', glyph: '▢', style: { rounded: true, whiteSpace: 'wrap', html: 1 }, size: [120, 60] },
-  { id: 'ellipse', label: '椭圆', glyph: '◯', style: { shape: 'ellipse', whiteSpace: 'wrap', html: 1 }, size: [100, 100] },
-  { id: 'rhombus', label: '判断', glyph: '◇', style: { shape: 'rhombus', whiteSpace: 'wrap', html: 1 }, size: [130, 80] },
-  { id: 'cylinder', label: '数据库', glyph: '⛁', style: { shape: 'cylinder', whiteSpace: 'wrap', html: 1 }, size: [100, 90] },
-  { id: 'cloud', label: '云', glyph: '☁', style: { shape: 'cloud', whiteSpace: 'wrap', html: 1 }, size: [130, 80] },
-  { id: 'hexagon', label: '六边形', glyph: '⬡', style: { shape: 'hexagon', whiteSpace: 'wrap', html: 1 }, size: [120, 80] },
-  { id: 'triangle', label: '三角', glyph: '△', style: { shape: 'triangle', whiteSpace: 'wrap', html: 1 }, size: [90, 80] },
-  { id: 'actor', label: '角色', glyph: '☺', style: { shape: 'actor', whiteSpace: 'wrap', html: 1 }, size: [70, 110] },
-  { id: 'text', label: '文本', glyph: 'T', style: { shape: 'label', strokeColor: 'none', fillColor: 'none', whiteSpace: 'wrap', html: 1 }, size: [120, 40] },
+  { id: 'rect', label: '矩形', glyph: '▭', style: { whiteSpace: 'wrap' }, size: [120, 60] },
+  { id: 'rounded', label: '圆角', glyph: '▢', style: { rounded: true, whiteSpace: 'wrap' }, size: [120, 60] },
+  { id: 'ellipse', label: '椭圆', glyph: '◯', style: { shape: 'ellipse', whiteSpace: 'wrap' }, size: [100, 100] },
+  { id: 'rhombus', label: '判断', glyph: '◇', style: { shape: 'rhombus', whiteSpace: 'wrap' }, size: [130, 80] },
+  { id: 'cylinder', label: '数据库', glyph: '⛁', style: { shape: 'cylinder', whiteSpace: 'wrap' }, size: [100, 90] },
+  { id: 'cloud', label: '云', glyph: '☁', style: { shape: 'cloud', whiteSpace: 'wrap' }, size: [130, 80] },
+  { id: 'hexagon', label: '六边形', glyph: '⬡', style: { shape: 'hexagon', whiteSpace: 'wrap' }, size: [120, 80] },
+  { id: 'triangle', label: '三角', glyph: '△', style: { shape: 'triangle', whiteSpace: 'wrap' }, size: [90, 80] },
+  { id: 'actor', label: '角色', glyph: '☺', style: { shape: 'actor', whiteSpace: 'wrap' }, size: [70, 110] },
+  { id: 'text', label: '文本', glyph: 'T', style: { shape: 'label', strokeColor: 'none', fillColor: 'none', whiteSpace: 'wrap' }, size: [120, 40] },
 ]
 
 /** 新连线：正交折线 + 经典箭头。 */
 const EDGE_STYLE = {
   edgeStyle: 'orthogonalEdgeStyle',
   rounded: true,
-  html: 1,
   endArrow: 'classic',
 }
 

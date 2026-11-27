@@ -7,7 +7,7 @@
 import type { Node as PMNode } from 'prosemirror-model'
 import type { NodeViewConstructor } from 'prosemirror-view'
 
-import { createDrawioGraph, type DrawioGraph } from '../../../src/drawio/engine'
+import { createDrawioGraph, warmDrawio, type DrawioGraph } from '../../../src/drawio/engine'
 import { reportError } from '../../../src/kernel/errors'
 import { openCanvas } from '../doc-meta'
 import { asString } from './attrs'
@@ -99,6 +99,8 @@ export const drawioView: NodeViewConstructor = (node, view, getPos) => {
   ro.observe(frame)
 
   paint(node)
+  // 空块点开时不用再等那 ~1MB 的引擎块。
+  if (!xml.trim()) warmDrawio()
 
   return {
     dom,
