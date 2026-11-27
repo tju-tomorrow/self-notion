@@ -5,19 +5,98 @@
  * 读写的是 drawio 兼容的 `<mxGraphModel>`：读用 maxgraph 的 `Codec`（它注册了 mx 别名），
  * 写自己序列化（maxgraph 自己的编码输出 `<GraphDataModel>`，drawio 不认）。
  */
-import type { Cell, FitPlugin, Graph, UndoableEdit } from '@maxgraph/core'
+import type {
+  AbstractCanvas2D,
+  Cell,
+  FitPlugin,
+  Graph,
+  PanningHandler,
+  SelectionHandler,
+  UndoableEdit,
+} from '@maxgraph/core'
 import '@maxgraph/core/css/common.css'
 
 type Max = typeof import('@maxgraph/core')
+
+const GRID = 10
 
 let pending: Promise<Max> | undefined
 
 function lib(): Promise<Max> {
   pending ??= import('@maxgraph/core').then((m) => {
     m.registerModelCodecs()
+    installShapes(m)
     return m
   })
   return pending
+}
+
+/** maxgraph 自带图形只覆盖最基础的一撮，这几个是画流程图/架构图绕不开的。 */
+function installShapes(m: Max): void {
+  const { AbstractPathShape, ShapeRegistry } = m
+  if (ShapeRegistry.get('parallelogram')) return
+
+  class ParallelogramShape extends AbstractPathShape {
+    redrawPath(c: AbstractCanvas2D, _x: number, _y: number, w: number, h: number): void {
+      c.moveTo(0.22 * w, 0)
+      c.lineTo(w, 0)
+      c.lineTo(0.78 * w, h)
+      c.lineTo(0, h)
+      c.close()
+    }
+  }
+
+  class DocumentShape extends AbstractPathShape {
+    redrawPath(c: AbstractCanvas2D, _x: number, _y: number, w: number, h: number): void {
+      c.moveTo(0, 0)
+      c.lineTo(w, 0)
+      c.lineTo(w, 0.86 * h)
+      c.quadTo(0.75 * w, h, 0.5 * w, 0.92 * h)
+      c.quadTo(0.25 * w, 0.84 * h, 0, 0.9 * h)
+      c.close()
+    }
+  }
+
+  class NoteShape extends AbstractPathShape {
+    redrawPath(c: AbstractCanvas2D, _x: number, _y: number, w: number, h: number): void {
+      c.moveTo(0, 0)
+      c.lineTo(0.78 * w, 0)
+      c.lineTo(w, 0.22 * h)
+      c.lineTo(w, h)
+      c.lineTo(0, h)
+      c.close()
+    }
+  }
+
+  class CardShape extends AbstractPathShape {
+    redrawPath(c: AbstractCanvas2D, _x: number, _y: number, w: number, h: number): void {
+      c.moveTo(0, 0.16 * h)
+      c.lineTo(0.16 * w, 0)
+      c.lineTo(w, 0)
+      c.lineTo(w, h)
+      c.lineTo(0, h)
+      c.close()
+    }
+  }
+
+  class BlockArrowShape extends AbstractPathShape {
+    redrawPath(c: AbstractCanvas2D, _x: number, _y: number, w: number, h: number): void {
+      c.moveTo(0, 0.28 * h)
+      c.lineTo(0.62 * w, 0.28 * h)
+      c.lineTo(0.62 * w, 0)
+      c.lineTo(w, 0.5 * h)
+      c.lineTo(0.62 * w, h)
+      c.lineTo(0.62 * w, 0.72 * h)
+      c.lineTo(0, 0.72 * h)
+      c.close()
+    }
+  }
+
+  ShapeRegistry.add('parallelogram', ParallelogramShape)
+  ShapeRegistry.add('document', DocumentShape)
+  ShapeRegistry.add('note', NoteShape)
+  ShapeRegistry.add('card', CardShape)
+  ShapeRegistry.add('blockArrow', BlockArrowShape)
 }
 
 /** 先把引擎块拉下来 —— 空画布没有预览可画，但点开时要它已经在手里。 */
@@ -34,18 +113,48 @@ export interface PaletteShape {
   readonly size: [number, number]
 }
 
-/** 程序员常用的一小撮。maxGraph 默认注册的图形就这些，复杂 stencil 库下一轮再说。 */
-export const PALETTE: readonly PaletteShape[] = [
-  { id: 'rect', label: '矩形', glyph: '▭', style: { whiteSpace: 'wrap' }, size: [120, 60] },
-  { id: 'rounded', label: '圆角', glyph: '▢', style: { rounded: true, whiteSpace: 'wrap' }, size: [120, 60] },
-  { id: 'ellipse', label: '椭圆', glyph: '◯', style: { shape: 'ellipse', whiteSpace: 'wrap' }, size: [100, 100] },
-  { id: 'rhombus', label: '判断', glyph: '◇', style: { shape: 'rhombus', whiteSpace: 'wrap' }, size: [130, 80] },
-  { id: 'cylinder', label: '数据库', glyph: '⛁', style: { shape: 'cylinder', whiteSpace: 'wrap' }, size: [100, 90] },
-  { id: 'cloud', label: '云', glyph: '☁', style: { shape: 'cloud', whiteSpace: 'wrap' }, size: [130, 80] },
-  { id: 'hexagon', label: '六边形', glyph: '⬡', style: { shape: 'hexagon', whiteSpace: 'wrap' }, size: [120, 80] },
-  { id: 'triangle', label: '三角', glyph: '△', style: { shape: 'triangle', whiteSpace: 'wrap' }, size: [90, 80] },
-  { id: 'actor', label: '角色', glyph: '☺', style: { shape: 'actor', whiteSpace: 'wrap' }, size: [70, 110] },
-  { id: 'text', label: '文本', glyph: 'T', style: { shape: 'label', strokeColor: 'none', fillColor: 'none', whiteSpace: 'wrap' }, size: [120, 40] },
+export interface PaletteGroup {
+  readonly label: string
+  readonly items: readonly PaletteShape[]
+}
+
+const wrap = { whiteSpace: 'wrap' }
+
+/** 程序员常用的一小撮，按用途分组；复杂 stencil 库下一轮再说。 */
+export const PALETTE: readonly PaletteGroup[] = [
+  {
+    label: '基础',
+    items: [
+      { id: 'rect', label: '矩形', glyph: '▭', style: wrap, size: [120, 60] },
+      { id: 'rounded', label: '圆角', glyph: '▢', style: { ...wrap, rounded: true }, size: [120, 60] },
+      { id: 'ellipse', label: '椭圆', glyph: '◯', style: { ...wrap, shape: 'ellipse' }, size: [100, 100] },
+      { id: 'terminator', label: '开始/结束', glyph: '◎', style: { ...wrap, shape: 'doubleEllipse' }, size: [110, 60] },
+      { id: 'triangle', label: '三角', glyph: '△', style: { ...wrap, shape: 'triangle' }, size: [90, 80] },
+      { id: 'hexagon', label: '六边形', glyph: '⬡', style: { ...wrap, shape: 'hexagon' }, size: [120, 80] },
+      { id: 'rhombus', label: '判断', glyph: '◇', style: { ...wrap, shape: 'rhombus' }, size: [130, 80] },
+      { id: 'blockArrow', label: '箭头', glyph: '➜', style: { ...wrap, shape: 'blockArrow' }, size: [120, 60] },
+    ],
+  },
+  {
+    label: '文档与数据',
+    items: [
+      { id: 'parallelogram', label: '输入/输出', glyph: '▱', style: { ...wrap, shape: 'parallelogram' }, size: [130, 60] },
+      { id: 'document', label: '文档', glyph: '▤', style: { ...wrap, shape: 'document' }, size: [120, 80] },
+      { id: 'note', label: '便签', glyph: '▨', style: { ...wrap, shape: 'note' }, size: [110, 80] },
+      { id: 'card', label: '卡片', glyph: '▣', style: { ...wrap, shape: 'card' }, size: [120, 70] },
+      { id: 'cylinder', label: '数据库', glyph: '⛁', style: { ...wrap, shape: 'cylinder' }, size: [100, 90] },
+      { id: 'cloud', label: '云', glyph: '☁', style: { ...wrap, shape: 'cloud' }, size: [130, 80] },
+    ],
+  },
+  {
+    label: '结构',
+    items: [
+      { id: 'actor', label: '角色', glyph: '☺', style: { ...wrap, shape: 'actor' }, size: [70, 110] },
+      { id: 'swimlane', label: '泳道', glyph: '⛶', style: { ...wrap, shape: 'swimlane', startSize: 24 }, size: [220, 140] },
+      { id: 'uml', label: '类框', glyph: '▥', style: { ...wrap, shape: 'swimlane', startSize: 26, fontStyle: 1 }, size: [180, 120] },
+      { id: 'text', label: '文本', glyph: 'T', style: { ...wrap, shape: 'label', strokeColor: 'none', fillColor: 'none' }, size: [120, 40] },
+    ],
+  },
 ]
 
 /** 新连线：正交折线 + 经典箭头。 */
@@ -53,6 +162,13 @@ const EDGE_STYLE = {
   edgeStyle: 'orthogonalEdgeStyle',
   rounded: true,
   endArrow: 'classic',
+}
+
+export interface SelectionStyle {
+  count: number
+  vertex: boolean
+  edge: boolean
+  style: Record<string, unknown>
 }
 
 export interface DrawioGraph {
@@ -72,6 +188,26 @@ export interface DrawioGraph {
   canUndo(): boolean
   canRedo(): boolean
   selectionCount(): number
+  styleState(): SelectionStyle
+  setFill(color: string): void
+  setStroke(color: string): void
+  setStrokeWidth(width: number): void
+  setDashed(on: boolean): void
+  setFontSize(size: number): void
+  setArrows(mode: 'end' | 'both' | 'none'): void
+  copySelection(): boolean
+  cutSelection(): boolean
+  paste(): boolean
+  duplicate(): boolean
+  hasClipboard(): boolean
+  bringToFront(): void
+  sendToBack(): void
+  editLabel(): boolean
+  selectAll(): void
+  clearSelection(): void
+  setGridVisible(visible: boolean): void
+  gridVisible(): boolean
+  setSpacePan(active: boolean): void
   onChange(cb: () => void): () => void
   dispose(): void
 }
@@ -95,6 +231,15 @@ export async function createDrawioGraph(
   graph.setTooltips(false)
   graph.setPanning(interactive)
   if (!interactive) graph.setEnabled(false)
+
+  // 中性底：白底 + 石板灰边，跟界面的浅色/深色都不打架（画布本身是白纸）。
+  const sheet = graph.getStylesheet()
+  const dv = sheet.getDefaultVertexStyle()
+  if (dv) {
+    sheet.putDefaultVertexStyle({ ...dv, fillColor: '#ffffff', strokeColor: '#475569', fontColor: '#0f172a' })
+  }
+  const de = sheet.getDefaultEdgeStyle()
+  if (de) sheet.putDefaultEdgeStyle({ ...de, strokeColor: '#475569', fontColor: '#334155' })
 
   const model = graph.getDataModel()
   const xml = opts.xml?.trim() ?? ''
@@ -140,6 +285,59 @@ export async function createDrawioGraph(
 
   if (!interactive) fit()
 
+  graph.setGridSize(GRID)
+  if (interactive) {
+    const selection = graph.getPlugin<SelectionHandler>('SelectionHandler')
+    if (selection) selection.guidesEnabled = true
+  }
+
+  /* ─────────────────────────── 点阵网格 ─────────────────────────── */
+
+  let showGrid = interactive
+  const paintGrid = (): void => {
+    if (!showGrid) return
+    const view = graph.getView()
+    const step = GRID * view.scale
+    if (step < 6) {
+      container.style.backgroundImage = 'none'
+      return
+    }
+    container.style.backgroundImage =
+      'radial-gradient(circle, rgba(100, 116, 139, .45) 1px, transparent 1.3px)'
+    container.style.backgroundSize = `${step}px ${step}px`
+    container.style.backgroundPosition = `${view.translate.x}px ${view.translate.y}px`
+  }
+  if (interactive) {
+    const view = graph.getView()
+    view.addListener(m.InternalEvent.SCALE, paintGrid)
+    view.addListener(m.InternalEvent.TRANSLATE, paintGrid)
+    view.addListener(m.InternalEvent.SCALE_AND_TRANSLATE, paintGrid)
+    paintGrid()
+  }
+
+  /* ─────────────────────────── 选中 / 样式 / 剪贴板 ─────────────────────────── */
+
+  const selected = (): Cell[] => graph.getSelectionCells()
+
+  const styleState = (): SelectionStyle => {
+    const cells = selected()
+    const first = cells[0]
+    return {
+      count: cells.length,
+      vertex: cells.some((c) => c.isVertex()),
+      edge: cells.some((c) => c.isEdge()),
+      style: first ? (graph.getCurrentCellStyle(first, true) as Record<string, unknown>) : {},
+    }
+  }
+
+  const apply = (key: 'fillColor' | 'strokeColor', value: string, verticesOnly: boolean): void => {
+    const cells = selected().filter((c) => !verticesOnly || c.isVertex())
+    if (cells.length) graph.setCellStyles(key, value, cells)
+  }
+
+  let clip: Cell[] = []
+  let pastes = 0
+
   const viewCenter = (): { x: number; y: number } => {
     const view = graph.getView()
     return {
@@ -151,11 +349,11 @@ export async function createDrawioGraph(
   const insert = (shape: PaletteShape): void => {
     const [w, h] = shape.size
     const c = viewCenter()
-    const drift = (seq++ % 6) * 18
+    const drift = (seq++ % 6) * GRID * 2
     graph.batchUpdate(() => {
       const cell = graph.insertVertex({
         value: '',
-        position: [c.x - w / 2 + drift, c.y - h / 2 + drift],
+        position: [Math.round((c.x - w / 2 + drift) / GRID) * GRID, Math.round((c.y - h / 2 + drift) / GRID) * GRID],
         size: [w, h],
         style: { ...shape.style },
       })
@@ -173,7 +371,7 @@ export async function createDrawioGraph(
     scale: () => graph.getView().scale,
     insert,
     connectSelected: () => {
-      const cells = graph.getSelectionCells().filter((c) => c.isVertex())
+      const cells = selected().filter((c) => c.isVertex())
       if (cells.length !== 2) return false
       graph.batchUpdate(() => {
         const edge = graph.insertEdge({ value: '', source: cells[0]!, target: cells[1]!, style: { ...EDGE_STYLE } })
@@ -181,12 +379,84 @@ export async function createDrawioGraph(
       })
       return true
     },
-    removeSelected: () => graph.removeCells(graph.getSelectionCells()),
+    removeSelected: () => graph.removeCells(selected()),
     undo: () => undo.undo(),
     redo: () => undo.redo(),
     canUndo: () => undo.canUndo(),
     canRedo: () => undo.canRedo(),
-    selectionCount: () => graph.getSelectionCells().length,
+    selectionCount: () => selected().length,
+    styleState,
+    setFill: (color) => apply('fillColor', color, true),
+    setStroke: (color) => apply('strokeColor', color, false),
+    setStrokeWidth: (width) => {
+      const cells = selected()
+      if (cells.length) graph.setCellStyles('strokeWidth', width, cells)
+    },
+    setDashed: (on) => {
+      const cells = selected()
+      if (cells.length) graph.setCellStyles('dashed', on, cells)
+    },
+    setFontSize: (size) => {
+      const cells = selected()
+      if (cells.length) graph.setCellStyles('fontSize', size, cells)
+    },
+    setArrows: (mode) => {
+      const cells = selected().filter((c) => c.isEdge())
+      if (!cells.length) return
+      graph.setCellStyles('endArrow', mode === 'none' ? 'none' : 'classic', cells)
+      graph.setCellStyles('startArrow', mode === 'both' ? 'classic' : 'none', cells)
+    },
+    copySelection: () => {
+      const cells = selected()
+      if (!cells.length) return false
+      clip = graph.cloneCells(cells)
+      pastes = 0
+      return clip.length > 0
+    },
+    cutSelection: () => {
+      const cells = selected()
+      if (!cells.length) return false
+      clip = graph.cloneCells(cells)
+      pastes = 0
+      graph.removeCells(cells)
+      return true
+    },
+    paste: () => {
+      if (!clip.length) return false
+      pastes += 1
+      const cells = graph.moveCells(clip, GRID * 2 * pastes, GRID * 2 * pastes, true)
+      graph.setSelectionCells(cells)
+      return true
+    },
+    duplicate: () => {
+      const cells = selected()
+      if (!cells.length) return false
+      const added = graph.moveCells(cells, GRID * 2, GRID * 2, true)
+      graph.setSelectionCells(added)
+      return true
+    },
+    hasClipboard: () => clip.length > 0,
+    bringToFront: () => graph.orderCells(false, selected()),
+    sendToBack: () => graph.orderCells(true, selected()),
+    editLabel: () => {
+      const cell = selected()[0]
+      if (!cell) return false
+      graph.startEditingAtCell(cell)
+      return true
+    },
+    selectAll: () => graph.selectAll(),
+    clearSelection: () => graph.clearSelection(),
+    setGridVisible: (visible) => {
+      showGrid = visible
+      if (!visible) container.style.backgroundImage = 'none'
+      else paintGrid()
+    },
+    gridVisible: () => showGrid,
+    setSpacePan: (active) => {
+      const panning = graph.getPlugin<PanningHandler>('PanningHandler')
+      if (panning) panning.ignoreCell = active
+      container.style.cursor = active ? 'grab' : ''
+    },
     onChange: (cb) => {
       changes.add(cb)
       return () => void changes.delete(cb)

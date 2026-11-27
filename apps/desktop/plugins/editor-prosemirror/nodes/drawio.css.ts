@@ -26,6 +26,8 @@ globalStyle('.sn-drawio-frame', {
   height: 220,
   overflow: 'hidden',
   pointerEvents: 'none',
+  // 图形默认白底深字，缩略图也是白纸 —— 不然深色主题下字看不见。
+  background: '#fff',
 })
 
 globalStyle('.sn-drawio[data-empty="true"] .sn-drawio-frame', { height: 120 })
