@@ -11,11 +11,40 @@
 offline by default, no login.
 
 Not a Notion replacement, and not a product I intend to ship — it's **my own writing +
-extension platform**. The document model and the editor are borrowed whole; everything above
-them (plugins, AI, the retrieval surface for agents) is grown here.
+extension platform**. Documents live in local SQLite (Yjs); the editor is our own ProseMirror.
+Everything above that (plugins, AI, the retrieval surface for agents, the knowledge layer) is grown here.
 
 > The architecture follows **DeepSeek Harness (DSH)'s "everything is a plugin"**, and uses DSH's
 > own kernel, Cordis. See section 4.
+
+## What's special
+
+The five things below are what this repo actually is. The same ones are marked **special** further down.
+
+**One file, one projection, three readers.** Documents, the full-text index, images, comments,
+versions and UI state all live in `self-notion.db`. Once the body is projected to Markdown, grep,
+the virtual directory and the GitHub backup read that same projection. Two windows on one doc only
+forward Yjs bytes; Rust does not keep a second copy. A voice note's audio lives in the file too;
+transcription is a local Whisper, and after the one download it does not upload.
+
+**The directory name is the query.** The library is a tree. `by-tag/`, `links/to/` and `search/`
+are queries, not folders you create. One note shows up in several places at once. An agent uses
+`ls` / `grep` / `cat`. Semantic search was added later as `/search/semantic/`: with no embedding
+model the listing is one sentence, and the virtual directory and grep stay as they are.
+
+**The assistant can edit notes, and it does not hold the undo.** A write asks you first; this
+conversation can be switched to auto-run. Rust takes a snapshot before the write lands. One answer
+that touched several docs reverts as one turn. The API key lives only in Rust and the Keychain.
+An external agent uses MCP: reads work with the app closed; writes only enqueue, and the open app
+runs them through the editor's own parser.
+
+**A feature is a directory.** The kernel loads, unloads and resolves dependencies. It does not know
+the word "document". The editor is a plugin. Remove a directory and the system is back to its
+pre-load state.
+
+**The library can leave this window.** The phone holds a full copy, so it still opens and edits
+when the computer is off, then syncs both ways on the same Wi-Fi. No account. A Markdown folder
+on disk can be mounted into the sidebar and expanded as a real tree.
 
 <img src="images/main-page.jpg" width="880" alt="Main window: doc tree and library on the left, tab strip on top">
 
@@ -24,32 +53,50 @@ them (plugins, AI, the retrieval surface for agents) is grown here.
 ## 1. What it does
 
 **Writing**
-- Block editor (vendored BlockSuite 0.22.4): paragraph / heading / lists / to-do / **toggle** /
-  quote / code / divider / table / image / attachment / callout
-- Slash menu, Notion keybindings, block dragging, find & replace, outline rail
+- The block editor is our own ProseMirror: paragraph / heading / lists / to-do / **toggle** /
+  quote / code (highlighting, swappable theme) / math / Mermaid / divider / table / image /
+  attachment / callout / **voice note** / **drawio canvas**
+- Slash menu, Notion keybindings, block dragging, find & replace, outline rail, in-page bookmarks
+  (mark a selection, jump back from the corner)
 - Sub-pages, `@`-mentions, doc-to-doc links, backlinks
+- **special · Voice**: record into a voice-note block; "transcribe" runs a local Whisper (offline after the
+  one-time download). You can also dictate at the cursor
+- A selection can be read aloud
 
 **Organizing**
 - Sidebar doc tree (create / rename / move / delete), **tabs**, **multiple windows**
-- Home (list / grid, grouped by update time), favorites, recents, trash
+- Home (list / grid, grouped by update time, virtualized list), favorites, recents, pinned, trash
+  (read-only, restorable)
+- **special ·** A Markdown folder on disk can be mounted into the sidebar and expanded as a real tree
+- **special · Phone PWA**: the home-screen copy is a full offline library. It still opens and edits when the
+  computer is off, then syncs both ways on the same Wi-Fi. No account, no cloud
 
 **Retrieval**
 - **⌘K full-text search** (SQLite FTS5): search box on top, segmented list + body preview below,
   three caches pre-warmed
-- **Virtual document directory**: the whole library projected as a directory tree —
-  `tree/` `by-tag/` `by-date/` `links/to/` `search/` … The directory name *is* the query.
+- **special · Virtual document directory**: the whole library projected as a directory tree —
+  `tree/` `by-tag/` `by-date/` `by-topic/` `links/to/` `search/` … The directory name *is* the query.
   A read-only browser page in the sidebar, exposed to agents as MCP tools
+- **special · Knowledge layer**: a background curator files tags, topics and relations; uncertain suggestions
+  wait in an inbox; a graph page draws how notes connect. Semantic search is the directory
+  `/search/semantic/` — with no embedding model it degrades to one sentence, and the directory and grep stay as they are
 
 **AI**
-- **Built-in assistant**: full page + a right-hand column, BYO endpoint (baseURL / model / key),
-  **can ask and can write**
-- **Rust forces a snapshot before every write**; the undo strip reverts by *turn* (one answer that
-  touched 3 docs reverts in one go)
+- **Built-in assistant**: full page + a right-hand column. Multi-turn, a visible thinking trace,
+  adjustable thinking effort. Answers can be scoped to chosen notes and their relations, with
+  pasted images and more than one scope at once
+- **special · It can write, and it asks first**: a write shows a confirm card unless this conversation is
+  switched to auto-run. **Rust still forces a snapshot before the write lands**; undo is by *turn*
+  (one answer that touched 3 docs reverts in one go)
+- History is a toggleable narrow rail, grouped into today / recent / earlier, and it does not
+  replace the thread
+- Replies can be copied and read aloud; tables render as tables
 - Per-doc one-line / one-paragraph summary + extracted entities
 - **Web AI column**: chat.deepseek.com / chatgpt.com inside the right column (native child webview,
   login kept alive); send a selection into its input box in one click
-- **MCP**: `self-notion --mcp` is a separate read-only process wired straight to the DB, so external
-  agents can grep your notes
+- **special · MCP**: `self-notion --mcp` is a separate process. Reads open the DB read-only, so an external
+  agent can grep with the app closed. Writes only enqueue a request; the running app executes it
+  with the editor's own parser
 
 <img src="images/how-to-use.jpg" width="880" alt="A document open with two AI columns: web AI on the left, the built-in assistant on the right">
 
@@ -60,19 +107,20 @@ them (plugins, AI, the retrieval surface for agents) is grown here.
 **Data**
 - **Zero-wait image paste**: bytes go straight into SQLite, deduped by sha256, no extra local directory
 - **One-way Markdown backup to GitHub** (off by default; readable and diffable on the web)
-- **Phone PWA over your own Wi-Fi**: a full offline copy on the phone, two-way sync with the desktop — no account, no cloud, no server
 - **Notion import**: HTML export zip → one doc per page, folder hierarchy → parent/child, images into the blob store
 
 <img src="images/github-backup.jpg" width="880" alt="Settings → GitHub backup: enable, repository, branch, access token, last backup">
 
 **Look & shell**
-- Frameless window with vibrancy, light/dark, **paper texture** for the body, three-level fonts
-  (global / article / code)
+- Frameless window with vibrancy. Four UI themes: default / Claude / Notion / starry night. Body
+  text contrast is adjustable; code blocks have their own palette
+- **Paper texture** for the body, three-level fonts (global / article / code)
 - Chinese + English UI, shortcut cheatsheet, a **pixel pet** in the sidebar, memory readout in the menu bar
 
 **Extension**
-- **Everything is a plugin**: a feature = one plugin directory (25 today); remove it and the system
-  returns exactly to its pre-load state
+- **special · Everything is a plugin**: a feature = one plugin directory (41 under `plugins/`, 40 loaded;
+  the old `editor-blocksuite` stays on disk and is not booted). Remove one and the system returns
+  exactly to its pre-load state
 - In-app extension market (install / uninstall / enable, third-party plugins sandboxed in module
   Workers) — **planned**
 
@@ -80,17 +128,19 @@ them (plugins, AI, the retrieval surface for agents) is grown here.
 
 ## 2. Where it beats Notion
 
+Rows marked **special** are the five things above. The other rows are what a local writing app is made of.
+
 | # | self-notion | Notion |
 | --- | --- | --- |
-| 1 | **Your data is one file**: `self-notion.db` (SQLite), on your own disk. No login, offline by default | Cloud SaaS: account, subscription, mostly unusable offline, data on someone else's server |
+| 1 | **special · Your data is one file**: `self-notion.db` (SQLite), on your own disk. No login, offline by default. One Markdown projection, read by grep, the virtual directory and backup | Cloud SaaS: account, subscription, mostly unusable offline, data on someone else's server |
 | 2 | **Tiny and fast**: Tauri 2 shell, **no bundled browser engine**; tabs are free, windows are not | Electron-class size; the web app reloads a whole application every time |
-| 3 | **Everything is a plugin, uninstall is a full undo**: the kernel only loads, unloads and resolves dependencies — it doesn't know what a "document" is | Closed: extension means API bolt-ons; the core is not extensible |
-| 4 | **A virtual document directory for agents**: the library projects into a tree where the directory name is the query; agents use `ls` / `grep` / `cat` — **no RAG** | Doesn't exist. Notion AI is a black box |
-| 5 | **A built-in AI that can write — and always roll back**: BYO endpoint, edits your notes, **forced snapshot before every write**, undo by turn | AI output lands in the body; rolling back is manual |
+| 3 | **special · Everything is a plugin, uninstall is a full undo**: the kernel only loads, unloads and resolves dependencies — it doesn't know what a "document" is | Closed: extension means API bolt-ons; the core is not extensible |
+| 4 | **special · A virtual document directory for agents**: the library projects into a tree where the directory name is the query; agents use `ls` / `grep` / `cat`. Semantic search is one extra directory | Doesn't exist. Notion AI is a black box |
+| 5 | **special · A built-in AI that can write, asks first, and always rolls back**: BYO endpoint, edits your notes. A write confirms first (this conversation can be switched to auto-run), **forced snapshot before it lands**, undo by turn. An external agent's writes also go through the open editor | AI output lands in the body; rolling back is manual |
 | 6 | **Zero-wait image paste**: bytes to SQLite, deduped by sha256, no extra local directory | "Uploading…" |
-| 7 | **Two windows on one doc share one source of truth**: Rust relays CRDT updates (Yjs is a CRDT to begin with) | The same page open twice overwrites itself / goes read-only |
+| 7 | **special · Two windows on one doc share one source of truth**: Rust relays CRDT updates (Yjs is a CRDT to begin with) | The same page open twice overwrites itself / goes read-only |
 | 8 | **One-way Markdown backup to GitHub** (off by default) — a copy you can read, diff and take with you | Export is a feature, not a continuous backup |
-| 9 | **You own the UI at every scale**: the block editor is a vendored engine; the shell, menus, keybindings and paper texture are all written here | You wait for the roadmap |
+| 9 | **The editor and the shell are both ours**: the block editor is ProseMirror; menus, keybindings, themes and the paper texture are written here | You wait for the roadmap |
 
 ### 1, expanded: why "one .db" is an advantage
 
@@ -119,24 +169,30 @@ out means going through export.
 /
 ├── index.md      generated: stats · tags · recent
 ├── tree/         the one real hierarchy
-├── by-tag/  by-date/  recent/  favorites/
+├── by-tag/  by-date/  by-topic/  recent/  favorites/
 ├── links/to/<doc>.md     backlinks (the fastest path to context)
 ├── links/from/<doc>.md   outlinks
 ├── search/<q>/           dynamic: one query = one directory listing
+├── search/semantic/<q>/  optional. With no embedding model the listing is one sentence
+├── graph/neighbors/  entity/  proposals.md
 └── outline/  trash/
 ```
 
 **Directory = query.** One document lives under many directories at once, so organization becomes
 infinite, composable, and requires no upfront modeling. Notion has exactly one tree.
 
-**Why not RAG:** DCI (2026) swapped embeddings for grep on the same benchmark and went from 69% to
-80% accuracy while cutting cost by a third; Mintlify replaced RAG with a virtual filesystem and took
-p90 session creation from ~46s to ~100ms. The more important asymmetry: **vector retrieval fails
-convincingly; grep fails visibly.**
+**Why grep stays the main path:** DCI (2026) swapped embeddings for grep on the same benchmark and
+went from 69% to 80% accuracy while cutting cost by a third; Mintlify replaced RAG with a virtual
+filesystem and took p90 session creation from ~46s to ~100ms. The more important asymmetry:
+**vector retrieval fails convincingly; grep fails visibly.**
 
-It's exposed as **MCP tools** (`self-notion --mcp`, a separate read-only process), not FUSE.
+Semantic search was added later as the single directory `/search/semantic/<q>/`. With no embedding
+model it degrades to one sentence. The virtual directory, grep and `doc_fts` are unchanged — vectors
+are not a second foundation.
 
-### 5, expanded: an AI that can write, but always rolls back
+It's exposed as **MCP tools** (`self-notion --mcp`: reads are read-only, writes only enqueue), not FUSE.
+
+### 5, expanded: an AI that can write, asks first, and always rolls back
 
 - **The key never leaves Rust** — baseURL / model / key live in Rust + the macOS Keychain; the webview never sees plaintext
 - **The AI doesn't get to decide it's irreversible** — "snapshot before write" is enforced by **Rust**, not left to the model's discretion
@@ -145,15 +201,18 @@ It's exposed as **MCP tools** (`self-notion --mcp`, a separate read-only process
 
 <img src="images/ai-config.jpg" width="880" alt="Settings → AI: endpoint, model, and an API key field that only shows whether one is saved">
 
-Writes come in three shapes: `create` / `append` / `replace` (by block id). **No whole-document
-overwrite** (it would drop block metadata), and **no delete**.
+Body edits are still `create` / `append` / `replace` (by block id), plus rename, move and tag.
+**No whole-document overwrite** (it would drop block metadata), and **no tool that deletes a doc**.
+A write confirms with you first; this conversation can be switched to auto-run.
 
 ---
 
 ## 3. Costs and explicit non-goals
 
-- **The UI is written here** — sidebar, tab strip, search, settings, all from scratch. What that buys:
-  skipping AFFiNE's 113 MB renderer and 53 MB `@affine/core`
+- **The editor and the shell are written here** — ProseMirror schema, blocks and keybindings live in
+  `editor-prosemirror`; sidebar, tab strip, search and settings are from scratch. The old BlockSuite
+  plugin is still in the repo and is not booted. What that buys: skipping AFFiNE's 113 MB renderer
+  and 53 MB `@affine/core`
 - **Memory has a floor** — as long as the UI is drawn by a webview, a single window has a floor.
   Getting to 30–60 MB means not using a webview, which means rewriting the editor (ruled out)
 - **"Everything is a plugin" is not free** — one kernel layer plus a manifest and lifecycle discipline per plugin
@@ -163,14 +222,14 @@ overwrite** (it would drop block metadata), and **no delete**.
   network only where you explicitly turn it on"
 
 Not doing (frozen): databases with multiple views (Notion's soul, D-0008) ·
-whiteboard canvas · accounts / cloud sync / collaboration · journal / templates ·
-formulas / web embeds / bookmarks · telemetry / auto-update · theme editor
+a collaborative whiteboard (a drawio block in a note is a diagram, not that whiteboard) ·
+accounts / cloud sync / collaboration · journal / templates ·
+web embeds / web bookmarks · telemetry / auto-update
 
 > **The one-line test: if a feature doesn't help me write faster or extend more easily, it doesn't get built.**
 
-**Not built yet** (in priority order): the extension market · doc title and body measure in
-the editor · dedicated pages for recents / favorites / trash · home collections and tags are empty
-states · virtualized card grid · databases / whiteboard / collaboration.
+**Not built yet**: the in-app extension market. Multi-view databases, collaboration, accounts and
+cloud sync stay out.
 
 ---
 
@@ -260,7 +319,7 @@ plugins at random N times; the final state snapshot must be byte-identical.**
 3. **One type source** — `apps/desktop/src/kernel/contract.ts`; commands go through a single generic
    entry point, and drift is caught by `cargo test` (D-0049)
 
-**Command namespaces**: `doc` `search` `blob` `settings` `backup` `vfs` `ai` `aiweb` `version` `mcp` `mem` `window`
+**Command namespaces**: `doc` `search` `blob` `settings` `backup` `vfs` `kb` `ai` `aiweb` `voice` `sync` `version` `mcp` `mem` `window`
 
 **Multiple windows**: one Tauri process holds the SQLite file; a new window is another window;
 **tabs inside a window are a state array** (tabs are free, windows are not). When two windows have
@@ -269,28 +328,36 @@ the same doc open, whichever update arrives is broadcast by Rust to the other wi
 
 ### Where it lands: one feature, one plugin directory
 
-25 directories under `apps/desktop/plugins/`. **A directory is a plugin; remove any one and the app
-still runs.**
+41 directories under `apps/desktop/plugins/`, 40 loaded (`editor-blocksuite` stays on disk and is
+not booted). **A directory is a plugin; remove any one and the app still runs.**
 
 | Plugin | What it does |
 | --- | --- |
-| `editor-blocksuite` | Provides `ctx.editor`. Lazy-loads BlockSuite; slash menu, Notion keybindings, block dragging, inline comment anchors |
+| `editor-prosemirror` | Provides `ctx.editor`. ProseMirror; slash menu, keybindings, block dragging, comment anchors, voice notes, canvas blocks |
 | `plugin-storage` | `ctx.docs` — the editor↔storage contract, **three methods only**: `load` / `save` / `delete` |
 | `shell-sidebar` `shell-tabs` `shell-nav` `shell-doc-header` `shell-settings` | Shell: doc tree, tab strip, back/forward, breadcrumb + ⋯ menu, settings page |
-| `home` | The page shown with no document open (list / grid, grouped by update time) |
+| `home` | The page shown with no document open (virtualized list / grid, grouped by update time) |
 | `search-panel` | ⌘K full-text search (FTS5): segmented list + body preview, three caches |
 | `blob` | Images / attachments: paste / drop / pick → sha256 into the DB, **zero-wait paste** |
 | `comment` | Page / block / inline anchors, replies, resolve, delete |
 | `version-history` | Timeline panel + checkpoints (on leave / every 10 min / before AI writes) |
-| `ai` `tools` | Built-in assistant (full page + right column) + six tools (three read `vfs_*`, three write `doc_*`) + undo strip |
+| `ai` `tools` | Built-in assistant. Reads the virtual directory, searches a scope, edits notes; asks before a write; undo by turn |
 | `ai-summary` | Per-doc one-liner / paragraph + entities, persisted |
 | `ai-web` | Web AI in the right column (native child webview, kept alive), fill its input from a selection |
+| `read-aloud` | Reads a selection or an assistant reply aloud |
 | `vfs` | `ctx.vfs` — the virtual document directory, with a read-only browser page |
+| `kb` `kb-inbox` `kb-graph` | Curator, suggestion inbox, relation graph. Semantic search hangs off the virtual directory |
+| `drawio` | Canvas tab. Opens a drawio block; `@maxgraph/core` loads only when you draw |
+| `voice-input` | Dictation. Local Whisper, offline after the one-time download |
+| `theme` `code-theme` `appearance` | Four UI themes / code palette / language, paper, text contrast, shortcut cheatsheet |
+| `external-files` | Mount a Markdown folder from disk into the sidebar |
+| `mobile-sync` | Phone settings: address, pairing code, certificate. The server is Rust |
+| `agent-bridge` | Write requests from an external agent. MCP only enqueues; the open app runs them through the editor |
+| `export` | Export the current doc from settings |
 | `backup-github` | One-way Markdown push to GitHub, settings section + repo picker |
 | `import-notion` | Notion HTML export zip → one doc per page (folders → parent/child, images into blob) |
-| `appearance` | Language / light-dark / paper texture / shortcut cheatsheet |
-| `mascot` | The pixel pet in the sidebar (frames are generated procedurally, no image assets, works offline) |
-| `mem-monitor` | Memory number in the macOS menu bar + detail sections (**WebContent processes counted in**) |
+| `mascot` `mem-monitor` | Pixel pet (frames generated procedurally); menu-bar memory (**WebContent counted in**) |
+| `bugs` `perf-monitor` `web-sync-status` | Diagnostics and sync status; writing still works if they are removed |
 | `plugin-rpc` `plugin-settings` `plugin-command` | Kernel services: the only channel to Rust / key-value settings / command registry |
 
 ---
@@ -301,10 +368,11 @@ still runs.**
 | --- | --- | --- |
 | Shell | Tauri 2 (not Electron) | ^2 |
 | Kernel | Cordis (MIT, zero runtime deps) | `4.0.0-rc.10` |
-| Editor | BlockSuite (official packages, **itself a plugin**) | `@blocksuite/affine` 0.22.4 |
+| Editor | ProseMirror (our own schema and blocks, **itself a plugin**) | `prosemirror-view` ^1.42 |
+| Loaded on demand | canvas `@maxgraph/core`; voice whisper.cpp; code highlight.js; math katex; diagrams mermaid | |
 | Rendering | React 19 (core APIs only, Preact kept as an option) | ^19 |
 | Data | SQLite (WAL) storing Yjs updates; FTS5 full text; blobs in the DB | Yjs 13.6.33 |
-| Styles | vanilla-extract + `@toeverything/theme`'s `--affine-*` variables | |
+| Styles | vanilla-extract. The editor no longer reads BlockSuite's `--affine-*` | |
 | Packages | pnpm workspace | 10.18.0 |
 
 Types: TS `strict`, no `any`; Rust 2021, `clippy -D warnings`.
@@ -346,9 +414,10 @@ self-notion/
 ├── src-tauri/
 │   ├── icons/              bundle icons (generated by `tauri icon`; change app.png and re-run)
 │   └── src/                capability provider
-│       ├── store/          SQLite: schema.sql · docs · blob · comment · version · links · summary
+│       ├── store/          SQLite: schema.sql · docs · blob · comment · version · links · summary · kb
 │       ├── commands/mod.rs ★ the single command entry, api()
-│       └── {ai,aiweb.rs,vfs,backup,mcp,mem}.rs · windows.rs · log.rs
+│       ├── ai/  vfs/  kb/  voice/  mcp/  backup/  syncing/
+│       └── aiweb.rs · windows.rs · mem.rs · log.rs
 └── CONVENTIONS.md          the law when several agents build in parallel
 ```
 
@@ -369,7 +438,7 @@ self-notion/
 
 This project is [MIT](LICENSE).
 
-Licenses of the direct dependencies: **MIT** — BlockSuite, Cordis, React, React DOM, Yjs, zod, fflate ·
+Licenses of the direct dependencies: **MIT** — ProseMirror, BlockSuite (still in the tree, not booted), Cordis, React, React DOM, Yjs, zod, fflate ·
 **MPL-2.0** — `@toeverything/theme` · **BSD-3-Clause** — `lit` · **Apache-2.0 OR MIT** — `@tauri-apps/api`.
 
 `@toeverything/theme` is the editable one: we import its CSS as-is, so MPL-2.0's file-level copyleft
